@@ -11,8 +11,8 @@ type IconProps = {
   stroke?: string;
 };
 
-/** The USB drawer: a slot with a latch. */
-export function DrawerIcon({ size = 20, stroke = 'currentColor' }: IconProps) {
+/** A drive: a slot with a latch. */
+export function DriveIcon({ size = 20, stroke = 'currentColor' }: IconProps) {
   return (
     <Svg width={size} height={size * 0.8} viewBox="0 0 20 16" fill="none">
       <Rect x={1} y={1} width={18} height={14} rx={1.5} stroke={stroke} strokeWidth={1.5} />

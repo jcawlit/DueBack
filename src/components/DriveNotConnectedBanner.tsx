@@ -1,7 +1,7 @@
 /**
  * The slim notice that sits above the shelves while the drive is unreachable.
  *
- * The shelves stay browsable when the drawer is shut — the covers are cached
+ * The shelves stay browsable when the drive is not connected — the covers are cached
  * thumbnails, so there is no reason to hide the library just because the files
  * are out of reach. Tapping a cover's check-out tab places a hold instead of
  * failing, and this banner is what says so.
@@ -9,9 +9,9 @@
 
 import { Text, View } from 'react-native';
 import { color, font, radius, space } from '@/theme/tokens';
-import { DrawerIcon } from './icons';
+import { DriveIcon } from './icons';
 
-export function DrawerShutBanner({
+export function DriveNotConnectedBanner({
   lastSeenLabel,
   heldCount,
 }: {
@@ -35,11 +35,11 @@ export function DrawerShutBanner({
       }}
     >
       <View style={{ paddingTop: 2 }}>
-        <DrawerIcon size={20} stroke={color.muted} />
+        <DriveIcon size={20} stroke={color.muted} />
       </View>
       <View style={{ flex: 1, gap: 3 }}>
         <Text style={{ fontFamily: font.serif, fontSize: 16, color: color.paper }}>
-          {`The drawer's shut.`}
+          {`Your drive isn't connected.`}
         </Text>
         <Text
           style={{

@@ -777,7 +777,7 @@ const a3Missing: Suite = {
     },
     {
       id: 'M-03',
-      name: 'an unreachable root shuts the drawer without losing the library',
+      name: 'an unreachable root disconnects the drive without losing the library',
       async run(ctx) {
         const before = books().length;
         check(setRootReachable(ctx.rootPath, false), 'could not park the root');
@@ -787,7 +787,7 @@ const a3Missing: Suite = {
           equal(books().length, before, 'books disappeared from the library');
           const missing = books().filter((b) => b.missingFromDrive).length;
           equal(missing, 0, 'an unreachable root must not mark anything missing');
-          return `${before} books still listed, drawer shut`;
+          return `${before} books still listed, drive not connected`;
         } finally {
           setRootReachable(ctx.rootPath, true);
           await library().checkDrive();
@@ -811,7 +811,7 @@ const a3Missing: Suite = {
         await waitFor('the re-sync to finish', () => !scanner().running, 300000);
         await library().refresh();
         equal(books().filter((b) => b.missingFromDrive).length, 0, 'books left marked missing');
-        return 'drawer open, index re-synced';
+        return 'drive connected, index re-synced';
       },
     },
     {
@@ -983,7 +983,7 @@ const a6Holds: Suite = {
   cases: [
     {
       id: 'H-01',
-      name: 'checking out with the drawer shut places a hold',
+      name: 'checking out with the drive disconnected places a hold',
       async run(ctx) {
         const book = await oneBookIn('Natural Sort');
         if (bookById(book.id)!.local.status === 'checked-out') {
@@ -1020,7 +1020,7 @@ const a6Holds: Suite = {
     },
     {
       id: 'H-02',
-      name: 'holds are copied one at a time when the drawer opens',
+      name: 'holds are copied one at a time when the drive is connected',
       async run(ctx) {
         const held = books().filter((b) => b.local.status === 'on-hold');
         check(held.length > 0, 'nothing is on hold to flush');

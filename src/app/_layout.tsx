@@ -54,7 +54,7 @@ function SleepTimerClock() {
 /**
  * Opens the database, loads the saved library, and re-checks whether the drive
  * is reachable every time the app comes back to the foreground — which is how
- * the drawer notices a USB stick being plugged in or pulled out.
+ * the app notices a drive being connected or removed.
  */
 function LibraryBootstrap() {
   const hydrate = useLibrary((s) => s.hydrate);

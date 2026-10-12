@@ -30,6 +30,7 @@ export default function BookScreen() {
 
   const book = useLibrary(selectBook(id));
   const driveConnected = useLibrary((s) => s.driveConnected);
+  const libraryOnDevice = useLibrary((s) => s.libraryOnDevice);
   const checkOut = useLibrary((s) => s.checkOut);
   const returnBook = useLibrary((s) => s.returnBook);
   const cancelHold = useLibrary((s) => s.cancelHold);
@@ -100,22 +101,30 @@ export default function BookScreen() {
             onPress: () => openPlayer(book.id),
             tone: 'accent' as const,
           }
-        : onHold
+        : libraryOnDevice
           ? {
-              label: 'Waiting for the drawer',
-              onPress: undefined,
-              tone: 'muted' as const,
-            }
-          : {
-              label: driveConnected
-                ? `Check out and play · ${bytes(book.sizeBytes)}`
-                : `Put on hold · ${bytes(book.sizeBytes)}`,
-              onPress: () =>
-                driveConnected
-                  ? checkOutAndPlay(book.id, openPlayer)
-                  : checkOut(book.id),
+              // The library is already on the phone, so there is nothing to
+              // copy and nothing to wait for — just play it.
+              label: 'Play',
+              onPress: () => openPlayer(book.id),
               tone: 'accent' as const,
-            };
+            }
+          : onHold
+            ? {
+                label: 'Waiting for the drive',
+                onPress: undefined,
+                tone: 'muted' as const,
+              }
+            : {
+                label: driveConnected
+                  ? `Check out and play · ${bytes(book.sizeBytes)}`
+                  : `Put on hold · ${bytes(book.sizeBytes)}`,
+                onPress: () =>
+                  driveConnected
+                    ? checkOutAndPlay(book.id, openPlayer)
+                    : checkOut(book.id),
+                tone: 'accent' as const,
+              };
 
   const secondary = out
     ? {
@@ -262,7 +271,7 @@ export default function BookScreen() {
                 color: '#cbbb9e',
               }}
             >
-              {`The last scan couldn't find this one on the USB — moved, renamed or deleted.`}
+              {`The last scan couldn't find this one on the drive — moved, renamed or deleted.`}
               {out ? ' Your phone has the only copy, so returning it will ask twice.' : ''}
             </Text>
           </View>
@@ -350,7 +359,7 @@ export default function BookScreen() {
               ? "finish it and I'll offer to return it for you"
               : driveConnected
                 ? 'checking out copies it to your phone'
-                : 'holds check out as soon as the drawer opens'}
+                : 'holds check out as soon as the drive is connected'}
         </Text>
       </View>
 

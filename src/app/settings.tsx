@@ -272,7 +272,7 @@ export default function SettingsScreen() {
           />
           {pendingDriveImports.length > 0 ? (
             <Row
-              label={`Copy ${pendingDriveImports.length} to the USB library`}
+              label={`Copy ${pendingDriveImports.length} to the drive`}
               detail="Puts books added here onto the drive as well"
               tone="accent"
               onPress={() => void pushImportsToDrive()}

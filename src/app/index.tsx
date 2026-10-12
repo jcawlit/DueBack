@@ -29,8 +29,8 @@ import { buildShelves } from '@/lib/shelves';
 import { daysOfListening, relativeTime, relativeTimeShort } from '@/lib/format';
 import { color, font, space } from '@/theme/tokens';
 import { CheckedOutTray } from '@/components/CheckedOutTray';
-import { DrawerShut } from '@/components/DrawerShut';
-import { DrawerShutBanner } from '@/components/DrawerShutBanner';
+import { DriveNotConnected } from '@/components/DriveNotConnected';
+import { DriveNotConnectedBanner } from '@/components/DriveNotConnectedBanner';
 import { FirstRun, ScanProgressBar } from '@/components/FirstRun';
 import { LibraryHeader } from '@/components/LibraryHeader';
 import { SelectBar } from '@/components/SelectBar';
@@ -50,6 +50,7 @@ export default function LibraryScreen() {
   const budgetBytes = useLibrary((s) => s.budgetBytes);
   const libraryRoot = useLibrary((s) => s.libraryRoot);
   const driveConnected = useLibrary((s) => s.driveConnected);
+  const libraryOnDevice = useLibrary((s) => s.libraryOnDevice);
   const driveLastSeenAt = useLibrary((s) => s.driveLastSeenAt);
   const checkDrive = useLibrary((s) => s.checkDrive);
   const selecting = useLibrary((s) => s.selecting);
@@ -108,7 +109,7 @@ export default function LibraryScreen() {
     offeredFor.current = key;
     const count = pendingDriveImports.length;
     Alert.alert(
-      `Add ${count} ${count === 1 ? 'book' : 'books'} to the USB library?`,
+      `Add ${count} ${count === 1 ? 'book' : 'books'} to the drive?`,
       `${pendingDriveImports.map((b) => b.title).join(', ')} ${count === 1 ? 'was' : 'were'} ` +
         'added from this phone and is not on the drive yet. Copying it across means it is ' +
         'backed up by the drive, and can be returned from your phone safely.',
@@ -122,7 +123,7 @@ export default function LibraryScreen() {
   const openBook = useCallback((book: Book) => router.push(`/book/${book.id}`), []);
 
   /**
-   * Tapping the drawer looks for the drive there and then, rather than sending
+   * Tapping the status looks for the drive there and then, rather than sending
    * the user to Settings to press a second button.
    */
   const recheckDrive = () => {
@@ -135,10 +136,10 @@ export default function LibraryScreen() {
       if (!useLibrary.getState().slip) {
         showSlip(
           connected
-            ? { kind: 'note', stamp: 'DRAWER OPEN', text: 'Drive found. The shelves are live.' }
+            ? { kind: 'note', stamp: 'DRIVE CONNECTED', text: 'Drive found. The shelves are live.' }
             : {
                 kind: 'note',
-                stamp: 'DRAWER SHUT',
+                stamp: 'DRIVE NOT CONNECTED',
                 text: "Still can't see the drive. Checked-out books keep playing.",
               },
         );
@@ -176,14 +177,17 @@ export default function LibraryScreen() {
       <Shelf
         shelf={item}
         onPressBook={onPressBook}
-        onLongPressBook={onMoveBook}
-        onTabBook={onMoveBook}
+        // With the library already on the phone there is nothing to check out,
+        // so the corner tab and the long-press shortcut would only offer to
+        // store every book a second time. Long-press opens the book instead.
+        onLongPressBook={libraryOnDevice ? onPressBook : onMoveBook}
+        onTabBook={libraryOnDevice ? undefined : onMoveBook}
         onCancelCopy={onCancelCopy}
         selecting={selecting}
         selectedIds={selected}
       />
     ),
-    [onPressBook, onMoveBook, onCancelCopy, selecting, selected],
+    [onPressBook, onMoveBook, onCancelCopy, selecting, selected, libraryOnDevice],
   );
 
   if (!ready) {
@@ -227,7 +231,7 @@ export default function LibraryScreen() {
           title="Library"
           subtitle={libraryRoot ? 'No books indexed yet' : 'No library folder chosen'}
           connected={driveConnected}
-          onToggleDrawer={recheckDrive}
+          onCheckDrive={recheckDrive}
           checking={checkingDrive}
           onOpenSettings={libraryRoot ? () => router.push('/settings') : undefined}
         />
@@ -248,21 +252,23 @@ export default function LibraryScreen() {
         subtitle={subtitle}
         connected={driveConnected}
         lastSeenLabel={relativeTime(driveLastSeenAt)}
-        onToggleDrawer={recheckDrive}
+        onCheckDrive={recheckDrive}
         checking={checkingDrive}
         onOpenSettings={() => router.push('/settings')}
         sort={sort}
         onSort={setSort}
         selecting={selecting}
         onToggleSelect={
-          shelfCount > 0 ? () => (selecting ? exitSelect() : enterSelect()) : undefined
+          shelfCount > 0 && !libraryOnDevice
+            ? () => (selecting ? exitSelect() : enterSelect())
+            : undefined
         }
       />
 
       {scanProgress && scanRunning ? <ScanProgressBar progress={scanProgress} /> : null}
 
       {books.length === 0 ? (
-        <DrawerShut heldCount={onHoldCount} />
+        <DriveNotConnected heldCount={onHoldCount} />
       ) : (
         /*
          * Virtualized, not a ScrollView. A 400-book library is 134 shelves and
@@ -291,7 +297,7 @@ export default function LibraryScreen() {
           windowSize={7}
           ListHeaderComponent={
             !driveConnected ? (
-              <DrawerShutBanner
+              <DriveNotConnectedBanner
                 lastSeenLabel={relativeTime(driveLastSeenAt)}
                 heldCount={onHoldCount}
               />

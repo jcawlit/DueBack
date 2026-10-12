@@ -6,7 +6,7 @@
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
 import type { ScanProgress } from '@/lib/scan/scanner';
-import { DrawerIcon } from './icons';
+import { DriveIcon } from './icons';
 
 export function FirstRun({ onPick, busy }: { onPick: () => void; busy: boolean }) {
   return (
@@ -36,7 +36,7 @@ export function FirstRun({ onPick, busy }: { onPick: () => void; busy: boolean }
           shadow(10, 0.4),
         ]}
       >
-        <DrawerIcon size={36} stroke={color.muted} />
+        <DriveIcon size={36} stroke={color.muted} />
       </View>
 
       <View style={{ gap: 10, alignItems: 'center' }}>
@@ -49,7 +49,7 @@ export function FirstRun({ onPick, busy }: { onPick: () => void; busy: boolean }
             textAlign: 'center',
           }}
         >
-          Plug in your USB
+          Plug in your drive
         </Text>
         <Text
           style={{

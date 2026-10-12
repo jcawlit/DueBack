@@ -14,6 +14,38 @@
  * id is `primary`, `home`, or a serial like `BC72-B058`; `:` cannot appear in a
  * file name on the filesystems these drives use, so this is unambiguous.
  */
+/**
+ * Whether a library root lives on the phone's own storage rather than on
+ * something that can be unplugged.
+ *
+ * This decides whether the library needs checking out at all. A library the
+ * phone always has is just a library: copying each book into app storage to
+ * play it would store every file twice, which is the opposite of what this app
+ * is for.
+ *
+ * Only built-in storage counts. A memory card is usually left in, but it is
+ * still removable, and a library on one is a drive in every sense that
+ * matters here.
+ */
+export function isDeviceStorage(rootUri: string): boolean {
+  const uri = decodeURIComponent(rootUri);
+
+  // SAF tree URIs carry the volume as a prefix: `primary:Audiobooks` is
+  // built-in storage, `BC72-B058:Audiobooks` is a card or a stick.
+  const tree = /\/tree\/([^/:]+):/.exec(uri);
+  if (tree) return tree[1].toLowerCase() === 'primary';
+
+  if (uri.startsWith('file://')) {
+    const path = uri.slice('file://'.length);
+    return (
+      path.startsWith('/data/') ||
+      path.startsWith('/storage/emulated/') ||
+      path.startsWith('/storage/self/')
+    );
+  }
+  return false;
+}
+
 export function safDisplayName(rawName: string): string {
   const lastSegment = rawName.slice(rawName.lastIndexOf('/') + 1);
   const match = /^([A-Za-z0-9_-]+):(.*)$/.exec(lastSegment);

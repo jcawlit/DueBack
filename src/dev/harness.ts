@@ -364,7 +364,7 @@ export function parkFolder(rootPath: string, folderName: string) {
  *
  * The emulator cannot eject the volume the app is reading from, and a scripted
  * test cannot pull a USB cable — but an unreachable root is exactly what the
- * app sees either way: `isReachable` fails and the drawer shuts.
+ * app sees either way: `isReachable` fails and the drive reads as not connected.
  */
 export function setRootReachable(rootPath: string, reachable: boolean): boolean {
   const { parent, name } = splitPath(rootPath);
@@ -384,7 +384,7 @@ export function setRootReachable(rootPath: string, reachable: boolean): boolean 
  *
  * The emulator cannot eject the volume the app is reading from, and a scripted
  * test cannot pull a USB cable — but an unreachable root is exactly what the
- * app sees either way: `isReachable` fails and the drawer shuts.
+ * app sees either way: `isReachable` fails and the drive reads as not connected.
  */
 
 export async function readManifest(rootPath: string): Promise<Manifest | null> {

@@ -7,7 +7,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { safDisplayName } from '../src/lib/files/safNames.ts';
+import { isDeviceStorage, safDisplayName } from '../src/lib/files/safNames.ts';
 import { safeLocalName } from '../src/lib/files/localNames.ts';
 import { cleanName, naturalCompare, resolveName, splitAuthorTitle } from '../src/lib/library/names.ts';
 import { orderParts, workKey, type ScannedFile } from '../src/lib/library/grouping.ts';
@@ -215,5 +215,39 @@ describe('safeLocalName', () => {
   it('falls back when there is no usable extension', () => {
     assert.equal(safeLocalName(4, 'no-extension'), '0004.bin');
     assert.equal(safeLocalName(5, 'weird.verylongextension'), '0005.bin');
+  });
+});
+
+describe('isDeviceStorage', () => {
+  it('recognises the phone’s own storage', () => {
+    // A library already on the phone needs no checking out: copying each book
+    // into app storage would keep every file twice.
+    assert.ok(
+      isDeviceStorage(
+        'content://com.android.externalstorage.documents/tree/primary%3AAudiobooks',
+      ),
+    );
+    assert.ok(isDeviceStorage('file:///storage/emulated/0/Audiobooks/'));
+    assert.ok(isDeviceStorage('file:///data/data/com.dueback.app/files/fixtures/Audiobooks/'));
+  });
+
+  it('treats removable volumes as a drive', () => {
+    // A memory card is usually left in, but it is still removable, so a
+    // library on one keeps the check-out behaviour.
+    assert.ok(
+      !isDeviceStorage(
+        'content://com.android.externalstorage.documents/tree/BC72-B058%3AAudiobooks',
+      ),
+    );
+    assert.ok(
+      !isDeviceStorage(
+        'content://com.android.externalstorage.documents/tree/0900-360C%3ALib',
+      ),
+    );
+  });
+
+  it('does not guess at anything else', () => {
+    assert.ok(!isDeviceStorage('content://com.example.provider/tree/whatever'));
+    assert.ok(!isDeviceStorage(''));
   });
 });

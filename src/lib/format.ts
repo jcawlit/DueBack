@@ -83,7 +83,7 @@ export function relativeTimeShort(iso: string, now = Date.now()): string {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
-/** "2 days ago" — the drawer's "last seen" line. */
+/** "2 days ago" — the drive's "last seen" line. */
 export function relativeTime(iso: string, now = Date.now()): string {
   const elapsed = Math.max(0, now - new Date(iso).getTime());
   const minutes = Math.floor(elapsed / 60000);

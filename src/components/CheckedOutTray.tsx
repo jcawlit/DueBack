@@ -22,7 +22,7 @@ type Props = {
   budgetBytes: number;
   onPressBook: (book: Book) => void;
   onLongPressBook: (book: Book) => void;
-  /** Hidden when the drawer is shut, where the tray has no ruler room. */
+  /** Hidden when the drive is not connected, where the tray has no ruler room. */
   showRuler?: boolean;
 };
 

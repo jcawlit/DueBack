@@ -138,11 +138,18 @@ export const usePlayer = create<PlayerState>((set, get) => {
           return;
         }
 
-        // Local files only. Streaming off the drive technically works but is
-        // miserable — a long book spends minutes seeking before it makes a
-        // sound — so a book that is not on the phone is not playable, and the
-        // Book screen offers to check it out instead.
-        const localUris = rows.map((p) => (p.local_uri ? localUriFor(p.local_uri) : null));
+        // Normally local files only. Streaming off a drive technically works
+        // but is miserable — a long book spends minutes seeking before it
+        // makes a sound — so a book that is not on the phone is not playable,
+        // and the Book screen offers to check it out instead.
+        //
+        // The exception is a library that already lives on the phone. There is
+        // no drive to be slow, and nothing to check out: copying each book into
+        // app storage would simply store it twice.
+        const onDevice = useLibrary.getState().libraryOnDevice;
+        const localUris = rows.map((p) =>
+          p.local_uri ? localUriFor(p.local_uri) : onDevice ? p.uri : null,
+        );
         if (localUris.some((u) => !u)) {
           set({
             buffering: false,

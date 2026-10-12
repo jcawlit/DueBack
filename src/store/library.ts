@@ -6,8 +6,8 @@
  * every move writes through to SQLite before the screens see it.
  *
  * The copy itself is still simulated — `startCopy` fakes progress on a timer.
- * Every rule around it is already final: budget refusal, holds while the drawer
- * is shut, and the warning before returning a book that has left the drive.
+ * Every rule around it is already final: budget refusal, holds while the drive
+ * is disconnected, and the warning before returning a book that has left the drive.
  */
 
 import { create } from 'zustand';
@@ -48,6 +48,7 @@ import {
 import { removeCover } from '@/lib/files/covers';
 import { SETTING_KEYS, getSetting, setSetting } from '@/db/schema';
 import { isReachable } from '@/lib/files/access';
+import { isDeviceStorage } from '@/lib/files/safNames';
 import { waitForScanToFinish } from '@/lib/scanBusy';
 
 const GB = 1024 * 1024 * 1024;
@@ -84,6 +85,11 @@ type LibraryState = {
   budgetBytes: number;
   libraryRoot: LibraryRootInfo | null;
   driveConnected: boolean;
+  /**
+   * The library folder is on the phone itself, so there is nothing to plug in
+   * and nothing to check out: every book is already here.
+   */
+  libraryOnDevice: boolean;
   driveLastSeenAt: string;
   selecting: boolean;
   selected: string[];
@@ -467,11 +473,11 @@ export const useLibrary = create<LibraryState>((set, get) => {
     if (copied > 0) {
       flashSlip({
         kind: 'note',
-        stamp: 'DRAWER OPEN',
+        stamp: 'DRIVE CONNECTED',
         text:
           refused > 0
             ? `Checking out ${copied} held ${copied === 1 ? 'book' : 'books'}. ${refused} still won't fit.`
-            : `Drawer open. Checking out ${copied} held ${copied === 1 ? 'book' : 'books'}.`,
+            : `Drive connected. Checking out ${copied} held ${copied === 1 ? 'book' : 'books'}.`,
       });
     }
   };
@@ -484,6 +490,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     budgetBytes: 4 * GB,
     libraryRoot: null,
     driveConnected: false,
+    libraryOnDevice: false,
     driveLastSeenAt: new Date().toISOString(),
     selecting: false,
     selected: [],
@@ -510,6 +517,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
         ]);
         const root = rootUri ? { uri: rootUri, name: rootName ?? rootUri } : null;
         set({
+          libraryOnDevice: root ? isDeviceStorage(root.uri) : false,
           ready: true,
           startupError: null,
           books,
@@ -565,7 +573,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     setLibraryRoot: async (root) => {
       await setSetting(SETTING_KEYS.libraryRootUri, root?.uri ?? null);
       await setSetting(SETTING_KEYS.libraryRootName, root?.name ?? null);
-      set({ libraryRoot: root });
+      set({ libraryRoot: root, libraryOnDevice: root ? isDeviceStorage(root.uri) : false });
       if (root) await get().checkDrive();
       else set({ driveConnected: false });
     },
@@ -627,7 +635,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
         flashSlip({
           kind: 'note',
           stamp: 'ON HOLD',
-          text: `${book.title} is on hold. It'll check out when the drawer opens.`,
+          text: `${book.title} is on hold. It'll check out when the drive is connected.`,
         });
       };
 
@@ -731,13 +739,13 @@ export const useLibrary = create<LibraryState>((set, get) => {
         return;
       }
 
-      const drawerShut: Slip = {
+      const driveNotConnected: Slip = {
         kind: 'wont-fit',
-        stamp: 'DRAWER SHUT',
+        stamp: 'DRIVE NOT CONNECTED',
         text: 'Plug in your drive to check this out.',
       };
       if (!driveConnected) {
-        flashSlip(drawerShut);
+        flashSlip(driveNotConnected);
         return;
       }
 
@@ -745,7 +753,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
         // Unlike `checkOut`, there is no hold to fall back on here: the user
         // asked to listen now, so a vanished drive has to be said out loud.
         if (!(await proveDriveReachable())) {
-          flashSlip(drawerShut);
+          flashSlip(driveNotConnected);
           return;
         }
         void startCopy(book, onReady);

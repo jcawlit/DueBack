@@ -1,13 +1,13 @@
 /**
  * What fills the Library when the drive is not reachable: a closed card-catalogue
- * drawer. Checked-out books keep playing, and anything the user asks for while
- * the drawer is shut goes on hold instead of failing.
+ * drive. Checked-out books keep playing, and anything the user asks for while
+ * the drive is not connected goes on hold instead of failing.
  */
 
 import { Text, View } from 'react-native';
 import { color, font, shadow, space } from '@/theme/tokens';
 
-function DrawerFront({ label }: { label: string }) {
+function CabinetFront({ label }: { label: string }) {
   return (
     <View
       style={{
@@ -49,7 +49,7 @@ function DrawerFront({ label }: { label: string }) {
   );
 }
 
-export function DrawerShut({ heldCount }: { heldCount: number }) {
+export function DriveNotConnected({ heldCount }: { heldCount: number }) {
   return (
     <View
       style={{
@@ -76,8 +76,8 @@ export function DrawerShut({ heldCount }: { heldCount: number }) {
           shadow(16, 0.55),
         ]}
       >
-        <DrawerFront label="A – M" />
-        <DrawerFront label="N – Z" />
+        <CabinetFront label="A – M" />
+        <CabinetFront label="N – Z" />
       </View>
 
       <View style={{ gap: 8, alignItems: 'center' }}>
@@ -85,7 +85,7 @@ export function DrawerShut({ heldCount }: { heldCount: number }) {
           accessibilityRole="header"
           style={{ fontFamily: font.serif, fontSize: 24, color: color.paper }}
         >
-          {`The drawer's shut.`}
+          {`Your drive isn't connected.`}
         </Text>
         <Text
           style={{
@@ -96,7 +96,7 @@ export function DrawerShut({ heldCount }: { heldCount: number }) {
             textAlign: 'center',
           }}
         >
-          {`Plug in the USB to browse the shelves. Everything you've checked out still plays.`}
+          {`Connect your drive to browse the shelves. Everything you've checked out still plays.`}
         </Text>
         {heldCount > 0 ? (
           <Text
@@ -108,7 +108,7 @@ export function DrawerShut({ heldCount }: { heldCount: number }) {
               marginTop: space.xs,
             }}
           >
-            {heldCount} {heldCount === 1 ? 'book' : 'books'} on hold, waiting for the drawer
+            {heldCount} {heldCount === 1 ? 'book' : 'books'} on hold, waiting for the drive
           </Text>
         ) : null}
       </View>

@@ -1,16 +1,16 @@
 /**
- * The Library header: title, the drive ("drawer") status button, sort chips and
+ * The Library header: title, the drive status button, sort chips and
  * the entry point to select mode.
  */
 
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { SORT_LABELS, type SortMode } from '@/data/types';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
-import { DrawerIcon } from './icons';
+import { DriveIcon } from './icons';
 
 const SORTS: SortMode[] = ['length', 'author', 'color', 'dust'];
 
-export function DrawerButton({
+export function DriveStatusButton({
   connected,
   onPress,
   lastSeenLabel,
@@ -30,8 +30,8 @@ export function DrawerButton({
         checking
           ? 'Looking for the drive'
           : connected
-            ? 'Drawer open, drive connected. Tap to check again.'
-            : `Drawer shut, drive not reachable${lastSeenLabel ? `, last seen ${lastSeenLabel}` : ''}. Tap to look again.`
+            ? 'Drive connected. Tap to check again.'
+            : `Drive not connected${lastSeenLabel ? `, last seen ${lastSeenLabel}` : ''}. Tap to look again.`
       }
       style={({ pressed }) => ({
         flexDirection: 'row',
@@ -47,7 +47,7 @@ export function DrawerButton({
         opacity: pressed ? 0.7 : 1,
       })}
     >
-      <DrawerIcon size={20} stroke={connected ? color.paper : color.muted} />
+      <DriveIcon size={20} stroke={connected ? color.paper : color.muted} />
       <Text
         style={{
           fontFamily: font.mono,
@@ -129,7 +129,7 @@ export function LibraryHeader({
   subtitle,
   connected,
   lastSeenLabel,
-  onToggleDrawer,
+  onCheckDrive,
   sort,
   onSort,
   selecting,
@@ -141,7 +141,7 @@ export function LibraryHeader({
   subtitle: string;
   connected: boolean;
   lastSeenLabel?: string;
-  onToggleDrawer: () => void;
+  onCheckDrive: () => void;
   checking?: boolean;
   onOpenSettings?: () => void;
   sort?: SortMode;
@@ -179,9 +179,9 @@ export function LibraryHeader({
             {subtitle}
           </Text>
         </View>
-        <DrawerButton
+        <DriveStatusButton
           connected={connected}
-          onPress={onToggleDrawer}
+          onPress={onCheckDrive}
           lastSeenLabel={lastSeenLabel}
           checking={checking}
         />

@@ -6,7 +6,7 @@
  * `Directory.pickDirectoryAsync()` and seekable `FileHandle` cover both
  * platforms; the known gap is that iOS does not persist access across app
  * restarts, which surfaces here as `restoreAccess()` returning false and the
- * app showing the drawer as shut.
+ * app showing the drive as not connected.
  */
 
 import { Directory, File, FileMode, Paths } from 'expo-file-system';
@@ -83,7 +83,7 @@ export async function pickLibraryRoot(): Promise<LibraryRoot | null> {
 
 /**
  * Checks whether a previously picked root can still be read. This is the
- * drawer-open test, and it runs on launch and on every return to foreground.
+ * drive-connected test, and it runs on launch and on every return to foreground.
  */
 export async function isReachable(rootUri: string): Promise<boolean> {
   try {
