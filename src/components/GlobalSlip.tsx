@@ -1,0 +1,42 @@
+/**
+ * The paper slip, mounted once at the root.
+ *
+ * It used to live on the Library screen alone, which meant every message raised
+ * from anywhere else was written and never drawn — the import buttons in
+ * Settings reported both their successes and their failures into a void, so
+ * adding a book folder looked like it had done nothing at all.
+ *
+ * Like `GlobalConfirm`, it belongs here rather than on each screen: a
+ * navigation stack keeps the screens beneath the current one mounted, so a copy
+ * on both Library and Settings would put two slips on screen at once.
+ */
+
+import { usePathname } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Slip } from './Slip';
+import { MINI_PLAYER_HEIGHT } from './MiniPlayer';
+import { useLibrary } from '@/store/library';
+import { usePlayer } from '@/store/player';
+import { useUi } from '@/store/ui';
+import { space } from '@/theme/tokens';
+
+export function GlobalSlip() {
+  const insets = useSafeAreaInsets();
+  const pathname = usePathname();
+  const slip = useLibrary((s) => s.slip);
+  const dismissSlip = useLibrary((s) => s.dismissSlip);
+  const bottomObstruction = useUi((s) => s.bottomObstruction);
+  const playerLoaded = usePlayer((s) => s.bookId !== null);
+
+  if (!slip) return null;
+
+  // Stack above whatever is already pinned to the bottom of this screen: the
+  // Library's checked-out tray, and the mini player when one is floating.
+  // Reading the route is the same trick the mini player uses, and saves every
+  // other screen from having to reset the obstruction on its way out.
+  const onLibrary = pathname === '/';
+  const base = onLibrary ? bottomObstruction : insets.bottom;
+  const pill = playerLoaded && !pathname.startsWith('/player') ? MINI_PLAYER_HEIGHT : 0;
+
+  return <Slip slip={slip} onDismiss={dismissSlip} bottom={base + pill + space.md} />;
+}

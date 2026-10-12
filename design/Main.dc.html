@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Stacks</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=Instrument+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#120d0a}
+a{color:#e8a23a}a:hover{color:#f3c071}
+button:focus-visible{outline:2px solid #e8a23a;outline-offset:3px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; background: #1b1410; color: #efe3cc; font-family: 'Instrument Sans', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden; position: relative">
+
+  <header style="padding: 22px 20px 14px; display: flex; flex-direction: column; gap: 14px; border-bottom: 1px solid #3a2a1e">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px">
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <h1 style="margin: 0; font-family: 'Young Serif', Georgia, serif; font-weight: 400; font-size: 32px; line-height: 1">The Stacks</h1>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #b9a88c">412 books · 204 days of listening</span>
+      </div>
+      <button aria-label="USB drawer: plugged in" style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; background: #2a1e15; border: 1px solid #5a4330; border-radius: 6px; color: #efe3cc; font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer">
+        <svg width="20" height="16" viewBox="0 0 20 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="1" y="1" width="18" height="14" rx="1.5"></rect><path d="M1 6h18"></path><path d="M8 10.5h4"></path></svg>
+        <span>DRAWER</span>
+        <span style="width: 7px; height: 7px; border-radius: 50%; background: {{accent}}; box-shadow: 0 0 8px {{accent}}"></span>
+      </button>
+    </div>
+    <div style="display: flex; gap: 6px; flex-wrap: wrap; font-family: 'IBM Plex Mono', monospace; font-size: 12px">
+      <button style="min-height: 32px; padding: 0 10px; background: transparent; color: {{accent}}; border: 1px solid {{accent}}; border-radius: 16px; font: inherit; cursor: pointer">by length</button>
+      <button style="min-height: 32px; padding: 0 10px; background: transparent; color: #b9a88c; border: 1px solid #4a3626; border-radius: 16px; font: inherit; cursor: pointer">by author</button>
+      <button style="min-height: 32px; padding: 0 10px; background: transparent; color: #b9a88c; border: 1px solid #4a3626; border-radius: 16px; font: inherit; cursor: pointer">by color</button>
+      <button style="min-height: 32px; padding: 0 10px; background: transparent; color: #b9a88c; border: 1px solid #4a3626; border-radius: 16px; font: inherit; cursor: pointer">gathering dust</button>
+    </div>
+  </header>
+
+  <main style="flex: 1; overflow-y: auto; padding-bottom: 28px">
+    <sc-for list="{{shelves}}" as="shelf" hint-placeholder-count="4">
+      <section style="padding: 26px 16px 0">
+        <div style="display: flex; align-items: flex-end; gap: 12px; padding: 0 10px; min-height: 136px">
+          <sc-for list="{{shelf.books}}" as="b" hint-placeholder-count="3">
+            <button onClick="{{b.pick}}" aria-label="{{b.aria}}" style="{{b.btnStyle}}">
+              <span style="display: flex; align-items: stretch">
+                <span style="{{b.coverStyle}}">
+                  <sc-if value="{{b.isFrame}}" hint-placeholder-val="{{ true }}">
+                    <span style="position: absolute; inset: 7px 7px 7px 10px; border: 1.5px solid currentColor; display: flex; flex-direction: column; justify-content: space-between; padding: 9px 6px 7px">
+                      <span style="font-family: 'Young Serif', Georgia, serif; font-size: 13px; line-height: 1.08">{{b.t}}</span>
+                      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; opacity: .85">{{b.a}}</span>
+                    </span>
+                  </sc-if>
+                  <sc-if value="{{b.isBand}}" hint-placeholder-val="{{ false }}">
+                    <span style="position: absolute; top: 10px; left: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; opacity: .85">{{b.a}}</span>
+                    <span style="{{b.bandStyle}}">{{b.t}}</span>
+                  </sc-if>
+                </span>
+                <span style="{{b.edgeStyle}}"></span>
+              </span>
+              <sc-if value="{{b.reading}}" hint-placeholder-val="{{ false }}">
+                <span style="position: absolute; bottom: -16px; left: 26px; width: 7px; height: 22px; background: #c8402f; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%)"></span>
+              </sc-if>
+              <sc-if value="{{b.inBag}}" hint-placeholder-val="{{ false }}">
+                <span style="position: absolute; top: -9px; right: 2px; background: {{accent}}; color: #1b1410; font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 500; letter-spacing: .06em; padding: 2px 6px; border-radius: 2px; transform: rotate(3deg)">IN BAG</span>
+              </sc-if>
+            </button>
+          </sc-for>
+        </div>
+        <div style="position: relative; z-index: 0; height: 12px; background: #6a4529; border-top: 2px solid #8f6039; box-shadow: 0 10px 16px rgba(0,0,0,.5)"></div>
+        <div style="display: inline-block; margin: 6px 0 0 18px; background: #e9dcc0; color: #3a2a1a; font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 3px 8px; transform: rotate(-1deg); box-shadow: 0 2px 4px rgba(0,0,0,.4)">{{shelf.label}}</div>
+      </section>
+    </sc-for>
+  </main>
+
+  <sc-if value="{{hasToast}}" hint-placeholder-val="{{ false }}">
+    <div role="status" style="position: absolute; left: 18px; right: 18px; bottom: 262px; z-index: 5; background: #efe3cc; color: #2a1d10; padding: 14px 16px; border-radius: 3px; box-shadow: 0 10px 30px rgba(0,0,0,.6); display: flex; gap: 14px; align-items: center; transform: rotate(-.6deg)">
+      <span style="flex-shrink: 0; border: 2px solid #b8402f; color: #b8402f; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: .08em; padding: 4px 6px; transform: rotate(-6deg)">WON'T FIT</span>
+      <span style="font-size: 13px; line-height: 1.35">{{toastText}}</span>
+    </div>
+  </sc-if>
+
+  <section aria-label="The Bag" style="height: 252px; flex-shrink: 0; box-sizing: border-box; background: #2a1e15; border-top: 2px dashed #6a5038; padding: 16px 20px 18px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 -14px 28px rgba(0,0,0,.45)">
+    <div style="display: flex; justify-content: space-between; align-items: baseline">
+      <h2 style="margin: 0; font-family: 'Young Serif', Georgia, serif; font-weight: 400; font-size: 22px">The Bag</h2>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #b9a88c">{{bagSummary}}</span>
+    </div>
+
+    <div style="height: 92px; display: flex; align-items: flex-end; padding-left: 4px">
+      <sc-if value="{{bagEmpty}}" hint-placeholder-val="{{ false }}">
+        <span style="font-family: 'Young Serif', Georgia, serif; font-size: 16px; color: #b9a88c; align-self: center">Nothing packed. Bit of a light trip, huh?</span>
+      </sc-if>
+      <sc-for list="{{bagItems}}" as="bi" hint-placeholder-count="4">
+        <button onClick="{{bi.pick}}" aria-label="{{bi.aria}}" style="{{bi.style}}">
+          <span style="{{bi.coverStyle}}">{{bi.t}}</span>
+        </button>
+      </sc-for>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 5px">
+      <div style="position: relative; height: 18px; background: #17110d; border: 1px solid #5a4330; border-radius: 2px; overflow: hidden">
+        <div style="{{fillStyle}}"></div>
+        <div style="{{tickStyle}}"></div>
+      </div>
+      <div style="display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #b9a88c">
+        <sc-for list="{{rulerLabels}}" as="l" hint-placeholder-count="5">
+          <span>{{l}}</span>
+        </sc-for>
+      </div>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"budgetGB":{"editor":"int","default":4,"min":2,"max":16,"unit":"GB","section":"Bag"},"accent":{"editor":"color","default":"#e8a23a","options":["#e8a23a","#7fb6a4","#d9886a"],"section":"Look"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  books() {
+    return [
+      { id: 'war', t: 'War and Peace', a: 'Tolstoy', min: 3667, mb: 1760, bg: '#2f4a3a', fg: '#f0e6cf', v: 'frame' },
+      { id: 'monte', t: 'The Count of Monte Cristo', a: 'Dumas', min: 3140, mb: 1507, bg: '#8a2f24', fg: '#f3e2c2', v: 'band' },
+      { id: 'bleak', t: 'Bleak House', a: 'Dickens', min: 2580, mb: 1238, bg: '#1f3550', fg: '#e9dcc0', v: 'frame', lean: 5 },
+      { id: 'middle', t: 'Middlemarch', a: 'George Eliot', min: 2106, mb: 1011, bg: '#c9a24a', fg: '#2a1d10', v: 'band', reading: true },
+      { id: 'moby', t: 'Moby-Dick', a: 'Melville', min: 1489, mb: 715, bg: '#3d5a6b', fg: '#f2ead8', v: 'band' },
+      { id: 'jane', t: 'Jane Eyre', a: 'C. Brontë', min: 1145, mb: 550, bg: '#6b2c3e', fg: '#f0dfd0', v: 'frame', reading: true },
+      { id: 'great', t: 'Great Expectations', a: 'Dickens', min: 1103, mb: 529, bg: '#d8c7a3', fg: '#3a2a1a', v: 'band' },
+      { id: 'dracula', t: 'Dracula', a: 'Bram Stoker', min: 929, mb: 446, bg: '#141414', fg: '#e0503d', v: 'frame', reading: true },
+      { id: 'odyssey', t: 'The Odyssey', a: 'Homer', min: 732, mb: 351, bg: '#b5582b', fg: '#1c120a', v: 'band' },
+      { id: 'pride', t: 'Pride and Prejudice', a: 'Austen', min: 695, mb: 334, bg: '#8fa38a', fg: '#1f2a1d', v: 'frame' },
+      { id: 'frank', t: 'Frankenstein', a: 'Mary Shelley', min: 515, mb: 247, bg: '#4a4a3a', fg: '#e3dcc0', v: 'band' },
+      { id: 'time', t: 'The Time Machine', a: 'H. G. Wells', min: 215, mb: 103, bg: '#e7e0cf', fg: '#2b2b2b', v: 'frame', lean: 6 }
+    ];
+  }
+  hrs(min) { return Math.floor(min / 60) + 'h ' + String(min % 60).padStart(2, '0') + 'm'; }
+  size(mb) { return mb >= 1000 ? (mb / 1024).toFixed(1) + ' GB' : mb + ' MB'; }
+  showToast(text) {
+    clearTimeout(this.toastTimer);
+    this.setState({ toast: text });
+    this.toastTimer = setTimeout(() => this.setState({ toast: null }), 3400);
+  }
+  componentWillUnmount() { clearTimeout(this.toastTimer); }
+  renderVals() {
+    const accent = this.props.accent ?? '#e8a23a';
+    const gb = this.props.budgetGB ?? 4;
+    const cap = gb * 1024;
+    const all = this.books();
+    const bag = this.state.bag ?? ['monte', 'middle', 'dracula', 'time'];
+    const byId = {};
+    all.forEach((b) => { byId[b.id] = b; });
+    const used = bag.reduce((s, id) => s + byId[id].mb, 0);
+    const toggle = (b) => {
+      const cur = this.state.bag ?? ['monte', 'middle', 'dracula', 'time'];
+      if (cur.includes(b.id)) {
+        this.setState({ bag: cur.filter((x) => x !== b.id), toast: null });
+        return;
+      }
+      const u = cur.reduce((s, id) => s + byId[id].mb, 0);
+      if (u + b.mb > cap) {
+        this.showToast(b.t + ' needs ' + this.size(b.mb) + '. You have ' + this.size(cap - u) + ' left. Put something back?');
+        return;
+      }
+      this.setState({ bag: cur.concat(b.id), toast: null });
+    };
+    const labels = ['DOORSTOPPERS · 40h+', 'LONG HAUL · 19–35h', 'COMMUTE SIZED · 12–18h', 'SHORT TRIPS · under 12h'];
+    const sorted = all.slice().sort((x, y) => y.min - x.min);
+    const shelves = [];
+    for (let i = 0; i < sorted.length; i += 3) {
+      shelves.push({
+        label: labels[i / 3],
+        books: sorted.slice(i, i + 3).map((b) => {
+          const inBag = bag.includes(b.id);
+          const edgeW = Math.round(3 + b.min / 60 / 5);
+          return {
+            t: b.t, a: b.a, reading: !!b.reading, inBag,
+            isFrame: b.v === 'frame', isBand: b.v === 'band',
+            aria: b.t + ', ' + this.hrs(b.min) + ', ' + this.size(b.mb) + (inBag ? ', in your bag. Tap to put back.' : '. Tap to pack.'),
+            pick: () => toggle(b),
+            btnStyle: 'position:relative;z-index:1;display:block;background:none;border:0;padding:0;margin:0;cursor:pointer;color:inherit;font:inherit;text-align:left;transform:rotate(' + (b.lean || 0) + 'deg);transform-origin:bottom left',
+            coverStyle: 'position:relative;display:block;width:86px;height:128px;background:' + b.bg + ';color:' + b.fg + ';border-radius:2px 3px 3px 2px;box-shadow:inset 4px 0 0 rgba(0,0,0,.25),inset 5px 0 0 rgba(255,255,255,.08),0 6px 10px rgba(0,0,0,.5);overflow:hidden',
+            bandStyle: 'position:absolute;left:0;right:0;top:42px;padding:8px 8px 9px 12px;background:' + b.fg + ';color:' + b.bg + ";font-family:'Young Serif',Georgia,serif;font-size:13px;line-height:1.08",
+            edgeStyle: 'display:block;width:' + edgeW + 'px;margin:3px 0;background:repeating-linear-gradient(90deg,#efe6d2 0 1px,#c9bb9b 1px 2px);border-radius:0 2px 2px 0;box-shadow:0 6px 10px rgba(0,0,0,.4)'
+          };
+        })
+      });
+    }
+    const fill = Math.min(1, used / cap);
+    const ml = Math.round(8 - fill * 30);
+    const rots = [-3, 2, -1.5, 3, -2, 1.5, -2.5, 2.5, -1, 1, -3, 2];
+    const bagItems = bag.map((id, i) => {
+      const b = byId[id];
+      return {
+        t: b.t,
+        aria: b.t + ', ' + this.size(b.mb) + '. Tap to put back in the stacks.',
+        pick: () => toggle(b),
+        style: 'position:relative;z-index:' + (i + 1) + ';margin:0 0 0 ' + (i ? ml : 0) + 'px;background:none;border:0;padding:0;cursor:pointer;transform:rotate(' + rots[i % rots.length] + 'deg);transform-origin:bottom center',
+        coverStyle: 'display:block;width:56px;height:84px;box-sizing:border-box;padding:7px 6px;background:' + b.bg + ';color:' + b.fg + ";border-radius:2px;box-shadow:inset 3px 0 0 rgba(0,0,0,.25),-4px 4px 10px rgba(0,0,0,.55);font-family:'Young Serif',Georgia,serif;font-size:9.5px;line-height:1.1;text-align:left;overflow:hidden"
+      };
+    });
+    const pct = (fill * 100).toFixed(1);
+    const step = gb <= 8 ? 1 : 2;
+    const rulerLabels = [];
+    for (let g = 0; g <= gb; g += step) rulerLabels.push(g === gb ? g + ' GB' : String(g));
+    return {
+      accent,
+      shelves,
+      bagItems,
+      bagEmpty: bag.length === 0,
+      bagSummary: bag.length + (bag.length === 1 ? ' book · ' : ' books · ') + (used / 1024).toFixed(1) + ' of ' + gb + ' GB',
+      fillStyle: 'position:absolute;left:0;top:0;bottom:0;width:' + pct + '%;background:' + (fill > 0.85 ? '#d0553e' : accent) + ';transition:width .35s ease',
+      tickStyle: 'position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(0,0,0,.5) 0 1px,transparent 1px ' + (100 / (gb * 4)) + '%)',
+      rulerLabels,
+      hasToast: !!this.state.toast,
+      toastText: this.state.toast || ''
+    };
+  }
+}
+</script>
+</body>
+</html>

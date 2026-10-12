@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Player: Middlemarch</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=Instrument+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#120d0a}
+a{color:#e8a23a}a:hover{color:#f3c071}
+button:focus-visible,a:focus-visible{outline:2px solid #e8a23a;outline-offset:3px}
+input[type=range]:focus-visible + span{outline:2px solid #e8a23a;outline-offset:4px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #1b1410; color: #efe3cc; font-family: 'Instrument Sans', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden; position: relative">
+
+  <div style="position: absolute; left: 45px; top: 40px; width: 300px; height: 300px; border-radius: 50%; background: radial-gradient(circle, rgba(232,162,58,.22) 0%, rgba(232,162,58,0) 70%); pointer-events: none"></div>
+
+  <div style="position: relative; padding: 14px 12px 0; display: flex; justify-content: space-between; align-items: center">
+    <a href="Main.dc.html" style="display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 8px; color: #b9a88c; text-decoration: none; font-family: 'IBM Plex Mono', monospace; font-size: 12px">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 6l5 5 5-5"></path></svg>
+      the bag
+    </a>
+    <a href="Book.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 10px; color: #b9a88c; text-decoration: none; font-family: 'IBM Plex Mono', monospace; font-size: 12px">library card</a>
+  </div>
+
+  <div style="position: relative; display: flex; justify-content: center; padding-top: 14px">
+    <div style="display: flex; align-items: stretch; transform: rotate(-1.5deg)">
+      <div style="position: relative; width: 192px; height: 282px; background: #c9a24a; color: #2a1d10; border-radius: 3px 4px 4px 3px; box-shadow: inset 7px 0 0 rgba(0,0,0,.25), inset 9px 0 0 rgba(255,255,255,.1), 0 22px 36px rgba(0,0,0,.65); overflow: hidden">
+        <span style="position: absolute; top: 20px; left: 24px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase">George Eliot</span>
+        <span style="position: absolute; left: 0; right: 0; top: 104px; padding: 16px 18px 18px 24px; background: #2a1d10; color: #c9a24a; font-family: 'Young Serif', Georgia, serif; font-size: 28px; line-height: 1.05">Middlemarch</span>
+      </div>
+      <div style="width: 14px; margin: 5px 0; background: repeating-linear-gradient(90deg,#efe6d2 0 1px,#c9bb9b 1px 2px); border-radius: 0 3px 3px 0; box-shadow: 0 22px 36px rgba(0,0,0,.5)"></div>
+    </div>
+  </div>
+
+  <div style="padding: 28px 24px 0; display: flex; flex-direction: column; gap: 4px">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .1em; color: #b9a88c">BOOK V · THE DEAD HAND</span>
+    <h1 style="margin: 0; font-family: 'Young Serif', Georgia, serif; font-weight: 400; font-size: 26px; line-height: 1.1">Chapter 51</h1>
+  </div>
+
+  <div style="padding: 22px 24px 0; display: flex; flex-direction: column; gap: 8px">
+    <div style="position: relative; height: 22px">
+      <div style="position: absolute; left: 0; right: 0; top: 8px; height: 8px; background: #2e2219; border-radius: 1px; overflow: hidden">
+        <div style="{{fillStyle}}"></div>
+        <div style="{{tickStyle}}"></div>
+      </div>
+      <span aria-hidden="true" style="{{ribbonStyle}}"></span>
+      <input type="range" aria-label="Position in chapter" min="0" max="{{chapterLen}}" step="1" value="{{pos}}" onChange="{{seek}}" style="position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer">
+    </div>
+    <div style="display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #b9a88c">
+      <span>{{posLabel}}</span>
+      <span>-{{remainLabel}}</span>
+    </div>
+  </div>
+
+  <div style="padding: 18px 24px 0; display: flex; justify-content: center; align-items: center; gap: 30px">
+    <button onClick="{{back}}" aria-label="Back 30 seconds" style="width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; background: transparent; border: 0; color: #efe3cc; cursor: pointer; position: relative">
+      <svg width="34" height="34" viewBox="0 0 34 34" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 11a12 12 0 1 1-2 8"></path><path d="M8 4v7h7"></path></svg>
+      <span style="position: absolute; top: 22px; left: 0; right: 0; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 10px">30</span>
+    </button>
+    <button onClick="{{toggle}}" aria-label="{{playLabel}}" style="width: 84px; height: 84px; display: flex; align-items: center; justify-content: center; background: #e8a23a; color: #1b1410; border: 0; border-radius: 22px; box-shadow: inset 0 -4px 0 rgba(0,0,0,.2), 0 10px 24px rgba(232,162,58,.25); cursor: pointer; transform: rotate(-2deg)">
+      <sc-if value="{{playing}}" hint-placeholder-val="{{ true }}">
+        <svg width="30" height="30" viewBox="0 0 30 30" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="6" height="20" rx="1"></rect><rect x="18" y="5" width="6" height="20" rx="1"></rect></svg>
+      </sc-if>
+      <sc-if value="{{paused}}" hint-placeholder-val="{{ false }}">
+        <svg width="30" height="30" viewBox="0 0 30 30" fill="currentColor" aria-hidden="true"><path d="M9 5l16 10-16 10z"></path></svg>
+      </sc-if>
+    </button>
+    <button onClick="{{fwd}}" aria-label="Forward 30 seconds" style="width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; background: transparent; border: 0; color: #efe3cc; cursor: pointer; position: relative">
+      <svg width="34" height="34" viewBox="0 0 34 34" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M26 11a12 12 0 1 0 2 8"></path><path d="M26 4v7h-7"></path></svg>
+      <span style="position: absolute; top: 22px; left: 0; right: 0; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 10px">30</span>
+    </button>
+  </div>
+
+  <div style="padding: 22px 24px 0; display: flex; flex-direction: column; gap: 6px">
+    <div style="height: 3px; background: #2e2219; border-radius: 2px; overflow: hidden">
+      <div style="{{bookFillStyle}}"></div>
+    </div>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #9c8b70">{{bookLabel}}</span>
+  </div>
+
+  <div style="flex: 1"></div>
+
+  <div style="padding: 0 16px 22px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; border-top: 1px solid #3a2a1e; padding-top: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11px">
+    <button aria-label="Contents" style="min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; background: transparent; border: 0; color: #b9a88c; font: inherit; cursor: pointer">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h9"></path></svg>
+      contents
+    </button>
+    <button onClick="{{cycleSpeed}}" aria-label="{{speedAria}}" style="min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; background: transparent; border: 0; color: #efe3cc; font: inherit; cursor: pointer">
+      <span style="font-family: 'Young Serif', Georgia, serif; font-size: 17px; line-height: 20px">{{speedLabel}}</span>
+      speed
+    </button>
+    <button onClick="{{cycleSleep}}" aria-label="{{sleepAria}}" style="{{sleepBtnStyle}}">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M6 3h8l3 7H3z"></path><path d="M10 10v6M6 17h8"></path></svg>
+      {{sleepLabel}}
+    </button>
+    <button aria-label="Add bookmark" style="min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; background: transparent; border: 0; color: #b9a88c; font: inherit; cursor: pointer">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M6 2h8v16l-4-3-4 3z"></path></svg>
+      bookmark
+    </button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  componentDidMount() {
+    this.timer = setInterval(() => {
+      if (this.state.playing === false) return;
+      const speeds = [1, 1.1, 1.25, 1.5, 2];
+      const sp = speeds[this.state.speedIdx ?? 2];
+      const pos = this.state.pos ?? 842;
+      this.setState({ pos: Math.min(1450, pos + sp) });
+    }, 1000);
+  }
+  componentWillUnmount() { clearInterval(this.timer); }
+  clock(s) {
+    s = Math.max(0, Math.round(s));
+    const m = Math.floor(s / 60), r = s % 60;
+    return m + ':' + String(r).padStart(2, '0');
+  }
+  hm(s) {
+    const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+    return h + 'h ' + String(m).padStart(2, '0') + 'm';
+  }
+  renderVals() {
+    const chapterLen = 1450;
+    const bookLen = 126360;
+    const chapterStart = 77501;
+    const speeds = [1, 1.1, 1.25, 1.5, 2];
+    const sleeps = ['lamp on', 'off in 15m', 'off in 30m', 'end of ch.'];
+    const speedIdx = this.state.speedIdx ?? 2;
+    const sleepIdx = this.state.sleepIdx ?? 2;
+    const sp = speeds[speedIdx];
+    const pos = this.state.pos ?? 842;
+    const playing = this.state.playing !== false;
+    const pct = (pos / chapterLen) * 100;
+    const bookPos = chapterStart + pos;
+    const bookPct = (bookPos / bookLen) * 100;
+    const leftReal = (bookLen - bookPos) / sp;
+    const end = new Date(Date.now() + leftReal * 1000);
+    const days = Math.floor(leftReal / 86400);
+    let hh = end.getHours(); const ap = hh >= 12 ? 'pm' : 'am'; hh = hh % 12 || 12;
+    const endLabel = (days > 0 ? 'in ' + days + 'd, ' : '') + 'around ' + hh + ':' + String(end.getMinutes()).padStart(2, '0') + ' ' + ap;
+    const sleepOn = sleepIdx !== 0;
+    return {
+      chapterLen, pos, playing, paused: !playing,
+      playLabel: playing ? 'Pause' : 'Play',
+      toggle: () => this.setState({ playing: !playing }),
+      back: () => this.setState({ pos: Math.max(0, pos - 30) }),
+      fwd: () => this.setState({ pos: Math.min(chapterLen, pos + 30) }),
+      seek: (e) => this.setState({ pos: Number(e.target.value) }),
+      posLabel: this.clock(pos),
+      remainLabel: this.clock(chapterLen - pos),
+      fillStyle: 'position:absolute;left:0;top:0;bottom:0;width:' + pct.toFixed(2) + '%;background:#e8a23a',
+      tickStyle: 'position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(27,20,16,.75) 0 1px,transparent 1px ' + (100 / (chapterLen / 60)).toFixed(3) + '%)',
+      ribbonStyle: 'position:absolute;top:-2px;left:' + pct.toFixed(2) + '%;width:10px;height:26px;margin-left:-5px;background:#c8402f;clip-path:polygon(0 0,100% 0,100% 100%,50% 80%,0 100%);box-shadow:0 2px 4px rgba(0,0,0,.4);pointer-events:none',
+      bookFillStyle: 'width:' + bookPct.toFixed(2) + '%;height:100%;background:#8a7658',
+      bookLabel: 'whole book ' + Math.floor(bookPct) + '% · ' + this.hm(leftReal) + ' left at ' + sp + '× · done ' + endLabel,
+      speedLabel: sp + '×',
+      speedAria: 'Playback speed ' + sp + 'x. Tap to change.',
+      cycleSpeed: () => this.setState({ speedIdx: (speedIdx + 1) % speeds.length }),
+      sleepLabel: sleeps[sleepIdx],
+      sleepAria: 'Sleep timer: ' + sleeps[sleepIdx] + '. Tap to change.',
+      cycleSleep: () => this.setState({ sleepIdx: (sleepIdx + 1) % sleeps.length }),
+      sleepBtnStyle: 'min-height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:transparent;border:0;font:inherit;cursor:pointer;color:' + (sleepOn ? '#e8a23a' : '#b9a88c')
+    };
+  }
+}
+</script>
+</body>
+</html>
