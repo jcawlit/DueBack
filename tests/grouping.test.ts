@@ -20,6 +20,12 @@ import {
 } from '../src/lib/library/grouping.ts';
 import { isPlaceholderAuthor, resolveName } from '../src/lib/library/names.ts';
 import { sanitiseChapters } from '../src/lib/library/chapters.ts';
+import { searchBooks } from '../src/lib/library/search.ts';
+import {
+  duplicateSets,
+  duplicatesOf,
+  folderLabel,
+} from '../src/lib/library/duplicates.ts';
 
 /** A file at `relPath`, with a size so cover selection has something to rank. */
 function f(relPath: string, sizeBytes = 1000): ScannedFile {
@@ -331,5 +337,114 @@ describe('sanitiseChapters', () => {
   it('leaves a clean list alone', () => {
     const input = [c(0, 'One'), c(10, 'Two')];
     assert.deepEqual(sanitiseChapters(input, 60), input);
+  });
+});
+
+describe('searching the library', () => {
+  const book = (title: string, author = '', narrator?: string) =>
+    ({ id: title, title, author, narrator, chapters: [], files: [] }) as never;
+
+  const titles = (list: ReturnType<typeof searchBooks>) =>
+    list.map((b) => b.title).sort();
+
+  const shelf = [
+    book('Hyperion', 'Dan Simmons'),
+    book('The Fall of Hyperion', 'Dan Simmons'),
+    book('Les Misérables', 'Victor Hugo'),
+    book('Война и мир', 'Лев Толстой'),
+    book('The Blade Itself', 'Joe Abercrombie', 'Steven Pacey'),
+  ];
+
+  it('returns everything for an empty query', () => {
+    assert.equal(searchBooks(shelf, '').length, shelf.length);
+    assert.equal(searchBooks(shelf, '   ').length, shelf.length);
+  });
+
+  it('finds by title and by author', () => {
+    assert.deepEqual(titles(searchBooks(shelf, 'hyperion')),
+      ['Hyperion', 'The Fall of Hyperion']);
+    assert.deepEqual(titles(searchBooks(shelf, 'simmons')),
+      ['Hyperion', 'The Fall of Hyperion']);
+  });
+
+  it('finds by narrator', () => {
+    assert.deepEqual(titles(searchBooks(shelf, 'pacey')), ['The Blade Itself']);
+  });
+
+  it('ignores accents, so a plain keyboard still finds the book', () => {
+    assert.deepEqual(titles(searchBooks(shelf, 'les miserables')), ['Les Misérables']);
+  });
+
+  it('takes the words in any order', () => {
+    assert.deepEqual(titles(searchBooks(shelf, 'simmons fall')), ['The Fall of Hyperion']);
+  });
+
+  it('matches word beginnings, not fragments inside them', () => {
+    // "sim" is someone typing; "ons" is noise.
+    assert.equal(searchBooks(shelf, 'sim').length, 2);
+    assert.equal(searchBooks(shelf, 'ons').length, 0);
+  });
+
+  it('searches non-Latin text too', () => {
+    assert.deepEqual(titles(searchBooks(shelf, 'толстой')), ['Война и мир']);
+  });
+
+  it('returns nothing when nothing matches', () => {
+    assert.equal(searchBooks(shelf, 'zzz').length, 0);
+  });
+});
+
+describe('spotting the same book twice', () => {
+  const copy = (id: string, title: string, author: string, sourceRelPath: string) =>
+    ({ id, title, author, sourceRelPath, chapters: [], files: [] }) as never;
+
+  const shelf = [
+    copy('a', 'Twice Over', 'Ditto', 'Dup A'),
+    copy('b', 'Twice Over', 'Ditto', 'Boxed Set/Dup B'),
+    copy('c', 'Hyperion', 'Dan Simmons', 'Hyperion - Dan Simmons'),
+    copy('d', 'Twice Over', 'Someone Else', 'Elsewhere'),
+  ];
+
+  it('finds the other copy, and does not count the book itself', () => {
+    const twins = duplicatesOf(shelf, shelf[0]);
+    assert.deepEqual(twins.map((b) => b.id), ['b']);
+  });
+
+  it('is symmetrical', () => {
+    assert.deepEqual(duplicatesOf(shelf, shelf[1]).map((b) => b.id), ['a']);
+  });
+
+  it('leaves a book that exists once alone', () => {
+    assert.deepEqual(duplicatesOf(shelf, shelf[2]), []);
+  });
+
+  it('needs the author to match as well as the title', () => {
+    // Same title, different author: a different book, however it is spelled.
+    assert.deepEqual(duplicatesOf(shelf, shelf[3]), []);
+  });
+
+  it('ignores case, accents and punctuation', () => {
+    const messy = [
+      copy('x', 'Les Misérables', 'Victor Hugo', 'A'),
+      copy('y', 'les miserables', 'victor hugo', 'B'),
+    ];
+    assert.deepEqual(duplicatesOf(messy, messy[0]).map((b) => b.id), ['y']);
+  });
+
+  it('says nothing about a book with no title to match on', () => {
+    const blank = [copy('p', '', '', 'A'), copy('q', '', '', 'B')];
+    assert.deepEqual(duplicatesOf(blank, blank[0]), []);
+  });
+
+  it('names the folder as a path, so "Disc 1" is never shown on its own', () => {
+    assert.equal(folderLabel(shelf[1]), 'Boxed Set/Dup B');
+    assert.equal(folderLabel(copy('r', 'T', 'A', '') as never), 'the library folder');
+    assert.equal(folderLabel(copy('s', 'T', 'A', '/Trimmed/') as never), 'Trimmed');
+  });
+
+  it('groups the whole library into sets of more than one', () => {
+    const sets = duplicateSets(shelf);
+    assert.equal(sets.length, 1);
+    assert.deepEqual(sets[0].map((b) => b.id).sort(), ['a', 'b']);
   });
 });

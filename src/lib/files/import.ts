@@ -209,31 +209,80 @@ export async function copyImportToDrive(
   folderName: string,
   files: { relPath: string; name: string; sizeBytes: number }[],
 ): Promise<{ ok: true; uris: string[] } | { ok: false; message: string }> {
+  // Staged under a hidden sibling, then moved into place in one step.
+  //
+  // This used to write straight into the destination folder, so a copy that
+  // failed halfway — the drive pulled out, the card full — left a folder of
+  // half a book on the drive, indistinguishable from a real one to the next
+  // scan. Copying onto the phone has always staged and then moved; the drive
+  // is the user's own library and deserves the same care, more so because
+  // nothing else holds a copy of what is written there.
+  //
+  // The staging folder is named with the book's folder name so two imports
+  // running back to back cannot collide, and it is swept away on every exit
+  // path, including the failures.
+  let staging: Directory | null = null;
+
   try {
     const root = new Directory(libraryRootUri);
     if (!root.exists) return { ok: false, message: 'The drive is not reachable.' };
 
-    // A folder of the same name may already exist from a previous attempt.
-    let target: Directory;
-    const existing = root
-      .list()
-      .find((e): e is Directory => e instanceof Directory && e.name === folderName);
-    target = existing ?? root.createDirectory(folderName);
+    const entries = root.list();
+    const taken = new Set(entries.map((e) => e.name));
 
-    const uris: string[] = [];
+    // Never write over a folder that is already there. A name that is taken
+    // gets a numbered suffix, the way a desktop would do it, because the
+    // existing folder may be a different book that happens to share a name —
+    // or this same book, in which case the user still has the original.
+    let finalName = folderName;
+    for (let n = 2; taken.has(finalName); n += 1) {
+      finalName = `${folderName} (${n})`;
+    }
+
+    const stagingName = `.dueback-tmp-${finalName}`;
+    const leftover = entries.find(
+      (e): e is Directory => e instanceof Directory && e.name === stagingName,
+    );
+    if (leftover) removeQuietly(leftover);
+
+    staging = root.createDirectory(stagingName);
+
     for (const file of files) {
       const source = new File(Paths.document, file.relPath);
       if (!source.exists) return { ok: false, message: `${file.name} is missing from the phone.` };
-      const created = target.createFile(file.name, null);
+      // Constructed, not created. `createFile` makes a zero-byte file and
+      // `copy` then refuses to write over it — the copy onto the phone has
+      // always built its destination this way, and this path had quietly kept
+      // the older pattern. Nothing covered it, so nothing caught it.
+      const created = new File(staging, file.name);
       await source.copy(created);
       const written = created.exists ? (created.size ?? 0) : 0;
       if (file.sizeBytes > 0 && written !== file.sizeBytes) {
         return { ok: false, message: `${file.name} copied incompletely to the drive.` };
       }
-      uris.push(created.uri);
     }
+
+    // Everything landed and verified: now it becomes a book on the drive.
+    const target = new Directory(root, finalName);
+    staging.move(target);
+    // Nothing is swept up after the move. `move` updates the instance it was
+    // called on to point at the new location, so deleting "the staging folder"
+    // afterwards deletes the book that was just put in place — which is
+    // exactly what happened here until a test caught it. Anything a failed run
+    // does leave behind is named `.dueback-tmp-…` and is cleared by the next
+    // attempt at the same book.
+    staging = null;
+
+    const uris = target
+      .list()
+      .filter((e): e is File => e instanceof File)
+      .map((f) => f.uri);
+
     return { ok: true, uris };
   } catch (err) {
     return { ok: false, message: (err as Error)?.message ?? 'The copy to the drive failed.' };
+  } finally {
+    // Any path that did not complete the move leaves nothing behind.
+    if (staging) removeQuietly(staging);
   }
 }

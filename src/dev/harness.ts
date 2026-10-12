@@ -186,6 +186,18 @@ export async function checkOutAndSettle(id: string, timeoutMs = 180000) {
   await sleep(300);
 }
 
+/** Puts a book back and waits for the local files to go. */
+export async function returnAndSettle(id: string, timeoutMs = 30000) {
+  useLibrary.setState({ slip: null });
+  library().returnBook(id, { confirmed: true });
+  await waitFor(
+    'the return to settle',
+    () => bookById(id)?.local.status === 'on-shelf',
+    timeoutMs,
+  );
+  await sleep(200);
+}
+
 export const lastMessage = () => library().slip?.text ?? '';
 
 // -------------------------------------------------------------- filesystem

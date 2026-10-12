@@ -786,9 +786,30 @@ export const useLibrary = create<LibraryState>((set, get) => {
         set({ importing: 'Reading the tags…' });
         try {
           const book = await buildImportedBook(result.bookId, result.folderName, result.files);
+
+          // Nothing in what was picked is playable. A book on the drive in this
+          // state is still worth listing — it exists, and the user may want to
+          // go and look at it — but an import has no such folder to go back to,
+          // so saving it would only put an unplayable row on the shelf and
+          // leave the staged copies on disk for ever.
+          if (book.parts.length === 0) {
+            deleteImport(result.bookId);
+            flashSlip({
+              kind: 'wont-fit',
+              text:
+                result.files.length === 1
+                  ? "That file has no audio that can be read. It may be empty or damaged."
+                  : 'None of those files had audio that could be read.',
+            });
+            return;
+          }
+
           await saveImportedBook(
             book,
-            result.files.map((f) => f.relPath),
+            // The parts that survived, not everything that was staged: a file
+            // dropped as unplayable must not be recorded as one of the book's
+            // local files.
+            book.parts.map((p) => p.relPath),
           );
           await get().refresh();
           flashSlip({

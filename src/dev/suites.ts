@@ -28,22 +28,33 @@ import {
   listNames,
   near,
   oneBookIn,
+  returnAndSettle,
   scanner,
   sleep,
   waitFor,
   appDir,
   type Suite,
 } from './harness';
-import { File } from 'expo-file-system';
+import { Directory, File } from 'expo-file-system';
 import { forgetMissingBooks, loadDevBooks, loadParts } from '@/db/books';
 import { SETTING_KEYS, getSetting } from '@/db/schema';
 import { usePlayer } from '@/store/player';
 import { SPEEDS } from '@/lib/audio/engine';
 import { buildShelves } from '@/lib/shelves';
-import { IMPORTS_DIR } from '@/lib/files/import';
+import { searchBooks } from '@/lib/library/search';
+import { duplicateSets, duplicatesOf, folderLabel } from '@/lib/library/duplicates';
+import { clearDiskFaults, setDiskFault } from '@/dev/faults';
+import { IMPORTS_DIR, copyImportToDrive, deleteImport } from '@/lib/files/import';
 import { buildImportedBook, saveImportedBook } from '@/lib/scan/importBook';
 import { reconcileLocalCopies } from '@/store/library';
-import { BOOKS_DIR, BOOKS_TMP_DIR, clearTempCopies } from '@/lib/files/copy';
+import { scanLibrary } from '@/lib/scan/scanner';
+import { asDirectoryUri } from '@/lib/files/access';
+import {
+  BOOKS_DIR,
+  BOOKS_TMP_DIR,
+  FREE_SPACE_MARGIN_BYTES,
+  clearTempCopies,
+} from '@/lib/files/copy';
 
 const player = () => usePlayer.getState();
 
@@ -626,6 +637,43 @@ const a4CheckOut: Suite = {
       },
     },
     {
+      id: 'C-09',
+      name: 'check-out is refused when the phone is nearly full',
+      async run() {
+        const book = await oneBookIn('Hyperion - Dan Simmons');
+        if (bookById(book.id)!.local.status === 'checked-out') {
+          await returnAndSettle(book.id);
+        }
+        try {
+          // Room for the book, but not for the book and the 1 GB margin.
+          setDiskFault({ freeBytes: book.sizeBytes + 1024 * 1024 });
+          library().dismissSlip();
+          library().checkOut(book.id);
+          await sleep(700);
+
+          equal(bookById(book.id)!.local.status, 'on-shelf', 'status');
+          equal(listNames(appDir(BOOKS_DIR, book.id)).length, 0, 'files copied');
+          check(
+            /short of keeping 1 GB free/.test(lastMessage()),
+            `message was "${lastMessage()}"`,
+          );
+          // Refused before anything was written, so no staging to clean up.
+          equal(listNames(appDir(BOOKS_TMP_DIR)).length, 0, 'staging folder');
+
+          clearDiskFaults();
+          await checkOutAndSettle(book.id);
+          equal(
+            bookById(book.id)!.local.status,
+            'checked-out',
+            `check-out once there is room (${lastMessage()})`,
+          );
+          return 'refused one megabyte short, allowed once clear';
+        } finally {
+          clearDiskFaults();
+        }
+      },
+    },
+    {
       id: 'C-14',
       name: 'a DRM book is refused',
       async run() {
@@ -744,6 +792,88 @@ const a3Missing: Suite = {
       },
     },
     {
+      id: 'M-05',
+      name: 'a rescan with the root unreachable marks nothing missing',
+      async run(ctx) {
+        // The bug this guards: `listTree` does not throw when the root has
+        // gone — it records an unreadable folder and returns an empty listing
+        // — so a rescan looked exactly like a scan of a library with no books
+        // in it, and reconciliation stamped every single book NOT ON DRIVE.
+        // Both Settings rescan buttons are one tap away at any time.
+        await ensureScan();
+        const before = books().length;
+        check(before > 0, 'no books to lose');
+
+        check(setRootReachable(ctx.rootPath, false), 'could not park the root');
+        try {
+          // First defence: the store refuses to scan at all, and says why.
+          scanner().clearError();
+          await scanner().rescan();
+          check(!!scanner().error, 'the user was told nothing about the unreadable root');
+
+          await library().refresh();
+          equal(books().length, before, 'books disappeared from the library');
+          let missing = books().filter((b) => b.missingFromDrive).length;
+          equal(missing, 0, `${missing} books marked missing by a refused rescan`);
+
+          // Second defence, behind the first: even called directly, the
+          // scanner must report the root as unreadable rather than walking an
+          // empty tree and calling the library empty. `Directory.list()`
+          // returns nothing for a folder that has gone rather than throwing,
+          // which is exactly how this went unnoticed.
+          const direct = await scanLibrary({ rootUri: `file://${ctx.rootPath}` });
+          equal(direct.rootReadable, false, 'the scanner thought the root was readable');
+          equal(direct.books, 0, 'books found under a root that is not there');
+
+          await library().refresh();
+          missing = books().filter((b) => b.missingFromDrive).length;
+          equal(missing, 0, `${missing} books marked missing by a scan that saw nothing`);
+
+          return `${before} books intact, refused with "${scanner().error}"`;
+        } finally {
+          setRootReachable(ctx.rootPath, true);
+          scanner().clearError();
+          scanner().forgetSync();
+          await library().checkDrive();
+          await ensureScan({ force: true });
+        }
+      },
+    },
+    {
+      id: 'M-06',
+      name: 'a cancelled scan marks nothing missing',
+      async run() {
+        await ensureScan();
+        const before = books().length;
+        check(before > 0, 'no books to lose');
+
+        // Cancel as soon as the read phase starts, so most of the library is
+        // never reached. Everything unreached used to be stamped missing.
+        const started = scanner().rescan({ force: true });
+        await waitFor(
+          'the scan to start reading',
+          () => scanner().progress?.phase === 'reading' || !scanner().running,
+          30000,
+        );
+        scanner().cancel();
+        await started;
+
+        const result = scanner().lastResult;
+        check(!!result, 'no scan result');
+        equal(result!.completed, false, 'the scan did not report being cancelled');
+
+        await library().refresh();
+        equal(books().length, before, 'books disappeared from the library');
+        const missing = books().filter((b) => b.missingFromDrive).length;
+        equal(missing, 0, `${missing} books were marked missing by a cancelled scan`);
+
+        // And a full scan afterwards still puts everything back in step.
+        await ensureScan({ force: true });
+        equal(books().length, before, 'book count after the recovery scan');
+        return `cancelled after ${result!.updated} books, nothing marked missing`;
+      },
+    },
+    {
       id: 'I-07',
       name: 'a missing book comes back when its folder returns',
       async run() {
@@ -803,14 +933,25 @@ const a3Missing: Suite = {
         scanner().forgetSync();
         setRootReachable(ctx.rootPath, true);
 
+        const before = scanner().lastResult;
         const connected = await library().checkDrive();
         equal(connected, true, 'drive did not come back');
-        // The screen-level watcher reacts to the state change; give it a tick,
-        // then make sure whatever it started finishes.
-        await sleep(600);
-        await waitFor('the re-sync to finish', () => !scanner().running, 300000);
+        // Wait for a *new* result, not merely for the scanner to be idle: the
+        // watcher that starts the re-sync lives on a screen and reacts a tick
+        // later, so "not running" was true before it had even begun, and the
+        // assertions below then read the index mid-flight.
+        await waitFor(
+          'the re-sync to produce a result',
+          () => scanner().lastResult !== before && !scanner().running,
+          300000,
+        );
         await library().refresh();
-        equal(books().filter((b) => b.missingFromDrive).length, 0, 'books left marked missing');
+        const stillMissing = books().filter((b) => b.missingFromDrive);
+        equal(
+          stillMissing.length,
+          0,
+          `books left marked missing: ${titlesOf(stillMissing)}`,
+        );
         return 'drive connected, index re-synced';
       },
     },
@@ -946,14 +1087,83 @@ const a5Budget: Suite = {
     {
       id: 'B-04',
       name: 'the 1 GB free-space floor',
-      skip: 'needs disk-fill fault injection, which is not built yet',
-      run: async () => {},
+      async run() {
+        const book = await oneBookIn('Dune');
+        if (bookById(book.id)!.local.status === 'checked-out') {
+          await returnAndSettle(book.id);
+        }
+        try {
+          // One byte short of the floor. The budget is left alone so that this
+          // can only be the free-space check refusing.
+          setDiskFault({ freeBytes: book.sizeBytes + FREE_SPACE_MARGIN_BYTES - 1 });
+          library().dismissSlip();
+          library().checkOut(book.id);
+          await sleep(700);
+          equal(bookById(book.id)!.local.status, 'on-shelf', 'status while one byte short');
+          check(/1 GB free/.test(lastMessage()), `message was "${lastMessage()}"`);
+          equal(listNames(appDir(BOOKS_DIR, book.id)).length, 0, 'files copied');
+          await assertNoOrphans();
+
+          // Exactly on the floor is enough; the check is a floor, not a gap.
+          setDiskFault({ freeBytes: book.sizeBytes + FREE_SPACE_MARGIN_BYTES });
+          await checkOutAndSettle(book.id);
+          equal(
+            bookById(book.id)!.local.status,
+            'checked-out',
+            `status exactly on the floor (${lastMessage()})`,
+          );
+          return 'refused one byte short, allowed exactly on the floor';
+        } finally {
+          clearDiskFaults();
+        }
+      },
     },
     {
       id: 'B-06',
       name: 'the disk filling during a copy',
-      skip: 'needs disk-fill fault injection, which is not built yet',
-      run: async () => {},
+      async run() {
+        // Multi-part, so the failure lands after one part is already written —
+        // which is what makes the all-or-nothing staging worth having.
+        const book = await oneBookIn('The Long Way (Unabridged) [MP3] 64kbps');
+        if (bookById(book.id)!.local.status === 'checked-out') {
+          await returnAndSettle(book.id);
+        }
+        try {
+          // Free space is plentiful at the start, so the up-front check passes
+          // and the copy genuinely begins — then the write fails, exactly as a
+          // disk filling under another app's download would do it.
+          setDiskFault({ freeBytes: 64 * 1024 * 1024 * 1024, failWriteAtPart: 3 });
+          library().dismissSlip();
+          await checkOutAndSettle(book.id);
+
+          equal(bookById(book.id)!.local.status, 'on-shelf', 'status after the disk filled');
+          check(
+            /ran out of room/.test(lastMessage()),
+            `message was "${lastMessage()}" — the native ENOSPC text should never reach the user`,
+          );
+          equal(listNames(appDir(BOOKS_DIR, book.id)).length, 0, 'the part-copied folder survived');
+          equal(listNames(appDir(BOOKS_TMP_DIR)).length, 0, 'staging folder survived');
+          await assertNoOrphans();
+
+          const parts = await loadParts(book.id);
+          check(
+            parts.every((part) => !part.local_uri),
+            'local paths were recorded for a copy that failed',
+          );
+
+          // And the book is still checkable-out once there is room again.
+          clearDiskFaults();
+          await checkOutAndSettle(book.id);
+          equal(
+            bookById(book.id)!.local.status,
+            'checked-out',
+            `recovery check-out (${lastMessage()})`,
+          );
+          return 'failed at part 4, nothing kept, recovered';
+        } finally {
+          clearDiskFaults();
+        }
+      },
     },
     {
       id: 'B-07',
@@ -1141,6 +1351,143 @@ const a8Imports: Suite = {
         check(!!imported!.importedFromPhone, 'not flagged as imported from the phone');
         check(!!imported!.onlyCopyOnPhone, 'not flagged as the only copy');
         return `${staged.length} part(s) staged and indexed`;
+      },
+    },
+    {
+      id: 'IM-E',
+      name: 'an import drops files with no readable audio',
+      async run() {
+        // The drive scanner has always refused to make a part out of a
+        // zero-byte or unreadable file; the import path laid them into the
+        // timeline with a duration of zero, giving the book phantom parts that
+        // played silence and pushed every later part out of step.
+        const source = await oneBookIn('Embedded Only');
+        const sourceParts = await loadParts(source.id);
+        const bookId = `imp-junk-${Date.now().toString(36)}`;
+        const dir = ensureDir(appDir(IMPORTS_DIR, bookId));
+
+        const staged = [];
+
+        // One real file...
+        const real = new File(dir, '0000.m4b');
+        if (real.exists) real.delete();
+        await new File(sourceParts[0].uri).copy(real);
+        staged.push({
+          relPath: `${IMPORTS_DIR}/${bookId}/0000.m4b`,
+          uri: real.uri,
+          name: 'real.m4b',
+          sizeBytes: real.size ?? 0,
+        });
+
+        // ...and one empty one beside it.
+        const empty = new File(dir, '0001.m4b');
+        if (empty.exists) empty.delete();
+        empty.create();
+        staged.push({
+          relPath: `${IMPORTS_DIR}/${bookId}/0001.m4b`,
+          uri: empty.uri,
+          name: 'empty.m4b',
+          sizeBytes: 0,
+        });
+
+        const built = await buildImportedBook(bookId, 'Junk Import', staged);
+        equal(built.parts.length, 1, `parts kept (${built.parts.map((x) => x.name).join(', ')})`);
+        equal(built.parts[0].name, 'real.m4b', 'the surviving part');
+        check(built.durationSec > 0, 'the book has no duration');
+        check(
+          built.warnings.some((w) => /empty/i.test(w)),
+          `no warning about the empty file: ${built.warnings.join(' | ')}`,
+        );
+
+        deleteImport(bookId);
+        return '1 of 2 files kept, empty one dropped with a warning';
+      },
+    },
+    {
+      id: 'IM-F',
+      name: 'copying an import to the drive is all-or-nothing',
+      async run(ctx) {
+        // Writing straight into the destination left half a book on the drive
+        // when a copy failed partway — indistinguishable from a real one to
+        // the next scan. A missing source file is the cheapest way to make the
+        // copy fail after the staging folder exists.
+        const rootUri = `file://${ctx.rootPath}`;
+        const folderName = `Self Test To Drive ${Date.now().toString(36)}`;
+
+        const before = listNames(new Directory(asDirectoryUri(rootUri)));
+
+        const outcome = await copyImportToDrive(rootUri, folderName, [
+          { relPath: `${IMPORTS_DIR}/does-not-exist/0000.m4b`, name: 'gone.m4b', sizeBytes: 10 },
+        ]);
+        check(!outcome.ok, 'a copy from a missing source reported success');
+
+        const after = listNames(new Directory(asDirectoryUri(rootUri)));
+        const added = after.filter((n) => !before.includes(n));
+        equal(
+          added.length,
+          0,
+          `the failed copy left ${added.join(', ')} behind on the drive`,
+        );
+        return 'failed copy left nothing on the drive';
+      },
+    },
+    {
+      id: 'IM-G',
+      name: 'copying an import to the drive never writes over a folder',
+      async run(ctx) {
+        // The destination folder may already hold a different book that
+        // happens to share a name. A numbered suffix is what a desktop would
+        // do, and it keeps the original intact either way.
+        const rootUri = `file://${ctx.rootPath}`;
+
+        const bookId = `imp-collide-${Date.now().toString(36)}`;
+        const dir = ensureDir(appDir(IMPORTS_DIR, bookId));
+        const staged = new File(dir, '0000.m4b');
+        if (staged.exists) staged.delete();
+        // Written here rather than copied out of the library: what is being
+        // tested is where the bytes land, not what they are, and by this point
+        // in the run every real book may be checked out, parked or flagged.
+        staged.create();
+        staged.write('not really audio, and it does not need to be');
+        const files = [
+          {
+            relPath: `${IMPORTS_DIR}/${bookId}/0000.m4b`,
+            name: 'book.m4b',
+            sizeBytes: staged.size ?? 0,
+          },
+        ];
+
+        const folderName = `Self Test Collide ${Date.now().toString(36)}`;
+        const root = new Directory(asDirectoryUri(rootUri));
+        try {
+          const first = await copyImportToDrive(rootUri, folderName, files);
+          check(first.ok, `first copy failed: ${first.ok ? '' : first.message}`);
+          check(new Directory(root, folderName).exists, 'the first copy is not there');
+
+          const second = await copyImportToDrive(rootUri, folderName, files);
+          check(second.ok, `second copy failed: ${second.ok ? '' : second.message}`);
+          check(
+            new Directory(root, `${folderName} (2)`).exists,
+            'the second copy did not get a numbered name',
+          );
+
+          // No staging folder survived either run.
+          const leftovers = listNames(root).filter((n) => n.startsWith('.dueback-tmp-'));
+          equal(leftovers.length, 0, `staging folders left: ${leftovers.join(', ')}`);
+
+          return 'second copy landed beside the first, not over it';
+        } finally {
+          for (const name of [folderName, `${folderName} (2)`]) {
+            try {
+              const d = new Directory(root, name);
+              if (d.exists) d.delete();
+            } catch {
+              // Best effort; the next forced scan ignores what is not there.
+            }
+          }
+          deleteImport(bookId);
+          await ensureScan({ force: true });
+        }
       },
     },
     {
@@ -1453,22 +1800,122 @@ const a11Ui: Suite = {
 
 // =====================================================================  A0
 
-const a0Blocked: Suite = {
+const a0Extras: Suite = {
   id: 'A0',
-  name: 'Blocked until built',
+  name: 'Search, duplicates and the DRM stamp',
   cases: [
-    { id: 'U-03', name: 'search', skip: 'search is not built yet', run: async () => {} },
+    {
+      id: 'U-03',
+      name: 'search finds books by title, author and narrator',
+      async run() {
+        const all = books();
+        check(all.length > 0, 'no books');
+
+        // An empty query is not a filter.
+        equal(searchBooks(all, '').length, all.length, 'empty query');
+        equal(searchBooks(all, '   ').length, all.length, 'whitespace query');
+
+        const hyperion = await oneBookIn('Hyperion - Dan Simmons');
+        const byTitle = searchBooks(all, 'hyperion');
+        check(
+          byTitle.some((b) => b.id === hyperion.id),
+          `"hyperion" did not find it (got ${titlesOf(byTitle)})`,
+        );
+
+        // A prefix of the author's surname, with the words the wrong way round.
+        const byAuthor = searchBooks(all, 'simm');
+        check(
+          byAuthor.some((b) => b.id === hyperion.id),
+          `"simm" did not find it (got ${titlesOf(byAuthor)})`,
+        );
+        const reversed = searchBooks(all, 'simmons hyperion');
+        check(
+          reversed.some((b) => b.id === hyperion.id),
+          `"simmons hyperion" did not find it (got ${titlesOf(reversed)})`,
+        );
+
+        // Accents and non-Latin text fold rather than break: a prefix of the
+        // Cyrillic fixture's own title must still reach it.
+        const tolstoy = await oneBookIn('Война и мир - Лев Толстой');
+        const folded = searchBooks(all, tolstoy.title.slice(0, 5));
+        check(
+          folded.some((b) => b.id === tolstoy.id),
+          'a prefix of a non-ASCII title did not find it',
+        );
+
+        // Mid-word is deliberately not a match: "son" finding "Simmons" is
+        // noise, and the rule we settled on is forgiving prefixes, not fuzzy.
+        const mid = searchBooks(all, 'yperion');
+        check(
+          !mid.some((b) => b.id === hyperion.id),
+          'a mid-word fragment matched; search should be prefix-based',
+        );
+
+        // Nothing at all is a real result, not a crash.
+        equal(searchBooks(all, 'zzzzqqqq').length, 0, 'a nonsense query');
+
+        return `${all.length} books searchable`;
+      },
+    },
     {
       id: 'I-08b',
-      name: 'duplicate note on the Book screen',
-      skip: 'the "Same book also in" note is not built yet',
-      run: async () => {},
+      name: 'the duplicate note names the other copy',
+      async run() {
+        const a = await oneBookIn('Dup A');
+        const b = await oneBookIn('Dup B');
+        check(a.id !== b.id, 'the two copies share an id; they should be separate books');
+
+        const all = books();
+        const twinsOfA = duplicatesOf(all, a);
+        equal(twinsOfA.length, 1, `copies found beside Dup A (${titlesOf(twinsOfA)})`);
+        equal(twinsOfA[0].id, b.id, 'the copy found beside Dup A');
+        equal(folderLabel(twinsOfA[0]), 'Dup B', 'the folder the note shows');
+
+        const twinsOfB = duplicatesOf(all, b);
+        equal(twinsOfB.length, 1, 'copies found beside Dup B');
+        equal(twinsOfB[0].id, a.id, 'the copy found beside Dup B');
+
+        // And it is not shown on a book that only exists once.
+        const lone = await oneBookIn('Hyperion - Dan Simmons');
+        equal(duplicatesOf(all, lone).length, 0, 'Hyperion was treated as a duplicate');
+
+        // The library-wide view agrees: the Dup pair is a set of exactly two.
+        const sets = duplicateSets(all);
+        const dupSet = sets.find((set) => set.some((x) => x.id === a.id));
+        check(!!dupSet, 'the Dup pair is missing from duplicateSets');
+        equal(dupSet!.length, 2, 'size of the Dup set');
+
+        return `${sets.length} duplicate set(s); Dup A / Dup B paired`;
+      },
     },
     {
       id: 'S-13b',
-      name: 'DRM stamp on the cover',
-      skip: 'the cover stamp is not built yet',
-      run: async () => {},
+      name: 'the DRM flag reaches the cover and the Book screen',
+      async run() {
+        const drm = await oneBookIn('DRM');
+        check(!!drm.drmProtected, 'F14 is not flagged as DRM');
+
+        // The cover stamp and the Book screen note are both driven straight off
+        // this flag, so what a UI test could add here is a screenshot, which is
+        // a list B job. What the harness can prove is that the flag survives a
+        // round trip through the database — which is where it would be lost.
+        await library().refresh();
+        const reloaded = bookById(drm.id);
+        check(!!reloaded?.drmProtected, 'the DRM flag did not survive a refresh');
+
+        // No other fixture is flagged, so the stamp cannot appear by accident.
+        const flagged = books().filter((b) => b.drmProtected);
+        equal(flagged.length, 1, `books flagged as DRM: ${titlesOf(flagged)}`);
+
+        // And it is still refused, which is the stamp's whole promise.
+        library().dismissSlip();
+        library().checkOut(drm.id);
+        await sleep(600);
+        equal(bookById(drm.id)!.local.status, 'on-shelf', 'status after a tap');
+        check(/DRM/.test(lastMessage()), `message was "${lastMessage()}"`);
+
+        return `1 flagged, refused: "${lastMessage()}"`;
+      },
     },
   ],
 };
@@ -1486,7 +1933,7 @@ export const SUITES: Suite[] = [
   a9Startup,
   a10Playback,
   a11Ui,
-  a0Blocked,
+  a0Extras,
 ];
 
 export function suitesFor(selector: string | undefined): Suite[] {

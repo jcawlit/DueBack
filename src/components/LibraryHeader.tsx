@@ -3,10 +3,10 @@
  * the entry point to select mode.
  */
 
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { SORT_LABELS, type SortMode } from '@/data/types';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
-import { DriveIcon } from './icons';
+import { DriveIcon, SearchIcon } from './icons';
 
 const SORTS: SortMode[] = ['length', 'author', 'color', 'dust'];
 
@@ -55,7 +55,7 @@ export function DriveStatusButton({
           color: connected ? color.paper : color.muted,
         }}
       >
-        DRAWER
+        DRIVE
       </Text>
       {/* The lamp: filled and glowing when the drive is there, hollow when not. */}
       {checking ? (
@@ -136,6 +136,8 @@ export function LibraryHeader({
   onToggleSelect,
   checking,
   onOpenSettings,
+  search,
+  onSearch,
 }: {
   title: string;
   subtitle: string;
@@ -148,6 +150,8 @@ export function LibraryHeader({
   onSort?: (next: SortMode) => void;
   selecting?: boolean;
   onToggleSelect?: () => void;
+  search?: string;
+  onSearch?: (next: string) => void;
 }) {
   return (
     <View
@@ -186,6 +190,54 @@ export function LibraryHeader({
           checking={checking}
         />
       </View>
+
+      {onSearch ? (
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: space.sm,
+            paddingHorizontal: space.md,
+            borderRadius: radius.button,
+            borderWidth: 1,
+            borderColor: color.line,
+            backgroundColor: color.panel,
+          }}
+        >
+          <SearchIcon size={16} stroke={color.muted} />
+          <TextInput
+            value={search ?? ''}
+            onChangeText={onSearch}
+            placeholder="Search titles, authors, narrators"
+            placeholderTextColor={color.faint}
+            accessibilityLabel="Search the library"
+            returnKeyType="search"
+            autoCorrect={false}
+            autoCapitalize="none"
+            style={{
+              flex: 1,
+              minHeight: TOUCH,
+              fontFamily: font.sans,
+              fontSize: 15,
+              color: color.paper,
+              // Android pads text inputs generously by default, which makes
+              // the field taller than the row it sits in.
+              paddingVertical: 0,
+            }}
+          />
+          {search ? (
+            <Pressable
+              onPress={() => onSearch('')}
+              accessibilityRole="button"
+              accessibilityLabel="Clear the search"
+              hitSlop={10}
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 4 })}
+            >
+              <Text style={{ fontFamily: font.mono, fontSize: 15, color: color.muted }}>×</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
 
       {sort && onSort ? (
         <View

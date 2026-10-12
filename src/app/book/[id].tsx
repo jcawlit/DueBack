@@ -6,14 +6,17 @@
 import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useMemo } from 'react';
 import { isCheckedOut, progressFraction, remainingSec } from '@/data/types';
 import { selectBook, useLibrary } from '@/store/library';
+import { duplicatesOf, folderLabel } from '@/lib/library/duplicates';
 import { bytes, hoursMinutes, hoursLeft, stampDate } from '@/lib/format';
 import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
 import { BookCover } from '@/components/BookCover';
 import { LibraryCard } from '@/components/LibraryCard';
 import { Slip } from '@/components/Slip';
 import { StatusTag } from '@/components/CoverBadges';
+import { NoteCard, NoteText } from '@/components/NoteCard';
 import { ChevronLeft } from '@/components/icons';
 
 export default function BookScreen() {
@@ -29,6 +32,7 @@ export default function BookScreen() {
   );
 
   const book = useLibrary(selectBook(id));
+  const books = useLibrary((s) => s.books);
   const driveConnected = useLibrary((s) => s.driveConnected);
   const libraryOnDevice = useLibrary((s) => s.libraryOnDevice);
   const checkOut = useLibrary((s) => s.checkOut);
@@ -37,6 +41,9 @@ export default function BookScreen() {
   const checkOutAndPlay = useLibrary((s) => s.checkOutAndPlay);
   const slip = useLibrary((s) => s.slip);
   const dismissSlip = useLibrary((s) => s.dismissSlip);
+
+  // Before the early return below, because hooks cannot run conditionally.
+  const twins = useMemo(() => (book ? duplicatesOf(books, book) : []), [books, book]);
 
   if (!book) {
     return (
@@ -241,40 +248,57 @@ export default function BookScreen() {
           </Text>
         </View>
 
+        {book.drmProtected ? (
+          <NoteCard stamp="PROTECTED">
+            <NoteText>
+              {`This file is encrypted — an Audible or iTunes purchase that only their own apps can open. Due Back can list it, but nothing can play it from here. A version you own outright will work.`}
+            </NoteText>
+          </NoteCard>
+        ) : null}
+
         {book.missingFromDrive ? (
-          <View
-            style={{
-              marginTop: space.lg,
-              marginHorizontal: space.xxl,
-              borderWidth: 1,
-              borderColor: color.warningInk,
-              borderRadius: radius.button,
-              padding: space.md,
-              gap: space.xs,
-            }}
-          >
-            <Text
-              style={{
-                fontFamily: font.monoMedium,
-                fontSize: 10,
-                letterSpacing: 0.9,
-                color: color.warning,
-              }}
-            >
-              NOT ON THE DRIVE
-            </Text>
-            <Text
-              style={{
-                fontFamily: font.sans,
-                fontSize: 13,
-                lineHeight: 13 * 1.4,
-                color: '#cbbb9e',
-              }}
-            >
+          <NoteCard stamp="NOT ON THE DRIVE">
+            <NoteText>
               {`The last scan couldn't find this one on the drive — moved, renamed or deleted.`}
               {out ? ' Your phone has the only copy, so returning it will ask twice.' : ''}
-            </Text>
-          </View>
+            </NoteText>
+          </NoteCard>
+        ) : null}
+
+        {/*
+          Not a warning: two copies may be entirely deliberate. It is here so
+          that nobody checks out 1.5 GB twice without knowing they have it.
+        */}
+        {twins.length > 0 ? (
+          <NoteCard stamp="ALSO IN THE LIBRARY" tone="quiet">
+            <NoteText>
+              {`The same title and author ${twins.length === 1 ? 'is' : 'are'} also in:`}
+            </NoteText>
+            {twins.map((twin) => (
+              <Pressable
+                key={twin.id}
+                onPress={() => router.replace(`/book/${twin.id}`)}
+                accessibilityRole="button"
+                accessibilityLabel={`Open the copy in ${folderLabel(twin)}`}
+                style={({ pressed }) => ({
+                  minHeight: 32,
+                  justifyContent: 'center',
+                  opacity: pressed ? 0.6 : 1,
+                })}
+              >
+                <Text
+                  style={{
+                    fontFamily: font.mono,
+                    fontSize: 11,
+                    color: color.accent,
+                  }}
+                >
+                  {folderLabel(twin)}
+                  {isCheckedOut(twin) ? ' · on your phone' : ''}
+                </Text>
+              </Pressable>
+            ))}
+          </NoteCard>
         ) : null}
 
         <View style={{ marginTop: space.xl, marginHorizontal: space.xxl }}>

@@ -193,6 +193,147 @@ They occupied real space while being invisible to the storage ruler.
 
 ---
 
+## A review pass, and the five things it found
+
+A read-through of the codebase raised seventeen questions. Five were real
+bugs, and two of those were a tap away from doing visible damage.
+
+### Pressing Rescan with the drive unplugged marked the whole library missing
+
+The worst of them. `rescan()` only checked that a folder had been *chosen*,
+never that it could be *read*, and both Settings rescan buttons are enabled
+whenever a folder is chosen. `listTree` does not throw when the root has gone —
+it records an unreadable folder and returns an empty listing — so the scan
+"saw" nothing, and reconciliation duly stamped every book NOT ON DRIVE.
+
+There are now two defences. `rescan` refuses outright when the root is not
+reachable and says so, which is what the user meets. Behind it, the scanner
+reports whether the root was readable at all and declines to reconcile when it
+was not. `listTree` establishes that by asking whether the folder exists rather
+than by waiting for an error that never comes — the detail that hid this.
+
+*`src/store/scan.ts`, `src/lib/scan/scanner.ts`, `src/lib/files/access.ts`*
+
+### Cancelling a scan marked everything it had not reached yet
+
+The same reconciliation, the same mistake from the other direction: cancelling
+broke out of the read loop and then ran the sweep anyway, with only the books
+read so far counted as seen. Cancel at ten per cent and the other ninety were
+flagged. A scan that was stopped is not evidence about what is on the drive, so
+it no longer reconciles, and it no longer counts as "last scanned".
+
+### Copying a book to the drive could leave half of it there
+
+Copying *onto the phone* has always staged in a temp folder and moved the
+result into place; copying an imported book *onto the drive* wrote straight
+into the destination. A failure partway left a folder holding half a book,
+indistinguishable from a real one to the next scan — on the drive, which is
+the one place nothing else holds a copy of.
+
+It now stages and moves, and it never writes over a folder that is already
+there: a name that is taken gets a numbered suffix, the way a desktop would,
+because the existing folder may be a different book that happens to share a
+name.
+
+Writing the test for this turned up two more faults in the same function, both
+invisible by reading. The destination file was created before being copied
+onto, and `copy` refuses to write over an existing file — so copying an import
+to the drive could not have worked at all. And `move` updates the instance it
+is called on to point at the new location, so the tidy-up afterwards was
+deleting the book it had just put in place.
+
+*`src/lib/files/import.ts`*
+
+### Imported books kept files with no audio in them
+
+The drive scanner has always refused to make a part out of a zero-length or
+unreadable file. The import path laid them into the timeline with a duration of
+zero, giving a book phantom parts that played silence and pushed every later
+part out of step with the real audio. Imports now apply the same test, and an
+import with nothing playable in it is refused with a plain message rather than
+saved as an unplayable row. Only the parts that survived are recorded as the
+book's local files.
+
+*`src/lib/scan/importBook.ts`, `src/store/library.ts`*
+
+### Phone-only audio and Android backup
+
+`imported/` was not excluded from backup, which was an open question rather
+than a bug. It is now excluded from **cloud backup** and kept in **device
+transfer**. Cloud backup allows about 25 MB per app, which no audiobook fits
+inside, so including it there would only burn the quota and fail. Device
+transfer has no such cap, and phone-only audio is by definition the only copy
+there is — exactly the case where losing it would hurt.
+
+*`plugins/withBackupExclusion.js`*
+
+---
+
+## Finding a book, and knowing what you are looking at
+
+Three gaps that only show up once a library is big enough to be real.
+
+**Search.** With several hundred books, scrolling is not a way to find
+anything. The Library header now has a search field that looks at titles,
+authors and narrators at once. It is deliberately forgiving rather than clever:
+accents and punctuation are folded away, so "les miserables" finds
+*Les Misérables* and "hitch hikers" finds *Hitch-Hiker's*; the words can come
+in any order, so "simmons hyperion" and "hyperion simmons" are the same
+search. Matching is on word beginnings, not fragments anywhere in the text —
+"sim" finding Simmons is what someone typing three letters wanted, while "son"
+finding it is noise. A search that matches nothing says so, quotes the query
+back and offers one tap to clear it, rather than showing empty shelves. While
+searching, the header counts "3 of 412".
+
+*`src/lib/library/search.ts`, `src/components/NoSearchResults.tsx`,
+`src/components/LibraryHeader.tsx`, `src/app/index.tsx`*
+
+**The same book in two places.** A library that has been copied between drives
+for years ends up with the same book in two or three folders. The scanner is
+right to index each separately — they are different files in different places,
+and one may be kept deliberately — but there was no way to find out, so a book
+could be checked out, stored and listened to while its twin sat on the next
+shelf taking the same space again. The Book screen now lists the other copies
+by folder path, with "on your phone" against any that are checked out, and each
+one is tappable. Nothing is deduplicated automatically. Matching is on title
+and author folded the same way search folds them, and deliberately *not* on
+duration or byte size: an abridged edition beside the full one is exactly the
+pair worth pointing out.
+
+*`src/lib/library/duplicates.ts`, `src/app/book/[id].tsx`*
+
+**The DRM stamp.** A DRM-protected book was refused at check-out with a
+message, which is too late — the whole point is to stop someone trying. The
+flag now carries a rubber stamp struck across the cover itself, so a dozen
+Audible downloads are visible from the shelf, and the Book screen explains in
+plain English what the file is and why nothing can play it. The stamp scales
+from the cover's width, so it reads the same on a 56px tray thumbnail as on the
+hero cover, and a screen reader hears it too.
+
+*`src/components/CoverBadges.tsx` (`DrmStamp`), `src/components/BookCover.tsx`,
+`src/components/NoteCard.tsx`, `src/app/book/[id].tsx`*
+
+## The phone running out of room, for real this time
+
+Three cases in the test plan could not be run, because filling an emulator's
+userdata image to within a gigabyte of full takes minutes and risks taking the
+test run down with it. They are now driven by a fault-injection hook that
+substitutes the two facts the filesystem reports — how much space is free, and
+whether a write succeeds — and leaves every line of the recovery path alone.
+
+Running them found a real defect. A disk that fills *partway through* a copy
+surfaces as a native `ENOSPC`, which fell into the generic catch and showed the
+user "ENOSPC: No space left on device, write. Nothing was saved." That is not a
+sentence to show anyone, and it was classified as a failure to retry rather
+than what it is — the phone is full. It now returns the same `no-space`
+outcome as the up-front check, with "The phone ran out of room partway
+through." The up-front check genuinely cannot catch this case: another app can
+take the room while the copy is running.
+
+*`src/dev/faults.ts`, `src/lib/files/copy.ts`*
+
+---
+
 ## Library grouping
 
 ### CD and disc subfolders are one book
@@ -289,5 +430,23 @@ counted as skipped files, and never offered as cover art. Counting them as
   the module's Kotlin, which means carrying a fork across SDK upgrades.
 - **Hyperion's author** is recorded as "Top 100 scifi books" — a naming
   question, not a crash.
-- **Reopening the app does not restore the last book** at its saved position.
-  Still the one real gap in "never lose the user's place".
+- **`status.playing || true` in the audio engine** is always true, so a part
+  ending while paused starts the next one playing on its own. The instantaneous
+  flag is the wrong thing to read at `didJustFinish`; it needs a tracked
+  intent. Left alone deliberately, so the audio engine is not disturbed in the
+  same pass as the library fixes.
+- **Root-level files and incremental rescans.** `existingFingerprints()` is
+  keyed by folder, but a file sitting directly in the library root is a book in
+  its own right — so every root-level book shares the one `''` key, with a
+  combined fingerprint and a shared list of ids. That ambiguity is wrong on its
+  own terms. It is the likeliest explanation for M-04 intermittently leaving
+  one root-level book flagged missing after a reconnect, but that chain is not
+  yet proven.
+- **The device suite is not idempotent.** Two runs back to back give a worse
+  result than one run from a clean slate, because checked-out books, holds and
+  imports survive into the next run. Every clean figure quoted here was taken
+  after resetting the app's data. A reset step at the start of a run would fix
+  it.
+- **Pausing when headphones are unplugged.** Android's `ACTION_AUDIO_BECOMING_NOISY`
+  is not exposed by `expo-audio`, so this needs native work and a rebuild. It is
+  batched with the background-copy foreground service for a single rebuild.

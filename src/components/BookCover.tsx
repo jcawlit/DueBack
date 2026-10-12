@@ -19,6 +19,7 @@ import { CoverFace, type CoverSize, coverDimensions } from './CoverFace';
 import {
   CopyOverlay,
   CornerTab,
+  DrmStamp,
   SelectBadge,
   StatusTag,
   tabStateForBook,
@@ -92,7 +93,11 @@ export function BookCover({
         : copying
           ? 'checking out'
           : 'on the shelf',
-  ].join(', ');
+    // The stamp is decorative to a screen reader unless the fact is spoken.
+    book.drmProtected ? "protected by DRM, can't be played" : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
 
   const body = (
     <View style={{ position: 'relative' }}>
@@ -104,6 +109,19 @@ export function BookCover({
         */}
         <View style={shadow(elevation, 0.5)}>
           <CoverFace book={book} size={size} scale={scale} />
+          {book.drmProtected ? (
+            <View
+              style={{
+                position: 'absolute',
+                // Low and left: the corner tab owns bottom-right, and a
+                // stamp across the title would hide what the book is.
+                bottom: Math.round(height * 0.09),
+                left: Math.round(width * 0.08),
+              }}
+            >
+              <DrmStamp coverWidth={width} />
+            </View>
+          ) : null}
           {copying && book.local.status === 'copying' ? (
             <CopyOverlay
               progress={book.local.progress}

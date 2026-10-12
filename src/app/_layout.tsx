@@ -4,7 +4,7 @@
  * playback.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AppState, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -63,9 +63,20 @@ function LibraryBootstrap() {
   // No local "already done" guard: the store itself ignores a second call, and
   // a guard held in a ref would survive a fast refresh that reset the store,
   // leaving the app permanently unhydrated during development.
+  // Reopening the last book has to wait for the library: the player looks the
+  // book up by id, and before hydration there is nothing to find.
+  const ready = useLibrary((s) => s.ready);
+  const restored = useRef(false);
+
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    if (!ready || restored.current) return;
+    restored.current = true;
+    void usePlayer.getState().restoreLastBook();
+  }, [ready]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {

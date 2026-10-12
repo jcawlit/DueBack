@@ -26,12 +26,14 @@ import {
 import { useScan } from '@/store/scan';
 import { useUi } from '@/store/ui';
 import { buildShelves } from '@/lib/shelves';
+import { searchBooks } from '@/lib/library/search';
 import { daysOfListening, relativeTime, relativeTimeShort } from '@/lib/format';
 import { color, font, space } from '@/theme/tokens';
 import { CheckedOutTray } from '@/components/CheckedOutTray';
 import { DriveNotConnected } from '@/components/DriveNotConnected';
 import { DriveNotConnectedBanner } from '@/components/DriveNotConnectedBanner';
 import { FirstRun, ScanProgressBar } from '@/components/FirstRun';
+import { NoSearchResults } from '@/components/NoSearchResults';
 import { LibraryHeader } from '@/components/LibraryHeader';
 import { SelectBar } from '@/components/SelectBar';
 import { Shelf } from '@/components/Shelf';
@@ -40,6 +42,7 @@ import type { Shelf as ShelfModel } from '@/lib/shelves';
 export default function LibraryScreen() {
   const insets = useSafeAreaInsets();
   const [checkingDrive, setCheckingDrive] = useState(false);
+  const [search, setSearch] = useState('');
   const setBottomObstruction = useUi((s) => s.setBottomObstruction);
 
   const ready = useLibrary((s) => s.ready);
@@ -87,7 +90,9 @@ export default function LibraryScreen() {
 
   // Shelves show everything, so a checked-out book keeps its place in the
   // stacks with an "OUT" tag rather than vanishing from where the user left it.
-  const shelves = useMemo(() => buildShelves(books, sort), [books, sort]);
+  const found = useMemo(() => searchBooks(books, search), [books, search]);
+  const shelves = useMemo(() => buildShelves(found, sort), [found, sort]);
+  const searching = search.trim().length > 0;
 
   const selectionBytes = useMemo(
     () =>
@@ -241,9 +246,13 @@ export default function LibraryScreen() {
     );
   }
 
-  const subtitle = driveConnected
-    ? `${totalBooks} ${totalBooks === 1 ? 'book' : 'books'} · ${daysOfListening(totalDuration)}`
-    : `last seen ${relativeTimeShort(driveLastSeenAt)} · ${totalBooks} books`;
+  // While searching, the count is the useful fact — "3 of 412" answers both
+  // "did it find anything" and "is this all of them".
+  const subtitle = searching
+    ? `${found.length} of ${books.length} ${books.length === 1 ? 'book' : 'books'}`
+    : driveConnected
+      ? `${totalBooks} ${totalBooks === 1 ? 'book' : 'books'} · ${daysOfListening(totalDuration)}`
+      : `last seen ${relativeTimeShort(driveLastSeenAt)} · ${totalBooks} books`;
 
   return (
     <View style={{ flex: 1, backgroundColor: color.ground, paddingTop: insets.top }}>
@@ -257,6 +266,8 @@ export default function LibraryScreen() {
         onOpenSettings={() => router.push('/settings')}
         sort={sort}
         onSort={setSort}
+        search={search}
+        onSearch={setSearch}
         selecting={selecting}
         onToggleSelect={
           shelfCount > 0 && !libraryOnDevice
@@ -269,6 +280,8 @@ export default function LibraryScreen() {
 
       {books.length === 0 ? (
         <DriveNotConnected heldCount={onHoldCount} />
+      ) : searching && found.length === 0 ? (
+        <NoSearchResults query={search} total={books.length} onClear={() => setSearch('')} />
       ) : (
         /*
          * Virtualized, not a ScrollView. A 400-book library is 134 shelves and

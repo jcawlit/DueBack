@@ -10,6 +10,7 @@
 
 import { Directory, File, Paths } from 'expo-file-system';
 import { safeLocalName } from './localNames';
+import { ENOSPC_MESSAGE, diskFault } from '@/dev/faults';
 
 /** Completed books live here; in-progress ones in the sibling temp folder. */
 export const BOOKS_DIR = 'books';
@@ -92,6 +93,9 @@ export function clearTempCopies() {
 
 /** Free space on the phone right now, in bytes. */
 export function availableBytes(): number {
+  // A test can stand in a figure here; see src/dev/faults.ts.
+  const faked = diskFault().freeBytes;
+  if (faked !== undefined) return faked;
   try {
     return Paths.availableDiskSpace ?? 0;
   } catch {
@@ -253,6 +257,7 @@ export async function copyBookToDevice(
       }
 
       try {
+        if (diskFault().failWriteAtPart === i) throw new Error(ENOSPC_MESSAGE);
         await source.copy(target);
       } finally {
         clearInterval(timer);
@@ -297,10 +302,25 @@ export async function copyBookToDevice(
     };
   } catch (err) {
     removeQuietly(staging);
+    const detail = (err as Error)?.message ?? '';
+
+    // A disk that fills partway through surfaces as a native ENOSPC. That is
+    // not a fault to report as one — the phone is simply full — and
+    // "ENOSPC: No space left on device, write" is not a sentence to show
+    // anyone. The free-space check before the copy cannot catch this: another
+    // app may have taken the room while this copy was running.
+    if (/ENOSPC|No space left/i.test(detail)) {
+      return {
+        ok: false,
+        reason: 'no-space',
+        message: 'The phone ran out of room partway through. Nothing was saved.',
+      };
+    }
+
     return {
       ok: false,
       reason: 'failed',
-      message: `${(err as Error)?.message ?? 'The copy failed'}. Nothing was saved.`,
+      message: `${detail || 'The copy failed'}. Nothing was saved.`,
     };
   }
 }

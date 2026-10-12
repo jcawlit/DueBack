@@ -3,7 +3,7 @@
  * data so the line weights and proportions carry across unchanged.
  */
 
-import Svg, { Path, Rect } from 'react-native-svg';
+import Svg, { Path, Rect, Circle } from 'react-native-svg';
 import { color } from '@/theme/tokens';
 
 type IconProps = {
@@ -18,6 +18,16 @@ export function DriveIcon({ size = 20, stroke = 'currentColor' }: IconProps) {
       <Rect x={1} y={1} width={18} height={14} rx={1.5} stroke={stroke} strokeWidth={1.5} />
       <Path d="M1 6h18" stroke={stroke} strokeWidth={1.5} />
       <Path d="M8 10.5h4" stroke={stroke} strokeWidth={1.5} />
+    </Svg>
+  );
+}
+
+/** A magnifying glass, for the library search field. */
+export function SearchIcon({ size = 16, stroke = color.muted }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+      <Circle cx={7} cy={7} r={4.5} stroke={stroke} strokeWidth={1.5} />
+      <Path d="M10.5 10.5L14 14" stroke={stroke} strokeWidth={1.5} strokeLinecap="round" />
     </Svg>
   );
 }

@@ -29,6 +29,15 @@ export type TreeListing = {
   unsupportedCount: number;
   /** Folders that could not be listed, by relative path. */
   unreadableFolders: string[];
+  /**
+   * Whether the root folder itself could be listed.
+   *
+   * An unreadable sub-folder is a warning; an unreadable *root* means the walk
+   * saw nothing at all, and the caller must not mistake that for an empty
+   * library. It is a separate flag rather than `files.length === 0` because a
+   * genuinely empty folder is a legitimate, readable answer.
+   */
+  rootReadable: boolean;
 };
 
 export type LibraryRoot = {
@@ -124,12 +133,39 @@ export async function listTree(
 
   const root = new Directory(asDirectoryUri(rootUri));
 
+  /*
+   * Ask outright whether the root is there, rather than inferring it from a
+   * thrown error.
+   *
+   * `Directory.list()` does not throw for a folder that has gone — it returns
+   * nothing — so a walk of a missing root looked identical to a walk of an
+   * empty one. Everything downstream then concluded the library was empty.
+   * `exists` alone is not enough either: it can be true for a stale SAF
+   * permission, which is why listing is still attempted.
+   */
+  let rootReadable = true;
+  try {
+    if (!root.exists) {
+      rootReadable = false;
+    } else {
+      root.list();
+    }
+  } catch {
+    rootReadable = false;
+  }
+
+  if (!rootReadable) {
+    unreadableFolders.push('.: the library folder could not be read');
+    return { files, unsupportedCount, unreadableFolders, rootReadable };
+  }
+
   const visit = (dir: Directory, relPrefix: string, depth: number) => {
     if (depth > maxDepth) return;
     let entries: (File | Directory)[];
     try {
       entries = dir.list();
     } catch (err) {
+      if (depth === 0) rootReadable = false;
       // The reason matters. A folder that cannot be listed used to be recorded
       // as a bare path, which left "scanned no books" with nothing to act on.
       const reason = (err as Error)?.message ?? 'unreadable';
@@ -167,7 +203,7 @@ export async function listTree(
 
   visit(root, '', 0);
   options.onProgress?.(files.length);
-  return { files, unsupportedCount, unreadableFolders };
+  return { files, unsupportedCount, unreadableFolders, rootReadable };
 }
 
 /** Opens a seekable reader over one file. */

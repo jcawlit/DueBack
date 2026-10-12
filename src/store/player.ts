@@ -12,6 +12,7 @@ import { chapterAt, type Book } from '@/data/types';
 import { createExpoAudioEngine } from '@/lib/audio/expoAudioEngine';
 import { SPEEDS, type AudioEngine, type EngineTrack } from '@/lib/audio/engine';
 import { loadParts } from '@/db/books';
+import { SETTING_KEYS, getSetting, setSetting } from '@/db/schema';
 import { localUriFor } from '@/lib/files/copy';
 import { useLibrary } from './library';
 
@@ -37,6 +38,8 @@ type PlayerState = {
   sleepRemainingSec: number | null;
 
   open: (bookId: string) => Promise<void>;
+  /** Reopens the last book, paused at its saved position. */
+  restoreLastBook: () => Promise<void>;
   close: () => Promise<void>;
   togglePlay: () => void;
   seekTo: (positionSec: number) => void;
@@ -200,6 +203,8 @@ export const usePlayer = create<PlayerState>((set, get) => {
         await engine.load(track, b.progressSec);
         await engine.setRate(SPEEDS[get().speedIndex]);
         set({ buffering: false });
+        // Remembered so the next launch can come back to it.
+        void setSetting(SETTING_KEYS.lastBookId, bookId);
       } catch (err) {
         set({
           buffering: false,
@@ -208,8 +213,38 @@ export const usePlayer = create<PlayerState>((set, get) => {
       }
     },
 
+    /**
+     * Reopens whatever was playing when the app was last closed.
+     *
+     * Loaded, paused, at the saved position — never started on its own. Audio
+     * beginning by itself because an app was opened is alarming, especially
+     * with the phone against someone's ear.
+     *
+     * Silent about failures: the book may have been returned, forgotten or
+     * moved since, and none of that is worth an error on launch.
+     */
+    restoreLastBook: async () => {
+      if (get().bookId) return;
+      try {
+        const id = await getSetting(SETTING_KEYS.lastBookId);
+        if (!id) return;
+        const book = useLibrary.getState().books.find((b) => b.id === id);
+        if (!book) return;
+        await get().open(id);
+        if (get().error) {
+          // It will not play any more — do not keep offering it.
+          set({ bookId: null, error: null });
+          void setSetting(SETTING_KEYS.lastBookId, null);
+        }
+      } catch {
+        // Never let this stop the app starting.
+      }
+    },
+
     close: async () => {
       if (get().bookId) persist(get().positionSec, true);
+      // Stopping is deliberate — do not reopen this on the next launch.
+      void setSetting(SETTING_KEYS.lastBookId, null);
       unsubscribe?.();
       unsubscribe = null;
       lastSubtitle = '';

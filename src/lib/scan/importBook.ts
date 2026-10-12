@@ -37,8 +37,34 @@ export async function buildImportedBook(
     reads.push({ file, read });
   }
 
+  /*
+   * The same "is there anything in it to play" test the drive scanner applies.
+   *
+   * These two paths had drifted: a zero-length or unreadable file picked off
+   * the drive was never made a part, but the very same file imported from the
+   * phone was laid into the timeline with a duration of zero. That gave the
+   * book phantom parts that played silence and pushed every later part's
+   * start time out of step with the real audio.
+   */
+  const playable = reads.filter(({ file, read }) => {
+    if (file.sizeBytes === 0) {
+      warnings.push(`${file.name}: the file is empty.`);
+      return false;
+    }
+    if (read.error) return false;
+    if (read.metadata.durationSec <= 0) {
+      warnings.push(`${file.name}: no readable audio.`);
+      return false;
+    }
+    return true;
+  });
+
+  if (playable.length === 0 && reads.length > 0) {
+    warnings.push('Nothing here could be read as audio.');
+  }
+
   const ordered = orderParts(
-    reads.map(({ file, read }) => ({
+    playable.map(({ file, read }) => ({
       file: {
         relPath: file.relPath,
         name: file.name,
@@ -51,7 +77,7 @@ export async function buildImportedBook(
   );
   if (ordered.warning) warnings.push(ordered.warning);
 
-  const readByPath = new Map(reads.map((r) => [r.file.relPath, r.read]));
+  const readByPath = new Map(playable.map((r) => [r.file.relPath, r.read]));
 
   let cursor = 0;
   const parts = ordered.parts.map((p) => {

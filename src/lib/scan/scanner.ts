@@ -62,6 +62,14 @@ export type ScanResult = {
    * failed is lying about what happened.
    */
   unreadableFiles: string[];
+  /** False when the user stopped the scan partway through. */
+  completed: boolean;
+  /**
+   * False when the root itself could not be listed — an unplugged drive, a
+   * revoked permission, a folder deleted on a computer. Distinct from an empty
+   * library, which is a readable root with nothing in it.
+   */
+  rootReadable: boolean;
   ms: number;
   bytesRead: number;
   readCount: number;
@@ -408,8 +416,12 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
   let bytesRead = 0;
   let readCount = 0;
 
+  let cancelled = false;
   for (let i = 0; i < groups.length; i += 1) {
-    if (options.shouldCancel?.()) break;
+    if (options.shouldCancel?.()) {
+      cancelled = true;
+      break;
+    }
     const group = groups[i];
 
     report({
@@ -462,12 +474,39 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
     booksDone: groups.length,
   });
 
-  await markMissingExcept(seenIds);
+  /*
+   * Only a scan that walked the whole of a readable root is evidence about what
+   * is *not* there any more.
+   *
+   * `markMissingExcept` stamps every book the scan did not see, and it used to
+   * run unconditionally. Two ways that went wrong, both of them one tap away:
+   *
+   *   - Cancel at 10%, and the other 90% were marked NOT ON DRIVE.
+   *   - Press Rescan with the drive unplugged. The root cannot be listed, but
+   *     `listTree` records that as an unreadable folder and returns an empty
+   *     listing rather than throwing — so the scan "saw" nothing, and the
+   *     entire library was stamped missing.
+   *
+   * The second is the one that mattered: both Settings rescan buttons are
+   * enabled whenever a folder is chosen. An unreadable root is not evidence of
+   * an empty library, and a scan the user stopped is not evidence of anything.
+   */
+  const rootReadable = listing.rootReadable;
+  const completed = !cancelled;
+  if (completed && rootReadable) {
+    await markMissingExcept(seenIds);
+  }
+
   const now = new Date().toISOString();
-  await setSetting(SETTING_KEYS.lastScanAt, now);
-  await setSetting(SETTING_KEYS.lastSeenAt, now);
+  // A partial or failed scan is not "last scanned at", either.
+  if (completed && rootReadable) {
+    await setSetting(SETTING_KEYS.lastScanAt, now);
+    await setSetting(SETTING_KEYS.lastSeenAt, now);
+  }
 
   const result: ScanResult = {
+    completed,
+    rootReadable,
     books: groups.length,
     updated,
     unchanged,

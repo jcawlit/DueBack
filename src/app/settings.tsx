@@ -191,7 +191,7 @@ export default function SettingsScreen() {
 
         <View style={{ gap: space.sm }}>
           <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}>
-            THE DRAWER
+            THE DRIVE
           </Text>
           <Row
             label={libraryRoot ? libraryRoot.name : 'No folder chosen'}

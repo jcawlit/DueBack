@@ -214,6 +214,55 @@ export function CopyOverlay({
   );
 }
 
+/**
+ * The DRM stamp: a rubber stamp struck across the cover of a book that cannot
+ * be played.
+ *
+ * It belongs on the cover rather than only on the Book screen, because the
+ * whole point is to stop someone trying. A library with a dozen Audible
+ * downloads in it should show, from the shelf, which twelve those are.
+ *
+ * Scaled from the cover's width so it reads the same on a 56px tray thumbnail
+ * as on a 248px hero cover, and struck slightly crooked like the rest of the
+ * stamps.
+ */
+export function DrmStamp({ coverWidth }: { coverWidth: number }) {
+  const unit = coverWidth / 86;
+  const fontSize = Math.max(7, Math.round(11 * unit));
+
+  return (
+    <View
+      accessible={false}
+      pointerEvents="none"
+      style={{
+        borderWidth: Math.max(1, 1.5 * unit),
+        borderColor: color.warning,
+        borderRadius: 2,
+        paddingHorizontal: Math.round(5 * unit),
+        paddingVertical: Math.round(2 * unit),
+        transform: [{ rotate: '-11deg' }],
+        // The stamp sits on the artwork, so it needs to survive a dark cover
+        // and a light one alike: an ink-coloured wash behind it does that
+        // without hiding what is underneath.
+        backgroundColor: 'rgba(27,20,16,0.55)',
+        opacity: 0.92,
+        zIndex: 11,
+      }}
+    >
+      <Text
+        style={{
+          fontFamily: font.monoMedium,
+          fontSize,
+          letterSpacing: Math.max(0.5, 1.4 * unit),
+          color: color.warning,
+        }}
+      >
+        DRM
+      </Text>
+    </View>
+  );
+}
+
 /** Select mode: an amber tick in the corner of chosen covers. */
 export function SelectBadge({ selected }: { selected: boolean }) {
   return (

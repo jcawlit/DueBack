@@ -191,4 +191,6 @@ export const SETTING_KEYS = {
   lastSeenAt: 'library.lastSeenAt',
   lastScanAt: 'library.lastScanAt',
   budgetBytes: 'bag.budgetBytes',
+  /** The book to reopen on launch, so the app comes back where it was left. */
+  lastBookId: 'player.lastBookId',
 } as const;
