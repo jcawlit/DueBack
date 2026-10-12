@@ -18,6 +18,7 @@ import { loadParts } from '@/db/books';
 import { BOOKS_DIR, BOOKS_TMP_DIR, localUriFor } from '@/lib/files/copy';
 import { IMPORTS_DIR } from '@/lib/files/import';
 import type { Book } from '@/data/types';
+import { setLibraryOnDeviceOverride } from './faults';
 
 export type CaseResult = {
   id: string;
@@ -421,6 +422,26 @@ export async function runSuites(
   let failed = 0;
   let skipped = 0;
 
+  /*
+   * The whole run is treated as a library on a drive.
+   *
+   * Fixtures have to live inside the app's own storage — it is the only place
+   * a script can write them — so `isDeviceStorage` reports the library as
+   * phone-local, and the store now refuses to check out a book that is
+   * already on the phone. Without this, every check-out, hold, return and
+   * budget case would be refused by a rule meant for the other mode, and the
+   * suite would stop testing the thing it is named after.
+   */
+  setLibraryOnDeviceOverride(false);
+  await library().refresh();
+
+  try {
+    return await runEachSuite();
+  } finally {
+    setLibraryOnDeviceOverride(undefined);
+  }
+
+  async function runEachSuite() {
   for (const suite of suites) {
     // A suite that leaves the library root parked would fail every suite
     // behind it for reasons that have nothing to do with the code under test.
@@ -466,5 +487,6 @@ export async function runSuites(
       }
     }
   }
-  return { passed, failed, skipped };
+    return { passed, failed, skipped };
+  }
 }

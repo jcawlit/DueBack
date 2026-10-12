@@ -50,6 +50,18 @@ export function createExpoAudioEngine(): AudioEngine {
   let finished = false;
   /** Set while `replace()` is in flight, so status updates are not trusted. */
   let switching = false;
+  /**
+   * Whether the listener wants audio, as opposed to whether audio is coming
+   * out right now.
+   *
+   * At a part boundary `status.playing` is already false — playback has
+   * ended — so it cannot answer "should the next part start?". The code here
+   * used to paper over that with `status.playing || true`, which is simply
+   * `true`: a book paused a few seconds before the end of a part would start
+   * itself again when the part ran out. This is the question that was
+   * actually being asked.
+   */
+  let wantsToPlay = false;
   let preloadedFor = -1;
   let statusSub: { remove: () => void } | null = null;
   const listeners = new Set<(status: EngineStatus) => void>();
@@ -140,7 +152,7 @@ export function createExpoAudioEngine(): AudioEngine {
       (partDuration > 0 && status.currentTime >= partDuration - END_EPSILON_SEC);
 
     if (atEnd && !isLastPart) {
-      void switchToPart(partIndex + 1, 0, status.playing || true);
+      void switchToPart(partIndex + 1, 0, wantsToPlay);
       return;
     }
     if (atEnd && isLastPart) {
@@ -206,10 +218,12 @@ export function createExpoAudioEngine(): AudioEngine {
     },
 
     async play() {
+      wantsToPlay = true;
       player?.play();
     },
 
     async pause() {
+      wantsToPlay = false;
       player?.pause();
     },
 
@@ -219,7 +233,8 @@ export function createExpoAudioEngine(): AudioEngine {
       const target = locatePart(list, Math.max(0, positionSec));
       finished = false;
       if (target.index !== partIndex) {
-        await switchToPart(target.index, target.offsetSec, player.playing);
+        // Mid-playback the two agree; at a boundary only the intent is right.
+        await switchToPart(target.index, target.offsetSec, wantsToPlay || player.playing);
         return;
       }
       await player.seekTo(target.offsetSec);
@@ -255,6 +270,8 @@ export function createExpoAudioEngine(): AudioEngine {
       track = null;
       subtitle = '';
       partIndex = 0;
+      // A new book must never inherit the last one's intent to play.
+      wantsToPlay = false;
       preloadedFor = -1;
       finished = false;
     },

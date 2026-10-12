@@ -41,3 +41,25 @@ export function diskFault(): Readonly<DiskFault> {
 
 /** The message a full Android filesystem actually produces. */
 export const ENOSPC_MESSAGE = 'ENOSPC: No space left on device, write';
+
+/**
+ * Forces the library to be treated as on a drive, or on the phone.
+ *
+ * The suites run against a root inside the app's own storage, because that is
+ * the only place a script can write fixtures — which means `isDeviceStorage`
+ * reports the library as phone-local, and the check-out, hold, return and
+ * budget suites would all be refused by a rule meant for a different mode.
+ * This lets a test say which mode it is exercising instead of inheriting one
+ * from where the fixtures happen to live.
+ *
+ * `undefined` means "ask the real root", which is what the app always does.
+ */
+let onDeviceOverride: boolean | undefined;
+
+export function setLibraryOnDeviceOverride(value: boolean | undefined) {
+  onDeviceOverride = value;
+}
+
+export function libraryOnDeviceOverride(): boolean | undefined {
+  return onDeviceOverride;
+}

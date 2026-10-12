@@ -36,6 +36,7 @@ import {
   importBookFromFolder,
 } from '@/lib/files/import';
 import { buildImportedBook, saveImportedBook } from '@/lib/scan/importBook';
+import { libraryOnDeviceOverride } from '@/dev/faults';
 import {
   checkFreeSpace,
   clearTempCopies,
@@ -153,6 +154,18 @@ const copiesInFlight = new Set<string>();
 let slipTimer: ReturnType<typeof setTimeout> | undefined;
 /** Guards against two concurrent hydrations racing the database open. */
 let hydrating = false;
+
+/**
+ * Whether the chosen library already lives on the phone.
+ *
+ * A test can stand in an answer here; see src/dev/faults.ts. Everything else
+ * asks the root, which is the only honest source.
+ */
+function resolveOnDevice(rootUri: string | null | undefined): boolean {
+  const forced = libraryOnDeviceOverride();
+  if (forced !== undefined) return forced;
+  return rootUri ? isDeviceStorage(rootUri) : false;
+}
 
 /** Bytes actually sitting on the phone right now. */
 export function usedBytes(books: Book[]): number {
@@ -372,6 +385,23 @@ export const useLibrary = create<LibraryState>((set, get) => {
    * fail deep in the file layer. Returns the slip to show, or null to proceed.
    */
   const refusalFor = (book: Book): Slip | null => {
+    /*
+     * A library already on the phone has nothing to check out.
+     *
+     * The screens know this — no corner tab, no select mode, "Play" instead
+     * of "Check out" — but that is a presentation decision, and the store
+     * would still happily copy a book from the library folder into app
+     * storage and hold it twice. The promise that nothing is duplicated
+     * belongs here, where every route to a copy passes through, rather than
+     * resting on each screen remembering to hide a button.
+     */
+    if (get().libraryOnDevice) {
+      return {
+        kind: 'note',
+        text: `${book.title} is already on this phone. Open it and press play.`,
+      };
+    }
+
     if (book.drmProtected) {
       return {
         kind: 'wont-fit',
@@ -517,7 +547,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
         ]);
         const root = rootUri ? { uri: rootUri, name: rootName ?? rootUri } : null;
         set({
-          libraryOnDevice: root ? isDeviceStorage(root.uri) : false,
+          libraryOnDevice: resolveOnDevice(root?.uri),
           ready: true,
           startupError: null,
           books,
@@ -573,7 +603,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     setLibraryRoot: async (root) => {
       await setSetting(SETTING_KEYS.libraryRootUri, root?.uri ?? null);
       await setSetting(SETTING_KEYS.libraryRootName, root?.name ?? null);
-      set({ libraryRoot: root, libraryOnDevice: root ? isDeviceStorage(root.uri) : false });
+      set({ libraryRoot: root, libraryOnDevice: resolveOnDevice(root?.uri) });
       if (root) await get().checkDrive();
       else set({ driveConnected: false });
     },

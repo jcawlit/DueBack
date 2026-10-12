@@ -9,7 +9,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import {
+import { fingerprintKey,
   discParentOf,
   findCoverFile,
   groupIntoBooks,
@@ -446,5 +446,29 @@ describe('spotting the same book twice', () => {
     const sets = duplicateSets(shelf);
     assert.equal(sets.length, 1);
     assert.deepEqual(sets[0].map((b) => b.id).sort(), ['a', 'b']);
+  });
+});
+
+describe('fingerprint keys for incremental scans', () => {
+  it('keys a book in a folder by its folder', () => {
+    assert.equal(fingerprintKey('Hyperion', 'Hyperion/01.mp3'), 'Hyperion');
+    // Two books split out of one folder share a key on purpose: the decision
+    // to re-read is made before the album tags have been read.
+    assert.equal(
+      fingerprintKey('Shorts', 'Shorts/a.mp3'),
+      fingerprintKey('Shorts', 'Shorts/b.mp3'),
+    );
+  });
+
+  it('keys a file loose in the root by its own path', () => {
+    const a = fingerprintKey('', 'Another.mp3');
+    const b = fingerprintKey('', 'Some Book.m4b');
+    assert.notEqual(a, b);
+  });
+
+  it('cannot collide with a folder path', () => {
+    // A folder path never starts with a null byte, so the two name spaces
+    // stay apart even for a folder literally called "root:Another.mp3".
+    assert.notEqual(fingerprintKey('', 'Another.mp3'), fingerprintKey('root:Another.mp3', 'x'));
   });
 });

@@ -70,6 +70,29 @@ export function isDiscFolder(name: string): boolean {
  * on the same parent. Never collapses into the library root: a top-level
  * `CD 1` has no parent book to belong to.
  */
+/**
+ * The key an incremental scan files a book's fingerprint under.
+ *
+ * Normally the folder: one folder can hold several books — a shelf of short
+ * works splits by album tag — and the decision to re-read has to be made
+ * before the albums have been read, so the whole folder is judged together.
+ *
+ * A file sitting directly in the library root is the exception. Those are
+ * books in their own right, identified by their own path, and keying them by
+ * folder filed every one of them under the same empty string: one merged
+ * fingerprint, one shared list of ids, and no way to tell which book a change
+ * belonged to. They are keyed by their own path instead.
+ *
+ * Both the scanner and the database must agree on this, which is why it lives
+ * here rather than in either of them.
+ */
+export function fingerprintKey(folderRelPath: string, firstPartRelPath: string): string {
+  if (folderRelPath !== '') return folderRelPath;
+  // The prefix cannot collide with a folder path, which never starts with a
+  // null byte.
+  return `\u0000root:${firstPartRelPath}`;
+}
+
 export function discParentOf(folderRelPath: string): string {
   let current = folderRelPath;
   for (;;) {

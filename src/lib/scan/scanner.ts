@@ -16,6 +16,7 @@ import {
 } from '@/lib/files/access';
 import { storeCover, type CoverSource } from '@/lib/files/covers';
 import {
+  fingerprintKey,
   findCoverFile,
   groupIntoBooks,
   orderParts,
@@ -442,7 +443,9 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
     // The ids of a skipped folder come from the database, so the books it holds
     // still count as seen and are not swept up as missing.
     const fingerprint = fingerprintOf(group.files);
-    const known = fingerprints.get(group.folderRelPath);
+    const known = fingerprints.get(
+      fingerprintKey(group.folderRelPath, group.files[0]?.relPath ?? ''),
+    );
     if (!options.force && known && known.fingerprint === fingerprint && fingerprint !== '') {
       seenIds.push(...known.ids);
       unchanged += known.ids.length;

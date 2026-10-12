@@ -7,6 +7,7 @@
 import type { Book, Chapter, Checkout, LocalState } from '@/data/types';
 import { coverUri } from '@/lib/files/access';
 import { fallbackPalette } from '@/lib/library/palette';
+import { fingerprintKey } from '@/lib/library/grouping';
 import { getDb } from './schema';
 
 export type BookRow = {
@@ -283,20 +284,38 @@ export async function existingFingerprints(): Promise<
      FROM books b JOIN parts p ON p.book_id = b.id`,
   );
 
-  const byFolder = new Map<string, { parts: string[]; ids: Set<string> }>();
+  // Gathered per book first, because the key a book is filed under depends on
+  // its own parts: a file loose in the library root is keyed by its path, not
+  // by the empty folder it shares with every other loose file.
+  const byBook = new Map<string, { folder: string; parts: string[] }>();
   for (const row of rows) {
-    let entry = byFolder.get(row.folder);
+    let book = byBook.get(row.id);
+    if (!book) {
+      book = { folder: row.folder, parts: [] };
+      byBook.set(row.id, book);
+    }
+    book.parts.push(`${row.relPath}:${row.size}:${row.modified}`);
+  }
+
+  const byKey = new Map<string, { parts: string[]; ids: Set<string> }>();
+  for (const [id, book] of byBook) {
+    const first = [...book.parts].sort()[0] ?? '';
+    // The stored string is `relPath:size:modified`; the key needs the path.
+    const firstRelPath = first.slice(0, first.lastIndexOf(':', first.lastIndexOf(':') - 1));
+    const key = fingerprintKey(book.folder, firstRelPath);
+
+    let entry = byKey.get(key);
     if (!entry) {
       entry = { parts: [], ids: new Set() };
-      byFolder.set(row.folder, entry);
+      byKey.set(key, entry);
     }
-    entry.parts.push(`${row.relPath}:${row.size}:${row.modified}`);
-    entry.ids.add(row.id);
+    entry.parts.push(...book.parts);
+    entry.ids.add(id);
   }
 
   return new Map(
-    [...byFolder].map(([folder, entry]) => [
-      folder,
+    [...byKey].map(([key, entry]) => [
+      key,
       { fingerprint: entry.parts.sort().join('|'), ids: [...entry.ids] },
     ]),
   );
