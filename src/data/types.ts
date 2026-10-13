@@ -97,9 +97,22 @@ export const occupiesBudget = (b: Book) =>
 export const isInProgress = (b: Book) =>
   b.progressSec > 60 && !b.finishedAt && b.progressSec < b.durationSec;
 
-export function progressFraction(b: Book) {
+/**
+ * How far through the book `positionSec` is, as 0–1.
+ *
+ * Zero when the duration is unknown, which is the whole point of having this
+ * in one place: a book whose audio could not be read has a duration of 0, and
+ * `position / 0` is `NaN` — which reaches a progress bar as `width: "NaN%"`
+ * and a label as "NaN%" rather than failing anywhere visible.
+ */
+export function fractionAt(b: Book, positionSec: number) {
   if (b.durationSec <= 0) return 0;
-  return Math.min(1, b.progressSec / b.durationSec);
+  return Math.min(1, Math.max(0, positionSec) / b.durationSec);
+}
+
+/** How far through the book the saved position is, as 0–1. */
+export function progressFraction(b: Book) {
+  return fractionAt(b, b.progressSec);
 }
 
 /** The chapter containing `positionSec`, plus its index. */

@@ -7,7 +7,7 @@ import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-na
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMemo } from 'react';
-import { isCheckedOut } from '@/data/types';
+import { fractionAt, isCheckedOut } from '@/data/types';
 import { selectBook, useLibrary } from '@/store/library';
 import { usePlayer } from '@/store/player';
 import { duplicatesOf, folderLabel } from '@/lib/library/duplicates';
@@ -83,7 +83,7 @@ export default function BookScreen() {
   const copying = book.local.status === 'copying';
   const onHold = book.local.status === 'on-hold';
   const position = livePosition ?? book.progressSec;
-  const fraction = book.durationSec > 0 ? Math.min(1, position / book.durationSec) : 0;
+  const fraction = fractionAt(book, position);
   const started = position > 60;
   const finished = !!book.finishedAt;
 
@@ -101,12 +101,26 @@ export default function BookScreen() {
    * not on the phone is checked out and then played, rather than opening a
    * player that has nothing to play.
    */
+  /*
+   * Nothing in the folder could be read as audio. The store refuses to check
+   * such a book out, but two routes to the Player do not pass through that
+   * refusal — a book already on the phone, and one checked out before its
+   * files went bad — and both offered Play on a book with no parts at all.
+   */
+  const playable = book.files.length > 0 && book.durationSec > 0;
+
   const primary = book.drmProtected
     ? {
         label: "Can't play — protected by DRM",
         onPress: undefined,
         tone: 'muted' as const,
       }
+    : !playable
+      ? {
+          label: 'No audio that can be read',
+          onPress: undefined,
+          tone: 'muted' as const,
+        }
     : copying
       ? {
           label: `Checking out… ${Math.round((book.local.status === 'copying' ? book.local.progress : 0) * 100)}%`,

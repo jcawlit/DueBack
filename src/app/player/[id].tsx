@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { chapterAt } from '@/data/types';
+import { chapterAt, fractionAt } from '@/data/types';
 import { selectBook, useLibrary } from '@/store/library';
 import { SLEEP_OPTIONS, SPEEDS, realSecondsLeft, usePlayer } from '@/store/player';
 import { clock, finishTime, hoursLeft } from '@/lib/format';
@@ -111,7 +111,7 @@ export default function PlayerScreen() {
       ? `off in ${clock(sleepRemainingSec)}`
       : sleep.label;
 
-  const bookFraction = Math.min(1, position / book.durationSec);
+  const bookFraction = fractionAt(book, position);
   const secondsLeft = realSecondsLeft(book.durationSec, position, speed);
   const bookLabel = `whole book ${Math.floor(bookFraction * 100)}% · ${hoursLeft(secondsLeft)} left at ${speed}× · done ${finishTime(secondsLeft)}`;
 

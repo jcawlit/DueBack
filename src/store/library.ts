@@ -387,17 +387,11 @@ export const useLibrary = create<LibraryState>((set, get) => {
    */
   const refusalFor = (book: Book): Slip | null => {
     /*
-     * A library already on the phone has nothing to check out. The screens
-     * know this too, but the promise that no book is stored twice belongs
-     * here, where every route to a copy passes through.
+     * Why a book cannot be played comes before where it already is. "It is
+     * already on this phone" is true of a DRM-protected or damaged book too,
+     * and saying that instead sends the user off to press a Play button that
+     * cannot work.
      */
-    if (get().libraryOnDevice) {
-      return {
-        kind: 'note',
-        text: `${book.title} is already on this phone. Open it and press play.`,
-      };
-    }
-
     if (book.drmProtected) {
       return {
         kind: 'wont-fit',
@@ -412,6 +406,18 @@ export const useLibrary = create<LibraryState>((set, get) => {
       return {
         kind: 'wont-fit',
         text: `${book.title} has no audio that can be read. The files may be empty or damaged.`,
+      };
+    }
+
+    /*
+     * A library already on the phone has nothing to check out. The screens
+     * know this too, but the promise that no book is stored twice belongs
+     * here, where every route to a copy passes through.
+     */
+    if (get().libraryOnDevice) {
+      return {
+        kind: 'note',
+        text: `${book.title} is already on this phone. Open it and press play.`,
       };
     }
 

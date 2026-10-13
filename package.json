@@ -43,7 +43,7 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests",
     "lint": "expo lint",
-    "doctor": "expo-doctor",
+    "doctor": "npx expo-doctor",
     "test": "node --experimental-strip-types --no-warnings --test \"tests/**/*.test.ts\"",
     "kb": "node --experimental-strip-types --no-warnings scripts/kb.ts",
     "report:books": "node --experimental-strip-types --no-warnings scripts/report.ts",
