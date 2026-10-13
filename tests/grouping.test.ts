@@ -10,6 +10,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { fingerprintKey,
+  INCOMPLETE_MARKER,
   discParentOf,
   findCoverFile,
   groupIntoBooks,
@@ -470,5 +471,68 @@ describe('fingerprint keys for incremental scans', () => {
     // A folder path never starts with a null byte, so the two name spaces
     // stay apart even for a folder literally called "root:Another.mp3".
     assert.notEqual(fingerprintKey('', 'Another.mp3'), fingerprintKey('root:Another.mp3', 'x'));
+  });
+});
+
+/**
+ * The marker left inside a folder on the drive while a book is being written
+ * into it.
+ *
+ * SAF has no rename, so an imported book cannot be assembled under a temporary
+ * name and moved into place — it goes straight into its final folder. If the
+ * app dies mid-copy, nothing runs to clean up, and this marker is the only
+ * thing telling a later scan that the folder holds half a book rather than a
+ * short one.
+ */
+describe('incomplete-copy marker', () => {
+  const marked = (folder: string) => f(`${folder}/${INCOMPLETE_MARKER}`);
+  const folders = (files: ScannedFile[]) =>
+    groupIntoBooks(files).map((g) => g.folderRelPath).sort();
+
+  it('still treats ordinary dotfiles as junk', () => {
+    for (const name of ['.DS_Store', '._cover.jpg', '.Trashes']) {
+      assert.equal(isJunkFile(name), true, `${name} should be junk`);
+    }
+  });
+
+  it('lets the marker through, so grouping can act on it', () => {
+    assert.equal(isJunkFile(INCOMPLETE_MARKER), false);
+  });
+
+  it('skips a folder that holds the marker', () => {
+    assert.deepEqual(folders([marked('Book'), f('Book/01.mp3')]), []);
+  });
+
+  it('skips everything under a marked folder, discs included', () => {
+    assert.deepEqual(
+      folders([marked('Book'), f('Book/Disc 1/01.mp3'), f('Book/Disc 2/02.mp3')]),
+      [],
+    );
+  });
+
+  it('leaves the books beside it alone', () => {
+    assert.deepEqual(
+      folders([marked('Broken'), f('Broken/01.mp3'), f('Good/01.mp3')]),
+      ['Good'],
+    );
+  });
+
+  it('never becomes a book of its own', () => {
+    // A marked folder yields no group at all — not an empty one, and not a
+    // book made of the marker file.
+    const groups = groupIntoBooks([marked('Book'), f('Book/01.mp3')]);
+    assert.equal(groups.length, 0);
+  });
+
+  /*
+   * The app only ever writes a marker inside a book's own folder. One loose in
+   * the library root would mean "every book on this drive is incomplete",
+   * which is never true and would empty the shelves in one go.
+   */
+  it('ignores a marker loose in the library root', () => {
+    assert.deepEqual(
+      folders([f(INCOMPLETE_MARKER), f('Good/01.mp3'), f('Also Good/01.mp3')]),
+      ['Also Good', 'Good'],
+    );
   });
 });

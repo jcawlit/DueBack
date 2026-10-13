@@ -406,12 +406,14 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
   const groups = groupIntoBooks(listing.files);
   const fingerprints = await existingFingerprints();
   const claimed = await claimedDriveFolders();
-  console.log(
-    `[scan] root=${options.rootUri} files=${listing.files.length} ` +
-      `groups=${groups.length} unsupported=${listing.unsupportedCount} ` +
-      `unreadable=${listing.unreadableFolders.length} ` +
-      `sample=${listing.files.slice(0, 3).map((f) => f.relPath).join(' | ')}`,
-  );
+  if (__DEV__) {
+    console.log(
+      `[scan] root=${options.rootUri} files=${listing.files.length} ` +
+        `groups=${groups.length} unsupported=${listing.unsupportedCount} ` +
+        `unreadable=${listing.unreadableFolders.length} ` +
+        `sample=${listing.files.slice(0, 3).map((f) => f.relPath).join(' | ')}`,
+    );
+  }
 
   const errors: string[] = [];
   const unreadableFiles: string[] = [];

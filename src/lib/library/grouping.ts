@@ -36,6 +36,21 @@ export type FileGroup = {
 };
 
 /**
+ * Left inside a folder on the drive while the app is writing a book into it,
+ * and deleted once every file has landed and been verified.
+ *
+ * The Storage Access Framework has no rename, so a book cannot be assembled
+ * under a temporary name and moved into place: it has to be written straight
+ * into its final folder. The marker is what makes that safe. If the app dies
+ * mid-copy there is no code left to clean up, and this is the only thing that
+ * tells a later scan the folder holds half a book rather than a short one.
+ *
+ * Hidden, so it does not litter the user's library folder on a computer —
+ * which means `isJunkFile` has to make an exception for it.
+ */
+export const INCOMPLETE_MARKER = '.dueback-incomplete';
+
+/**
  * Files that are not content and should never be seen again after this point —
  * not as books, not as parts, not as skipped files, not as warnings.
  *
@@ -44,9 +59,31 @@ export type FileGroup = {
  * Counting them as "skipped" was technically true and completely useless.
  */
 export function isJunkFile(name: string): boolean {
-  // Anything hidden: covers ._AppleDouble, .DS_Store, .Trashes, .fseventsd.
+  // The one dotfile the app writes itself, and the only one a scan must see.
+  if (name === INCOMPLETE_MARKER) return false;
+  // Anything else hidden: ._AppleDouble, .DS_Store, .Trashes, .fseventsd.
   if (name.startsWith('.')) return true;
   return /^(?:thumbs\.db|desktop\.ini|album ?art.*\.ini)$/i.test(name);
+}
+
+/**
+ * The folders holding a part-written book, and therefore nothing to index.
+ *
+ * Returned as path prefixes because the skip covers the whole subtree: a book
+ * being written disc by disc has its marker at the top, and `Book/Disc 1` must
+ * go with `Book`.
+ */
+function incompleteFolders(files: ScannedFile[]): string[] {
+  const folders: string[] = [];
+  for (const f of files) {
+    if (f.name !== INCOMPLETE_MARKER) continue;
+    const slash = f.relPath.lastIndexOf('/');
+    // A marker loose in the library root is not something this app writes, and
+    // honouring it would hide every book on the drive at once.
+    if (slash < 0) continue;
+    folders.push(f.relPath.slice(0, slash));
+  }
+  return folders;
 }
 
 /**
@@ -147,8 +184,17 @@ export function groupIntoBooks(files: ScannedFile[]): FileGroup[] {
   const unsupported = new Map<string, number>();
   const drm = new Map<string, number>();
 
+  // A folder the app is still writing into is not a book yet, and neither is
+  // anything beneath it. Skipped outright rather than indexed and flagged:
+  // what is in there is an accident of timing, not a library.
+  const incomplete = incompleteFolders(files);
+  const isIncomplete = (relPath: string) =>
+    incomplete.some((folder) => relPath.startsWith(`${folder}/`));
+
   for (const f of files) {
+    if (f.name === INCOMPLETE_MARKER) continue;
     if (isJunkFile(f.name)) continue;
+    if (incomplete.length > 0 && isIncomplete(f.relPath)) continue;
     const slash = f.relPath.lastIndexOf('/');
     const ownFolder = slash < 0 ? '' : f.relPath.slice(0, slash);
     // Every disc of a set is filed under the book's own folder, so the discs

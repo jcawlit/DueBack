@@ -275,12 +275,14 @@ export const usePlayer = create<PlayerState>((set, get) => {
           })),
         };
 
-        console.log(
-          `[dueback] play "${b.title}" — ${rows.length} part(s), LOCAL, ` +
-            `${Math.round(b.durationSec / 3600)}h, ` +
-            `chapters ${b.chapters.length}${b.chaptersFromParts ? ' (per-part)' : ''}, ` +
-            `first: ${track.parts[0]?.uri?.slice(0, 80)}`,
-        );
+        if (__DEV__) {
+          console.log(
+            `[dueback] play "${b.title}" — ${rows.length} part(s), LOCAL, ` +
+              `${Math.round(b.durationSec / 3600)}h, ` +
+              `chapters ${b.chapters.length}${b.chaptersFromParts ? ' (per-part)' : ''}, ` +
+              `first: ${track.parts[0]?.uri?.slice(0, 80)}`,
+          );
+        }
 
         unsubscribe = engine.subscribe((status) => {
           // A status update from a player that has since been replaced must

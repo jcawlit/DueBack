@@ -429,7 +429,7 @@ export async function copyBookToDevice(
     // Everything is here and the right size: now it becomes a checked-out book.
     // The manifest has done its job and must not travel with the audio.
     removeQuietly(new File(staging, MANIFEST_NAME));
-    if (resumedParts > 0) {
+    if (__DEV__ && resumedParts > 0) {
       console.log(`[dueback] resumed ${resumedParts}/${parts.length} staged parts for ${bookId}`);
     }
     const finalDir = new Directory(booksDir(), bookId);

@@ -7,6 +7,7 @@
  */
 
 import { Directory, File, FileMode, Paths } from 'expo-file-system';
+import { INCOMPLETE_MARKER } from '@/lib/library/grouping';
 import { isSupportedAudio } from '@/lib/metadata';
 import { naturalCompare } from '@/lib/library/names';
 import { safeLocalName } from './localNames';
@@ -182,6 +183,15 @@ export async function importBookFromFolder(onProgress?: ImportProgress): Promise
   }
 }
 
+/** Whether a folder on the drive is the wreckage of a push that never finished. */
+function isIncompleteFolder(dir: Directory): boolean {
+  try {
+    return dir.list().some((e) => safDisplayName(e.name) === INCOMPLETE_MARKER);
+  } catch {
+    return false;
+  }
+}
+
 export function deleteImport(bookId: string) {
   removeQuietly(new Directory(importsDir(), bookId));
 }
@@ -288,24 +298,48 @@ export async function copyImportToDrive(
   | { ok: false; message: string }
 > {
   let target: Directory | null = null;
+  let marker: File | null = null;
   let committed = false;
 
   try {
     const root = new Directory(libraryRootUri);
     if (!root.exists) return { ok: false, message: 'The drive is not reachable.' };
 
-    const taken = new Set(root.list().map((e) => e.name));
+    // By display name: a folder directly inside a volume root reports its name
+    // as `BC72-B058:Some Book`, which would match nothing and defeat the
+    // collision check below.
+    const entries = root.list();
+    const byName = new Map(entries.map((e) => [safDisplayName(e.name), e]));
 
-    // Never write over a folder that is already there. A name that is taken
-    // gets a numbered suffix, the way a desktop would do it, because the
-    // existing folder may be a different book that happens to share a name —
-    // or this same book, in which case the user still has the original.
+    /*
+     * Never write over a folder that is already there — unless it is the
+     * wreckage of a push that died, which is ours to clear.
+     *
+     * Without reclaiming it, a retry would take the next free number and the
+     * part-written folder would stay on the drive for ever: the scan skips it,
+     * so it is invisible from inside the app and only a computer could find it.
+     */
     let finalName = folderName;
-    for (let n = 2; taken.has(finalName); n += 1) {
+    for (let n = 2; byName.has(finalName); n += 1) {
+      const existing = byName.get(finalName);
+      if (existing instanceof Directory && isIncompleteFolder(existing)) {
+        removeQuietly(existing);
+        break;
+      }
       finalName = `${folderName} (${n})`;
     }
 
     target = root.createDirectory(finalName);
+
+    /*
+     * The marker goes in before any audio does.
+     *
+     * From here until it is removed, a scan treats this folder as nothing at
+     * all. That is the whole protection against the app being killed mid-copy:
+     * every other exit from this function deletes the folder outright.
+     */
+    marker = target.createFile(INCOMPLETE_MARKER, 'text/plain');
+    marker.write('Due Back is still writing this book. Safe to delete.');
     const totalBytes = files.reduce((n, f) => n + f.sizeBytes, 0);
     /** What the provider actually called each file, in part order. */
     const createdNames: string[] = [];
@@ -370,6 +404,13 @@ export async function copyImportToDrive(
       written.push({ uri: file.uri, name, modifiedMs: file.modificationTime ?? 0 });
     }
 
+    /*
+     * The folder becomes a book the moment the marker goes, so it goes first —
+     * before the listing above is turned into a result, and before anything
+     * else can fail. Dying after this point leaves a complete, correct book.
+     */
+    removeQuietly(marker);
+    marker = null;
     committed = true;
     return { ok: true, folderRelPath: safDisplayName(target.name), files: written };
   } catch (err) {

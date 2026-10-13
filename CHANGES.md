@@ -787,16 +787,25 @@ of `expo-audio`, and four packages a patch version behind (`expo`,
 `npx expo install expo-asset` followed by `npx expo install --fix` — leaves the
 project unbuildable, and the reason is worth writing down.
 
-With `expo@57.0.28`, npm places `expo-modules-core` at
-`node_modules/expo/node_modules/expo-modules-core` instead of hoisting it to
-the top level. Nothing else in the tree requires a different version; a clean
-`rm -rf node_modules && npm install` and an `npm dedupe` both reproduce it. But
-`expo-audio` imports `expo-modules-core` **at runtime** —
-`requireNativeModule`, `useReleasingSharedObject` — and Node resolution from
-`node_modules/expo-audio/` never looks inside `node_modules/expo/node_modules`.
-TypeScript notices first (`Property 'addListener' does not exist on type
-'AudioPlayer'`, because `SharedObject` no longer resolves), and Metro would
-fail the same way.
+**What was observed.** After those two commands, npm placed
+`expo-modules-core` at `node_modules/expo/node_modules/expo-modules-core`
+rather than hoisting it, and `npm run typecheck` failed with `Property
+'addListener' does not exist on type 'AudioPlayer'` — `expo-audio` resolves
+`SharedObject` from `expo-modules-core`, and from `node_modules/expo-audio/`
+that package is no longer reachable. A clean `rm -rf node_modules && npm
+install` and an `npm dedupe` both reproduced the layout. Only `expo` requires
+the package, at a single version, so this was not a version conflict.
+
+**What was inferred, not tested.** That the bundler would fail too.
+`expo-audio` imports `expo-modules-core` at runtime as well as for types
+(`requireNativeModule`, `useReleasingSharedObject`), and Node resolution from
+`node_modules/expo-audio/` never looks inside `node_modules/expo/node_modules`
+— but Metro was not run against the broken tree to confirm it.
+
+**Scope of the claim.** This was the layout npm produced for *this* dependency
+set at *this* npm version. It is not a general statement about `expo@57.0.28`,
+and a later npm or a different set may hoist correctly — which is why the
+check below is a check rather than a rule.
 
 Reverted: `package.json` and `package-lock.json` are unchanged, restored with
 `npm ci`, and `expo-modules-core` is hoisted again. The two doctor warnings

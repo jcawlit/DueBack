@@ -118,6 +118,35 @@ back under each other's names.
 
 *`src/lib/files/copy.ts`*
 
+### A part-written book on the drive carries a marker
+
+SAF has no rename, so an imported book cannot be assembled under a temporary
+name and moved into place — it is written straight into its final folder. The
+protection is `.dueback-incomplete`, created inside that folder before any
+audio and deleted once every file has landed and been verified. A scan skips
+any folder holding it, and everything beneath.
+
+Three things about it are deliberate:
+
+- `isJunkFile` makes an exception for this one dotfile. Every other hidden
+  file is dropped during the walk, so without the exception the scan would
+  never see the marker and the skip would silently never happen.
+- A marker loose in the **library root** is ignored. The app only ever writes
+  one inside a book's own folder, and honouring a stray one would hide every
+  book on the drive at once.
+- A push that finds its wanted name taken by a *marked* folder deletes it and
+  reuses the name. Without that, a retry after a crash would take the next
+  free number and leave the wreckage on the drive for ever — invisible from
+  inside the app, because the scan skips it.
+
+The residual window is tiny and worth knowing: dying between the last verified
+byte and the marker's deletion leaves a complete book that scans ignore. The
+marker is therefore removed first, before the result is even assembled, and a
+later retry reclaims the folder.
+
+*`src/lib/library/grouping.ts`, `src/lib/files/import.ts`, tests in
+`tests/grouping.test.ts`*
+
 ### Unplugging mid-copy arrives as noise
 
 Expo wraps native failures as `Call to function 'FileSystemFile.copy' has been
@@ -383,17 +412,31 @@ one careful path.
 
 ### Do not run `expo install --fix` on this project
 
-`expo-doctor` reports a missing `expo-asset` peer and four patch bumps. Taking
-its advice leaves the project **unbuildable**: with `expo@57.0.28` npm places
-`expo-modules-core` under `node_modules/expo/node_modules/` instead of hoisting
-it, and `expo-audio` imports that package at runtime, where Node resolution
-never looks inside another package's `node_modules`. TypeScript notices first
-(`Property 'addListener' does not exist on type 'AudioPlayer'`).
+`expo-doctor` reports a missing `expo-asset` peer and four patch bumps.
 
-A clean install and `npm dedupe` both reproduce it. Recover with `npm ci`, then
-confirm `node_modules/expo-modules-core` exists at the **top level**. The
-`expo-asset` warning is harmless here: it is only needed for `require()`d audio
-assets, and every source this app plays is a `file://` or `content://` URI.
+**Observed:** running `npx expo install expo-asset` then `npx expo install
+--fix` left npm placing `expo-modules-core` under
+`node_modules/expo/node_modules/` instead of hoisting it, and `npm run
+typecheck` then failed with `Property 'addListener' does not exist on type
+'AudioPlayer'` — `expo-audio` resolves `SharedObject` from that package, and
+from `node_modules/expo-audio/` it is no longer reachable. A clean install and
+`npm dedupe` both reproduced the layout; only `expo` requires it, at one
+version, so it is not a version conflict.
+
+**Inferred:** that the bundler would fail too. `expo-audio` imports the package
+at runtime, not only for types, and Node resolution never looks inside another
+package's `node_modules` — but Metro was not run against the broken tree.
+
+**Scope:** that was the layout npm produced for that dependency set at that npm
+version, not a general fact about `expo@57.0.28`. Recover with `npm ci`, and
+afterwards confirm `node_modules/expo-modules-core` exists at the **top
+level** — check it rather than assuming either way.
+
+The `expo-asset` warning is harmless here: it is only needed for `require()`d
+audio assets, and every source this app plays is a `file://` or `content://`
+URI. Never leave it in `app.json`'s plugins without the package, though — an
+`expo install` once added it there, and the plugin resolved only because the
+package happens to be hoisted as a transitive dependency of `expo`.
 
 ### Always pass `-PreactNativeArchitectures`
 

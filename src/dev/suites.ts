@@ -51,6 +51,7 @@ import { searchBooks } from '@/lib/library/search';
 import { duplicateSets, duplicatesOf, folderLabel } from '@/lib/library/duplicates';
 import { clearDiskFaults, setDiskFault } from '@/dev/faults';
 import { IMPORTS_DIR, copyImportToDrive, deleteImport } from '@/lib/files/import';
+import { INCOMPLETE_MARKER, groupIntoBooks } from '@/lib/library/grouping';
 import { buildImportedBook, saveImportedBook } from '@/lib/scan/importBook';
 import { reconcileLocalCopies } from '@/store/library';
 import { scanLibrary } from '@/lib/scan/scanner';
@@ -1698,6 +1699,72 @@ const a8Imports: Suite = {
           }
           deleteImport(bookId);
           await deleteBook(bookId);
+          await ensureScan({ force: true });
+        }
+      },
+    },
+    {
+      /*
+       * The marker, against a real folder on a real volume. The unit tests
+       * cover the grouping rule; what they cannot cover is whether the file
+       * can be created, read back and deleted through the storage provider.
+       */
+      id: 'IM-I',
+      name: 'a part-written folder on the drive is skipped, then reclaimed',
+      async run(ctx) {
+        const rootUri = `file://${ctx.rootPath}`;
+        const root = new Directory(asDirectoryUri(rootUri));
+        const folderName = `Self Test Incomplete ${Date.now().toString(36)}`;
+
+        // Stand in for a push that died: a folder, a marker, and one file.
+        const partial = root.createDirectory(folderName);
+        const marker = partial.createFile(INCOMPLETE_MARKER, 'text/plain');
+        marker.write('half a book');
+        const orphan = partial.createFile('01.mp3', 'audio/mpeg');
+        orphan.write('not really audio');
+
+        try {
+          check(
+            listNames(partial).some((n) => n.includes('dueback-incomplete')),
+            `the marker was not created: ${listNames(partial).join(', ')}`,
+          );
+
+          // The scan must not index it, and must not mark anything missing
+          // because of it either.
+          await ensureScan({ force: true });
+          const indexed = await booksInFolder(folderName);
+          equal(
+            indexed.length,
+            0,
+            `a part-written folder was indexed: ${indexed.map((b) => b.title).join(', ')}`,
+          );
+
+          // And the grouping rule agrees about the same listing shape.
+          const groups = groupIntoBooks([
+            {
+              relPath: `${folderName}/${INCOMPLETE_MARKER}`,
+              name: INCOMPLETE_MARKER,
+              uri: marker.uri,
+              sizeBytes: 1,
+              modifiedMs: 0,
+            },
+            {
+              relPath: `${folderName}/01.mp3`,
+              name: '01.mp3',
+              uri: orphan.uri,
+              sizeBytes: 1,
+              modifiedMs: 0,
+            },
+          ]);
+          equal(groups.length, 0, 'grouping made a book out of a marked folder');
+
+          return 'skipped by the scan';
+        } finally {
+          try {
+            if (partial.exists) partial.delete();
+          } catch {
+            // Best effort; a forced scan ignores what is not there.
+          }
           await ensureScan({ force: true });
         }
       },
