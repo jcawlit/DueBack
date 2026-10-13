@@ -51,6 +51,23 @@ export type FileGroup = {
 export const INCOMPLETE_MARKER = '.dueback-incomplete';
 
 /**
+ * Whether a file is that marker — under whatever name the drive gave it.
+ *
+ * The name passed to `Directory.createFile` is a request, not an instruction.
+ * SAF puts it through `FileUtils.buildUniqueFile`, which appends an extension
+ * matching the MIME type when the name has none it recognises: asking for
+ * `.dueback-incomplete` as `text/plain` yields `.dueback-incomplete.txt`.
+ *
+ * Matching the exact string therefore recognised nothing. The scan indexed a
+ * half-written book as a short one, and a retry could not reclaim its folder.
+ * Worse, it looked correct from a computer — Windows hides known extensions,
+ * so the file still reads as `.dueback-incomplete` there.
+ */
+export function isIncompleteMarker(name: string): boolean {
+  return name.toLowerCase().replace(/^\./, '').startsWith('dueback-incomplete');
+}
+
+/**
  * Files that are not content and should never be seen again after this point —
  * not as books, not as parts, not as skipped files, not as warnings.
  *
@@ -60,7 +77,7 @@ export const INCOMPLETE_MARKER = '.dueback-incomplete';
  */
 export function isJunkFile(name: string): boolean {
   // The one dotfile the app writes itself, and the only one a scan must see.
-  if (name === INCOMPLETE_MARKER) return false;
+  if (isIncompleteMarker(name)) return false;
   // Anything else hidden: ._AppleDouble, .DS_Store, .Trashes, .fseventsd.
   if (name.startsWith('.')) return true;
   return /^(?:thumbs\.db|desktop\.ini|album ?art.*\.ini)$/i.test(name);
@@ -76,7 +93,7 @@ export function isJunkFile(name: string): boolean {
 function incompleteFolders(files: ScannedFile[]): string[] {
   const folders: string[] = [];
   for (const f of files) {
-    if (f.name !== INCOMPLETE_MARKER) continue;
+    if (!isIncompleteMarker(f.name)) continue;
     const slash = f.relPath.lastIndexOf('/');
     // A marker loose in the library root is not something this app writes, and
     // honouring it would hide every book on the drive at once.
@@ -192,7 +209,7 @@ export function groupIntoBooks(files: ScannedFile[]): FileGroup[] {
     incomplete.some((folder) => relPath.startsWith(`${folder}/`));
 
   for (const f of files) {
-    if (f.name === INCOMPLETE_MARKER) continue;
+    if (isIncompleteMarker(f.name)) continue;
     if (isJunkFile(f.name)) continue;
     if (incomplete.length > 0 && isIncomplete(f.relPath)) continue;
     const slash = f.relPath.lastIndexOf('/');

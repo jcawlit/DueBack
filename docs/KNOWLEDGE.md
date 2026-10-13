@@ -95,6 +95,26 @@ can paint until the work has already finished. Both the walk and the drive copy
 
 *`src/lib/files/access.ts`, `src/lib/files/import.ts`*
 
+### The drive renames the file you asked it to create
+
+`Directory.createFile(name, mime)` is a request. It reaches
+`DocumentsContract.createDocument`, and the provider runs the name through
+`FileUtils.buildUniqueFile`, which appends an extension matching the MIME type
+when the name has none it recognises. A marker asked for as
+`.dueback-incomplete` with `text/plain` lands as `.dueback-incomplete.txt`.
+
+This is why `copyImportToDrive` already reads `created.name` back rather than
+trusting the name it asked for. The incomplete marker did not, and matching
+the exact string recognised nothing: a half-written book was indexed as a
+short one, and the retry could not reclaim its folder. It looked right from a
+computer, too — Windows hides known extensions, so the file still reads as
+`.dueback-incomplete` in Explorer.
+
+Anything that recognises a file this app created on a drive matches by
+prefix — `isIncompleteMarker` — not by equality.
+
+*`src/lib/library/grouping.ts`, `src/lib/files/import.ts`*
+
 ### A file handle on a content:// URI goes dead on its own
 
 `FileSystemFileHandle.forContentURI` opens a `ParcelFileDescriptor`, wraps its

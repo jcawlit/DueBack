@@ -11,6 +11,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { fingerprintKey,
   INCOMPLETE_MARKER,
+  isIncompleteMarker,
   discParentOf,
   findCoverFile,
   groupIntoBooks,
@@ -533,6 +534,39 @@ describe('incomplete-copy marker', () => {
     assert.deepEqual(
       folders([f(INCOMPLETE_MARKER), f('Good/01.mp3'), f('Also Good/01.mp3')]),
       ['Also Good', 'Good'],
+    );
+  });
+
+  /*
+   * The drive renames it. SAF runs the requested name through
+   * `FileUtils.buildUniqueFile`, which appends an extension for the MIME type
+   * when the name has none it recognises, so the marker lands as
+   * `.dueback-incomplete.txt`. Matching the exact string found nothing, and a
+   * half-written book was indexed as a short one.
+   */
+  it('recognises the marker under the name the drive gave it', () => {
+    for (const name of [
+      '.dueback-incomplete',
+      '.dueback-incomplete.txt',
+      '.dueback-incomplete (1).txt',
+      '.DUEBACK-INCOMPLETE.TXT',
+      'dueback-incomplete.txt',
+    ]) {
+      assert.equal(isIncompleteMarker(name), true, `${name} should be the marker`);
+      assert.equal(isJunkFile(name), false, `${name} should not be junk`);
+    }
+  });
+
+  it('is not fooled by a book that merely mentions it', () => {
+    for (const name of ['incomplete.mp3', 'my-dueback-incomplete.txt', '.dueback.txt']) {
+      assert.equal(isIncompleteMarker(name), false, `${name} is not the marker`);
+    }
+  });
+
+  it('skips a folder whose marker the drive renamed', () => {
+    assert.deepEqual(
+      folders([f('Book/.dueback-incomplete.txt'), f('Book/01.mp3'), f('Good/01.mp3')]),
+      ['Good'],
     );
   });
 });

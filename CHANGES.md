@@ -1035,3 +1035,43 @@ reaches it — the Player handles that case by standing in a single chapter
 through `chapterAt`, and the contents sheet never did.
 
 *`src/components/ContentsSheet.tsx`*
+
+## The drive renamed the marker, so the scan indexed half a book
+
+A push of "The Last Kingdom" was force-stopped part way. The folder and its
+marker were still on the drive, and the next scan indexed the partial file as
+a book anyway:
+
+```
+-- The Last Kingdom - CD 01
+   raw folder : BERNARD CORNWELL ~ [Warrior Chronicles 01] - The Last Kingdom - Mine
+   1 part(s) · 8m 36s · 4.0 MB · 0 chapters
+```
+
+`Directory.createFile(name, mime)` is a request, not an instruction. The name
+goes to `DocumentsContract.createDocument`, and the provider puts it through
+`FileUtils.buildUniqueFile`, which appends an extension matching the MIME type
+when the name has none it recognises. `.dueback-incomplete` as `text/plain`
+therefore lands as `.dueback-incomplete.txt`.
+
+Every test for it compared the exact string, so nothing recognised it: the
+scan treated it as an ordinary dotfile and dropped it as junk, grouping never
+saw a marker, and `isIncompleteFolder` could not reclaim the folder on the
+retry — which is why that attempt took a numbered name and left the original
+wreckage in place.
+
+The tests were not wrong so much as asking the wrong layer. They fed
+`groupIntoBooks` a file called `.dueback-incomplete`, which is the name the
+code asks for and not the name the drive gives back. `copyImportToDrive`
+already knew this about audio files and reads `created.name` back after
+creating each one; the marker was the one place that trusted the request.
+
+Matching is now by prefix — `isIncompleteMarker` — which covers
+`.dueback-incomplete.txt`, a numbered duplicate, and any other suffix a
+provider decides to add. Three tests cover the renamed forms, and the near
+misses that must not match.
+
+Worth recording why it was convincing: from a computer the marker looked
+exactly right, because Windows hides known extensions.
+
+*`src/lib/library/grouping.ts`, `src/lib/files/import.ts`, `tests/grouping.test.ts`*

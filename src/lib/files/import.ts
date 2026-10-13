@@ -7,7 +7,7 @@
  */
 
 import { Directory, File, FileMode, Paths } from 'expo-file-system';
-import { INCOMPLETE_MARKER } from '@/lib/library/grouping';
+import { INCOMPLETE_MARKER, isIncompleteMarker } from '@/lib/library/grouping';
 import { isSupportedAudio } from '@/lib/metadata';
 import { naturalCompare } from '@/lib/library/names';
 import { safeLocalName } from './localNames';
@@ -186,7 +186,7 @@ export async function importBookFromFolder(onProgress?: ImportProgress): Promise
 /** Whether a folder on the drive is the wreckage of a push that never finished. */
 function isIncompleteFolder(dir: Directory): boolean {
   try {
-    return dir.list().some((e) => safDisplayName(e.name) === INCOMPLETE_MARKER);
+    return dir.list().some((e) => isIncompleteMarker(safDisplayName(e.name)));
   } catch {
     return false;
   }
