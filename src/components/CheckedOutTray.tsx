@@ -112,7 +112,10 @@ export function CheckedOutTray({
                   lean={LEANS[i % LEANS.length]}
                   showEdge={false}
                   showRibbon={false}
-                  showTag={book.local.status !== 'checked-out'}
+                  // Everything in the tray is checked out, so an "OUT" tag on
+                  // each one says nothing. "DONE" does.
+                  showTag={book.local.status !== 'checked-out' || !!book.finishedAt}
+                  showSpineProgress
                   onPress={() => onPressBook(book)}
                   onLongPress={() => onLongPressBook(book)}
                 />

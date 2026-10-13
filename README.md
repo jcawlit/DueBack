@@ -29,9 +29,11 @@ On a cover in the Library:
   visible, discoverable control.
 - **Long-press** does the same thing as the tab, as a shortcut. It is never the
   only way to do anything.
-- **Select** in the header starts multi-select, for packing before a trip:
-  choose several covers, then confirm with "Check out 5 books · 3.2 GB". The bar
-  keeps a running total and refuses a selection that will not fit, up front.
+
+There is deliberately no multi-select. Packing several books for a trip is a
+long-press each, which is quick enough, and a selection confirmed in one go
+started every copy at once — five simultaneous reads off one USB stick, each
+one's budget check blind to the other four.
 
 ## Rules worth knowing
 
@@ -54,7 +56,11 @@ npx expo start          # then press a for Android, i for iOS
 npm run typecheck       # app + tests
 npm run lint
 npm test                # parser unit tests (Node's built-in runner)
+npm run kb saf          # search the knowledge base
 ```
+
+**Do not run `npx expo install --fix`** on this project — it leaves the build
+broken. `npm run kb expo install` explains why.
 
 Expo SDK 57, React Native 0.86, TypeScript, Expo Router (routes in `src/app/`),
 SQLite via `expo-sqlite`.
@@ -125,6 +131,8 @@ src/
   store/              library.ts, player.ts, scan.ts
   theme/tokens.ts     every colour, typeface and shadow
 tests/                Node unit tests + synthetic fixtures
+scripts/              fixture builders, the scan report, the kb search
+docs/                 KNOWLEDGE.md (what we learned), EMULATOR.md (the runbook)
 audiobooks/           real books for testing — git-ignored, never committed
 design/               the four original mockups, visual reference only
 ```
@@ -154,107 +162,72 @@ drive unplugged.
   skipped. Books that vanish are flagged missing, never deleted — their progress
   and library-card history survive a drive being unplugged. Settings offers
   "Forget N missing books" when you really do want them gone.
-- **Names on a USB volume**: SAF reports an entry's name as its document id,
-  `BC72-B058:Some Folder`. `safDisplayName` strips that prefix. Note that book
-  ids hash the path relative to the root, so changing the root — or anything
-  that changes those paths — re-indexes every book and leaves the old rows
-  flagged missing.
 - **Formats**: `.m4b`, `.m4a`, `.mp3`. Other audio is counted and skipped;
   ebooks and other files are ignored silently. DRM files are marked unplayable.
+- **Cost**: a 1 GB `.m4b` is **164 KB in 3 reads**. File size barely matters;
+  only the number of seeks does.
 
-### What it costs
-
-Measured on a 1 GB m4b: **164 KB read, 3 reads**. File size barely matters —
-only the number of seeks does. Reads are cached in 16 KB blocks
-(`DEFAULT_BLOCK_SIZE` in `src/lib/metadata/reader.ts`); the dev screen reports
-the block size so it can be retuned against real USB latency.
+The awkward parts — SAF document ids, what changing the root does to book
+identity, how incremental fingerprints are keyed — are in the knowledge base:
+`npm run kb scanning`.
 
 ## What is real, and what is not
 
-Built and behaving correctly:
+Everything the app promises is implemented and has been run against a real
+library on a real phone, off a USB drive over OTG.
 
 - All four screens, matching `design/`.
 - Folder picking, scanning, grouping, metadata, covers, SQLite, incremental
   rescan, missing-book handling, settings.
+- **The copy is real.** It streams part by part into a staging folder, verifies
+  each one's size, and only then moves the folder into place, so a half-copied
+  book is never visible as a book. A cancel, a pulled drive or a failed read
+  discards everything. A copy killed with the app survives as staged files and
+  is resumed, part by verified part, the next time the book is checked out.
+  Copies continue while the app is in the background.
+- **Audio is real**, through `expo-audio` behind the `AudioEngine` interface in
+  [src/lib/audio/engine.ts](src/lib/audio/engine.ts). One player for the whole
+  book, whether that is one `.m4b` or a hundred and twenty-seven `.mp3` files:
+  parts are a detail the engine hides, and everything above it is expressed in
+  whole-book seconds. Background playback and lock-screen controls come from a
+  media-playback foreground service. The next part is preloaded as the current
+  one ends, so the seam is as short as the platform allows.
 - Check out / return / hold, the budget and its refusals, the warning before
-  returning a book that has left the drive, select mode, the drawer-shut state.
-- Chapter scrubbing, ±30 s, speed, sleep timer, bookmarks, contents, saved
-  progress.
+  returning a book that has left the drive, the drawer-shut state.
+- Chapter scrubbing, ±30 s, speed, the sleep lamp, contents, saved progress.
+- **Search**, forgiving about accents and word order, matching on word prefixes
+  across title, author and narrator.
+- **Duplicates.** Two copies of the same book are indexed separately, because
+  they are different files in different places — but the Book screen says where
+  the other one lives, so nobody checks out 1.5 GB twice by accident.
+- **The DRM stamp.** An Audible or FairPlay file is listed, stamped on its
+  cover and refused at check-out, with a note explaining why rather than a
+  failure later.
+- **Phone-local libraries.** Point the app at a folder on the phone itself and
+  there is nothing to plug in and nothing to check out: no corner tabs, no
+  select, "Play" instead of "Check out", and no book is ever stored twice.
+- **Adding a book from the phone**, by folder or single file, with an offer to
+  copy it onto the drive once that is connected — after which the scan
+  recognises the folder as that same book rather than indexing it again.
 
-Still stubbed:
+Known gaps:
 
-1. **The copy** — `startCopy` in [src/store/library.ts](src/store/library.ts)
-   fakes progress on a timer. The real one streams, verifies size, and survives
-   backgrounding and the drive being pulled mid-copy.
-2. **Audio** — `tick` in [src/store/player.ts](src/store/player.ts) advances a
-   counter. `react-native-track-player` replaces it, and needs a development
-   build rather than Expo Go.
-3. **iOS access across restarts** — `expo-file-system` calls
+1. **iOS access across restarts** — `expo-file-system` calls
    `startAccessingSecurityScopedResource()` but never persists a bookmark, so a
    picked folder is lost on relaunch. Android persists its permission and is
    unaffected. Either re-pick each launch or add a small native module.
+2. **No next/previous chapter on the lock screen.** `expo-audio` does not
+   expose it, and the seek interval is hardcoded at 10 s, so ±30 s is not
+   configurable there either. Both need a patch to the module's Kotlin.
+3. The running list of smaller things lives at the end of
+   [CHANGES.md](CHANGES.md).
 
-## Running the emulator suite
+## Where to look
 
-An API 34 x86_64 AVD called `dueback34` is set up for this. Two things differ
-from the phone and are worth knowing before you trust a result.
-
-The system folder picker cannot be driven from a script, so the self-test takes
-a plain filesystem path as its library root rather than a picked folder. That
-means it exercises everything downstream of the root — scanning, copying,
-importing, reconciliation — but not the SAF-specific code paths that only a real
-USB drive goes through. SAF bugs still need the phone.
-
-The emulator also cannot run the phone's APK: that one is `arm64-v8a` only.
-
-```bash
-SDK="$LOCALAPPDATA/Android/Sdk"
-ADB="$SDK/platform-tools/adb.exe"
-
-# 1. Boot it.
-"$SDK/emulator/emulator.exe" -avd dueback34 -no-boot-anim &
-
-# 2. Build and install an x86_64 debug APK.
-#    JAVA_TOOL_OPTIONS is required: the bundled JBR is JDK 25, and
-#    react-native-worklets' CMake task trips JDK 24+'s native-access
-#    restriction without it. It must reach the forked JVMs, so passing it
-#    through -Dorg.gradle.jvmargs is not enough.
-cd android
-JAVA_TOOL_OPTIONS="--enable-native-access=ALL-UNNAMED" \
-  JAVA_HOME="/c/Program Files/Android/Android Studio1/jbr" \
-  ./gradlew :app:assembleDebug -PreactNativeArchitectures=x86_64
-cd ..
-"$ADB" install -r android/app/build/outputs/apk/debug/app-debug.apk
-
-# 3. Put a test drive where the app can actually read it.
-#    Not /sdcard/Android/data/<pkg>: adb writes there as shell:ext_data_rw and
-#    the app's uid cannot traverse it. App-internal storage needs root, which
-#    this google_apis image allows.
-"$ADB" root
-"$ADB" push testdrive /data/local/tmp/testdrive
-"$ADB" shell "cp -r /data/local/tmp/testdrive /data/data/com.dueback.app/files/testdrive"
-"$ADB" shell "chown -R u0_a183:u0_a183 /data/data/com.dueback.app/files/testdrive"
-
-# 4. adb root restarts adbd and drops port forwards, so redo this after it.
-"$ADB" reverse tcp:8081 tcp:8081
-
-# 5. Point the dev client at Metro.
-#    This intent is only honoured by an already-running process. Sent to a
-#    cold app it opens MainActivity, fails to connect and leaves a blank white
-#    screen with nothing in logcat, so start the app first and send it second.
-"$ADB" shell "am start -n com.dueback.app/.MainActivity"
-"$ADB" shell "am start -a android.intent.action.VIEW \
-  -d 'dueback://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081'"
-# Wait for the bundle before doing anything else:
-#   until "$ADB" logcat -d -s ReactNativeJS:V | grep -q 'Running "main"'; do sleep 4; done
-
-# 6. Run the suite. The trailing slash on the root matters.
-#    Change the nonce to re-run without navigating away first.
-"$ADB" shell am start -a android.intent.action.VIEW \
-  -d "'dueback://dev/selftest?root=/data/data/com.dueback.app/files/testdrive/&run=1&nonce=1'"
-"$ADB" logcat -d -s ReactNativeJS:V | grep selftest
-```
-
-The suite is `src/app/dev/selftest.tsx`, also reachable by hand from
-Settings → Developer → Self-test. Reset between runs by deleting `testdrive`, `books` and
-`imported` under `/data/data/com.dueback.app/files/`.
+| | |
+|---|---|
+| `docs/KNOWLEDGE.md` | platform quirks, invariants, and why odd-looking code is that way. Searchable with `npm run kb`. |
+| `CHANGES.md` | what changed in each pass, and what is still open |
+| `TESTING.md` | the hardware checklist — the things only a real phone and a real drive can answer |
+| `docs/EMULATOR.md` | running the on-device suite on an emulator |
+| `design/` | the four original mockups |

@@ -50,6 +50,19 @@ export function nodeReader(file: string): ByteReader {
   });
 }
 
+/** A ByteReader over bytes already in memory, for tags built by a test. */
+export function memoryReader(bytes: Uint8Array): ByteReader {
+  return new CachingReader({
+    async size() {
+      return bytes.length;
+    },
+    async read(offset: number, length: number) {
+      return bytes.subarray(offset, Math.min(bytes.length, offset + length));
+    },
+    async close() {},
+  });
+}
+
 /** Every file under `dir`, recursively, as absolute paths. */
 export function walk(dir: string, out: string[] = []): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

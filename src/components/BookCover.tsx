@@ -6,12 +6,11 @@
  *   tap        → open the Book screen (never starts a 1.5 GB copy by accident)
  *   long-press → check out / return, as a shortcut for people who know it
  *   corner tab → the same move, but visible
- * In select mode the whole cover becomes a checkbox instead.
  */
 
 import { Pressable, View } from 'react-native';
 import type { Book } from '@/data/types';
-import { isCheckedOut, isInProgress } from '@/data/types';
+import { isCheckedOut, isInProgress, progressFraction } from '@/data/types';
 import { bytes, hoursMinutes } from '@/lib/format';
 import { leanFor } from '@/lib/shelves';
 import { TOUCH, color, shadow } from '@/theme/tokens';
@@ -20,7 +19,6 @@ import {
   CopyOverlay,
   CornerTab,
   DrmStamp,
-  SelectBadge,
   StatusTag,
   tabStateForBook,
   tagForBook,
@@ -44,8 +42,6 @@ type Props = {
   showTag?: boolean;
   /** Long form tags ("CHECKED OUT") fit the hero covers; shelves get "OUT". */
   longTag?: boolean;
-  selecting?: boolean;
-  selected?: boolean;
   /** Override the computed lean; pass 0 to stand a cover up straight. */
   lean?: number;
   edgeWidth?: number;
@@ -53,6 +49,14 @@ type Props = {
   scale?: number;
   /** Stops an in-flight copy. Only shown on the larger covers. */
   onCancelCopy?: () => void;
+  /**
+   * Draws how far through the book you are up the cover's left edge.
+   *
+   * For the checked-out tray, where the covers carry no page edge and no
+   * ribbon: those books are the ones being listened to, and how far through
+   * each one is was the fact the tray could not tell you.
+   */
+  showSpineProgress?: boolean;
 };
 
 export function BookCover({
@@ -65,12 +69,11 @@ export function BookCover({
   showRibbon = true,
   showTag = true,
   longTag = false,
-  selecting = false,
-  selected = false,
   lean,
   edgeWidth,
   scale = 1,
   onCancelCopy,
+  showSpineProgress = false,
 }: Props) {
   const { width, height } = coverDimensions(size, scale);
   const rotation = lean ?? leanFor(book.id, size === 'tray' ? 3 : 2);
@@ -95,6 +98,10 @@ export function BookCover({
           : 'on the shelf',
     // The stamp is decorative to a screen reader unless the fact is spoken.
     book.drmProtected ? "protected by DRM, can't be played" : '',
+    book.finishedAt ? 'finished' : '',
+    showSpineProgress && !book.finishedAt && book.progressSec > 0
+      ? `${Math.round(progressFraction(book) * 100)}% through`
+      : '',
   ]
     .filter(Boolean)
     .join(', ');
@@ -109,6 +116,29 @@ export function BookCover({
         */}
         <View style={shadow(elevation, 0.5)}>
           <CoverFace book={book} size={size} scale={scale} />
+          {showSpineProgress && book.progressSec > 0 ? (
+            <View
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: 3,
+                backgroundColor: color.troughDeep,
+                justifyContent: 'flex-end',
+                overflow: 'hidden',
+              }}
+            >
+              {/* Fills from the bottom up, like a bookmark climbing the spine. */}
+              <View
+                style={{
+                  height: `${Math.max(2, progressFraction(book) * 100)}%`,
+                  backgroundColor: book.finishedAt ? color.accent : color.ribbon,
+                }}
+              />
+            </View>
+          ) : null}
           {book.drmProtected ? (
             <View
               style={{
@@ -129,12 +159,7 @@ export function BookCover({
               onCancel={size === 'tray' ? undefined : onCancelCopy}
             />
           ) : null}
-          {selecting ? (
-            <View style={{ position: 'absolute', top: -8, left: -8 }}>
-              <SelectBadge selected={selected} />
-            </View>
-          ) : null}
-          {!selecting && onTab && !copying ? (
+          {onTab && !copying ? (
             <View style={{ position: 'absolute', bottom: 8, right: 8 }}>
               <CornerTab
                 state={tabStateForBook(book)}
@@ -197,31 +222,12 @@ export function BookCover({
       delayLongPress={320}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={selecting ? { selected } : undefined}
       style={({ pressed }) => ({
         minHeight: Math.max(TOUCH, height),
-        transform: [
-          { rotate: `${rotation}deg` },
-          { translateY: pressed || selected ? -4 : 0 },
-        ],
+        transform: [{ rotate: `${rotation}deg` }, { translateY: pressed ? -4 : 0 }],
         transformOrigin: origin,
-        opacity: selecting && !selected ? 0.62 : 1,
       })}
     >
-      {selected ? (
-        <View
-          style={{
-            position: 'absolute',
-            top: -5,
-            left: -5,
-            width: width + 10,
-            height: height + 10,
-            borderRadius: 4,
-            borderWidth: 1.5,
-            borderColor: color.accent,
-          }}
-        />
-      ) : null}
       {body}
     </Pressable>
   );

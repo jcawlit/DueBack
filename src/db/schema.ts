@@ -11,11 +11,9 @@ export const DB_NAME = 'dueback.db';
 /**
  * The in-flight open, memoised as a *promise* rather than a handle.
  *
- * Callers routinely ask for the database concurrently — `hydrate` alone fires
- * five queries through `Promise.all`. Caching the resolved handle instead would
- * let every one of those see `null` and open its own connection, each running
- * the migration, which SQLite answers with a null-pointer failure from
- * `prepareAsync`. Memoising the promise means they all await the same open.
+ * Callers routinely ask for the database concurrently. Caching the resolved
+ * handle lets every one of those see `null`, open its own connection and run
+ * the migration — which SQLite answers with a null-pointer failure.
  */
 let opening: Promise<SQLite.SQLiteDatabase> | null = null;
 
@@ -153,6 +151,14 @@ const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
     await db.execAsync(
       `ALTER TABLE books ADD COLUMN chapters_from_parts INTEGER NOT NULL DEFAULT 0`,
     );
+  },
+  async (db) => {
+    // The folder an imported book was copied into on the drive.
+    //
+    // A book's identity is a hash of its path, so a folder the app itself
+    // created would be read back as a new book. This column tells the scan
+    // that the folder it has found is already a book it knows.
+    await db.execAsync(`ALTER TABLE books ADD COLUMN drive_rel_path TEXT`);
   },
 ];
 

@@ -215,16 +215,12 @@ export function CopyOverlay({
 }
 
 /**
- * The DRM stamp: a rubber stamp struck across the cover of a book that cannot
- * be played.
+ * The DRM stamp, struck across the cover of a book that cannot be played.
  *
- * It belongs on the cover rather than only on the Book screen, because the
- * whole point is to stop someone trying. A library with a dozen Audible
- * downloads in it should show, from the shelf, which twelve those are.
- *
- * Scaled from the cover's width so it reads the same on a 56px tray thumbnail
- * as on a 248px hero cover, and struck slightly crooked like the rest of the
- * stamps.
+ * On the cover rather than only on the Book screen, because the point is to
+ * stop someone trying: a library with a dozen Audible downloads should show
+ * from the shelf which twelve those are. Scaled from the cover's width so it
+ * reads the same on a tray thumbnail as on a hero cover.
  */
 export function DrmStamp({ coverWidth }: { coverWidth: number }) {
   const unit = coverWidth / 86;
@@ -263,30 +259,6 @@ export function DrmStamp({ coverWidth }: { coverWidth: number }) {
   );
 }
 
-/** Select mode: an amber tick in the corner of chosen covers. */
-export function SelectBadge({ selected }: { selected: boolean }) {
-  return (
-    <View
-      style={[
-        {
-          width: 24,
-          height: 24,
-          borderRadius: 12,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: selected ? color.accent : 'rgba(18,13,10,0.78)',
-          borderWidth: 1.5,
-          borderColor: selected ? color.accent : color.border,
-          zIndex: 12,
-        },
-        shadow(12, 0.4),
-      ]}
-    >
-      {selected ? <CheckIcon size={13} stroke={color.ground} /> : null}
-    </View>
-  );
-}
-
 /**
  * The tag a cover should show, if any. Returns null for a book that is simply
  * on the shelf, which is the quiet default.
@@ -294,6 +266,16 @@ export function SelectBadge({ selected }: { selected: boolean }) {
 export function tagForBook(book: Book, long = false) {
   switch (book.local.status) {
     case 'checked-out':
+      /*
+       * A book you have finished says so, rather than being offered back.
+       *
+       * The alternative was a prompt at the end of the last chapter, and the
+       * user's call was that returning is their decision and their timing: the
+       * tray marks what is done and leaves it there until they say otherwise.
+       */
+      if (book.finishedAt) {
+        return { label: long ? 'FINISHED' : 'DONE', variant: 'solid' as const };
+      }
       return { label: long ? 'CHECKED OUT' : 'OUT', variant: 'solid' as const };
     case 'on-hold':
       return { label: long ? 'ON HOLD' : 'HOLD', variant: 'outline' as const };

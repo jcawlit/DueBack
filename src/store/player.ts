@@ -35,9 +35,21 @@ type PlayerState = {
   error: string | null;
   speedIndex: number;
   sleepIndex: number;
+  /**
+   * When the lamp goes out, as a wall-clock timestamp. A deadline needs
+   * nothing to keep it, which a counter on a JS interval did —
+   * `npm run kb sleep`.
+   */
+  sleepDeadlineAt: number | null;
+  /** The same thing as a countdown, for the Player's label. Derived. */
   sleepRemainingSec: number | null;
 
   open: (bookId: string) => Promise<void>;
+  /**
+   * Throws away whatever the engine is holding and opens the current book
+   * again, optionally starting playback. The way out of a load that failed.
+   */
+  reload: (andPlay?: boolean) => Promise<void>;
   /** Reopens the last book, paused at its saved position. */
   restoreLastBook: () => Promise<void>;
   close: () => Promise<void>;
@@ -47,8 +59,6 @@ type PlayerState = {
   skipChapter: (direction: 1 | -1) => void;
   cycleSpeed: () => void;
   cycleSleep: () => void;
-  /** Ticks the sleep timer once a second while playing. */
-  tickSleep: () => void;
   /** Flushes the position, e.g. when the app goes to the background. */
   savePosition: () => void;
 };
@@ -58,6 +68,37 @@ const engine: AudioEngine = createExpoAudioEngine();
 let unsubscribe: (() => void) | null = null;
 let lastPersistedAt = 0;
 let lastSubtitle = '';
+
+/**
+ * The book the engine actually holds, set only once a load has succeeded.
+ *
+ * `bookId` alone cannot answer "is this ready to play?": it is set before any
+ * of the work, so a failed load leaves the id in place with nothing behind it.
+ */
+let loadedFor: string | null = null;
+
+/**
+ * Which `open` call is the live one. The user can pick another book across any
+ * of the awaits in `open`, and without this the slower call writes its book's
+ * state over the newer one's.
+ */
+let openToken = 0;
+
+/**
+ * How long to wait for the engine before calling a load failed. Generous — a
+ * first load binds the playback service — but never unbounded.
+ */
+const LOAD_TIMEOUT_MS = 20000;
+
+function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
 
 /** How far through a chapter counts as "into it" for a previous-chapter tap. */
 const CHAPTER_RESTART_THRESHOLD_SEC = 3;
@@ -87,7 +128,10 @@ export const usePlayer = create<PlayerState>((set, get) => {
     const now = Date.now();
     if (!force && now - lastPersistedAt < 5000) return;
     lastPersistedAt = now;
-    useLibrary.getState().recordProgress(id, positionSec);
+    // Only a forced save replaces the book in the library's own list: a
+    // position saved every five seconds while playing would otherwise rebuild
+    // every shelf behind the Player. The database is written either way.
+    useLibrary.getState().recordProgress(id, positionSec, { commit: force });
   };
 
   /**
@@ -115,6 +159,46 @@ export const usePlayer = create<PlayerState>((set, get) => {
     }
   };
 
+  /**
+   * Puts the book down when the lamp is due to go out. Called from the
+   * engine's status callback, which the native player drives every 500 ms
+   * including in the background.
+   *
+   * The timer is wall-clock, so time spent paused counts. End of chapter is
+   * measured against the position instead.
+   */
+  const checkSleep = (positionSec: number) => {
+    const state = get();
+    const option = SLEEP_OPTIONS[state.sleepIndex];
+
+    if (option.kind === 'chapter') {
+      if (!state.playing) return;
+      const b = book();
+      if (!b || b.chapters.length === 0) return;
+      // Stop at the boundary rather than rolling through.
+      const { endSec } = chapterAt(b, positionSec);
+      if (positionSec >= endSec - 1 && endSec < b.durationSec) {
+        void engine.pause();
+        set({ playing: false, sleepIndex: 0, sleepRemainingSec: null, sleepDeadlineAt: null });
+        persist(positionSec, true);
+      }
+      return;
+    }
+
+    if (option.kind !== 'timer' || state.sleepDeadlineAt === null) return;
+
+    const remaining = Math.ceil((state.sleepDeadlineAt - Date.now()) / 1000);
+    if (remaining <= 0) {
+      void engine.pause();
+      set({ playing: false, sleepIndex: 0, sleepRemainingSec: null, sleepDeadlineAt: null });
+      persist(positionSec, true);
+      return;
+    }
+    // Only when the displayed second actually changes: this runs twice a
+    // second, and the label is the only reader.
+    if (remaining !== state.sleepRemainingSec) set({ sleepRemainingSec: remaining });
+  };
+
   return {
     bookId: null,
     positionSec: 0,
@@ -123,32 +207,49 @@ export const usePlayer = create<PlayerState>((set, get) => {
     error: null,
     speedIndex: 0,
     sleepIndex: 0,
+    sleepDeadlineAt: null,
     sleepRemainingSec: null,
 
     open: async (bookId) => {
-      if (get().bookId === bookId) return;
+      /*
+       * Re-opening the book already playing is a no-op, so that leaving the
+       * Player and coming back does not reload it — but the engine has to
+       * genuinely hold it for that shortcut to be honest, or a failed load
+       * leaves the play button spinning for ever. `npm run kb load`.
+       */
+      if (get().bookId === bookId && loadedFor === bookId && !get().error) return;
+
+      const token = ++openToken;
+      const current = () => token === openToken;
+
       await get().close();
+      if (!current()) return;
 
       const b = useLibrary.getState().books.find((x) => x.id === bookId);
       if (!b) return;
 
-      set({ bookId, positionSec: b.progressSec, playing: false, buffering: true, error: null });
+      /*
+       * A finished book opens at the beginning: its saved position is the last
+       * second of the last part, so "Listen again" would otherwise load the
+       * end and sit there. The library card keeps the date it was finished.
+       */
+      const atEnd = b.durationSec > 0 && b.progressSec >= b.durationSec - 1;
+      const startAt = b.finishedAt && atEnd ? 0 : b.progressSec;
+
+      set({ bookId, positionSec: startAt, playing: false, buffering: true, error: null });
 
       try {
         const rows = await loadParts(bookId);
+        if (!current()) return;
         if (rows.length === 0) {
           set({ buffering: false, error: 'No audio files are recorded for this book.' });
           return;
         }
 
-        // Normally local files only. Streaming off a drive technically works
-        // but is miserable — a long book spends minutes seeking before it
-        // makes a sound — so a book that is not on the phone is not playable,
-        // and the Book screen offers to check it out instead.
-        //
-        // The exception is a library that already lives on the phone. There is
-        // no drive to be slow, and nothing to check out: copying each book into
-        // app storage would simply store it twice.
+        // Local files only: streaming off a drive means minutes of seeking
+        // before a sound, so a book that is not on the phone is not playable
+        // and the Book screen offers to check it out instead. The exception is
+        // a library already on the phone, where there is nothing to copy.
         const onDevice = useLibrary.getState().libraryOnDevice;
         const localUris = rows.map((p) =>
           p.local_uri ? localUriFor(p.local_uri) : onDevice ? p.uri : null,
@@ -182,12 +283,21 @@ export const usePlayer = create<PlayerState>((set, get) => {
         );
 
         unsubscribe = engine.subscribe((status) => {
+          // A status update from a player that has since been replaced must
+          // not describe the book now on screen.
+          if (!current()) return;
           set({
             positionSec: status.positionSec,
             playing: status.playing,
-            buffering: status.buffering,
+            // Buffering means "waiting to make a sound", not "idle". A player
+            // sitting loaded and paused reports neither, but one that never
+            // finished loading reports `isLoaded: false` for ever, and taking
+            // that as buffering put the spinner back on a button the user
+            // could otherwise have pressed to try again.
+            buffering: status.buffering && (status.playing || get().playing),
           });
           syncNowPlaying(status.positionSec);
+          checkSleep(status.positionSec);
           persist(status.positionSec);
           if (status.finished) {
             persist(status.positionSec, true);
@@ -198,30 +308,47 @@ export const usePlayer = create<PlayerState>((set, get) => {
         // load, and it can only do that with the right chapter if it already
         // knows it.
         lastSubtitle = '';
-        syncNowPlaying(b.progressSec);
+        syncNowPlaying(startAt);
 
-        await engine.load(track, b.progressSec);
+        await withTimeout(
+          engine.load(track, startAt),
+          LOAD_TIMEOUT_MS,
+          'The audio engine did not respond.',
+        );
+        if (!current()) return;
         await engine.setRate(SPEEDS[get().speedIndex]);
+        loadedFor = bookId;
         set({ buffering: false });
         // Remembered so the next launch can come back to it.
         void setSetting(SETTING_KEYS.lastBookId, bookId);
       } catch (err) {
+        if (!current()) return;
+        // Leave nothing half-loaded behind: the next attempt must start from a
+        // clean engine, and the spinner must give way to something the user
+        // can act on.
+        loadedFor = null;
+        await engine.unload().catch(() => {});
         set({
           buffering: false,
+          playing: false,
           error: (err as Error)?.message ?? 'That book would not open.',
         });
       }
     },
 
+    reload: async (andPlay = false) => {
+      const id = get().bookId;
+      if (!id) return;
+      loadedFor = null;
+      await get().close();
+      await get().open(id);
+      if (andPlay && !get().error && get().bookId === id) get().togglePlay();
+    },
+
     /**
-     * Reopens whatever was playing when the app was last closed.
-     *
-     * Loaded, paused, at the saved position — never started on its own. Audio
-     * beginning by itself because an app was opened is alarming, especially
-     * with the phone against someone's ear.
-     *
-     * Silent about failures: the book may have been returned, forgotten or
-     * moved since, and none of that is worth an error on launch.
+     * Reopens whatever was playing when the app was last closed: loaded,
+     * paused, at the saved position — never started on its own. Silent about
+     * failures, since the book may have been returned or forgotten since.
      */
     restoreLastBook: async () => {
       if (get().bookId) return;
@@ -242,6 +369,7 @@ export const usePlayer = create<PlayerState>((set, get) => {
     },
 
     close: async () => {
+      loadedFor = null;
       if (get().bookId) persist(get().positionSec, true);
       // Stopping is deliberate — do not reopen this on the next launch.
       void setSetting(SETTING_KEYS.lastBookId, null);
@@ -255,11 +383,25 @@ export const usePlayer = create<PlayerState>((set, get) => {
         buffering: false,
         error: null,
         sleepIndex: 0,
+        sleepDeadlineAt: null,
         sleepRemainingSec: null,
       });
     },
 
     togglePlay: () => {
+      const id = get().bookId;
+      /*
+       * Nothing is loaded, so there is nothing to play. Pressing play here
+       * used to set the button to "pause" and call a player that was not
+       * there: the screen claimed to be playing in silence. Try the load
+       * again instead, which is what the user is really asking for.
+       */
+      if (id && loadedFor !== id) {
+        set({ playing: false });
+        void get().reload(true);
+        return;
+      }
+
       const next = !get().playing;
       // Optimistic, so the button responds before the engine reports back.
       set({ playing: next });
@@ -321,9 +463,11 @@ export const usePlayer = create<PlayerState>((set, get) => {
       set((s) => {
         const sleepIndex = (s.sleepIndex + 1) % SLEEP_OPTIONS.length;
         const option = SLEEP_OPTIONS[sleepIndex];
+        const timed = option.kind === 'timer';
         return {
           sleepIndex,
-          sleepRemainingSec: option.kind === 'timer' ? option.minutes * 60 : null,
+          sleepDeadlineAt: timed ? Date.now() + option.minutes * 60_000 : null,
+          sleepRemainingSec: timed ? option.minutes * 60 : null,
         };
       }),
 
@@ -331,35 +475,6 @@ export const usePlayer = create<PlayerState>((set, get) => {
       if (get().bookId) persist(get().positionSec, true);
     },
 
-    tickSleep: () => {
-      const state = get();
-      if (!state.playing) return;
-      const option = SLEEP_OPTIONS[state.sleepIndex];
-      const b = book();
-      if (!b) return;
-
-      // End of chapter: stop at the boundary rather than rolling through.
-      if (option.kind === 'chapter' && b.chapters.length > 0) {
-        const { endSec } = chapterAt(b, state.positionSec);
-        if (state.positionSec >= endSec - 1 && endSec < b.durationSec) {
-          void engine.pause();
-          set({ playing: false, sleepIndex: 0, sleepRemainingSec: null });
-          persist(state.positionSec, true);
-        }
-        return;
-      }
-
-      if (option.kind === 'timer' && state.sleepRemainingSec !== null) {
-        const remaining = state.sleepRemainingSec - 1;
-        if (remaining <= 0) {
-          void engine.pause();
-          set({ playing: false, sleepIndex: 0, sleepRemainingSec: null });
-          persist(state.positionSec, true);
-          return;
-        }
-        set({ sleepRemainingSec: remaining });
-      }
-    },
   };
 });
 

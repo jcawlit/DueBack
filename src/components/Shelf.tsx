@@ -17,8 +17,6 @@ type Props = {
   /** Omitted when there is nothing to check out, which hides the corner tab. */
   onTabBook?: (book: Book) => void;
   onCancelCopy: (book: Book) => void;
-  selecting: boolean;
-  selectedIds: string[];
 };
 
 function ShelfRow({
@@ -27,8 +25,6 @@ function ShelfRow({
   onLongPressBook,
   onTabBook,
   onCancelCopy,
-  selecting,
-  selectedIds,
 }: Props) {
   return (
     <View style={{ paddingTop: 26, paddingHorizontal: space.lg }}>
@@ -55,8 +51,6 @@ function ShelfRow({
             onLongPress={() => onLongPressBook(book)}
             onTab={onTabBook ? () => onTabBook(book) : undefined}
             onCancelCopy={() => onCancelCopy(book)}
-            selecting={selecting}
-            selected={selectedIds.includes(book.id)}
           />
         ))}
       </View>

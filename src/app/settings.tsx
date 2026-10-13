@@ -75,11 +75,15 @@ export default function SettingsScreen() {
   const importing = useLibrary((s) => s.importing);
   const pendingDriveImports = useLibrary((s) => s.pendingDriveImports);
   const pushImportsToDrive = useLibrary((s) => s.pushImportsToDrive);
+  const pushingToDrive = useLibrary((s) => s.pushingToDrive);
   const books = useLibrary((s) => s.books);
   const refresh = useLibrary((s) => s.refresh);
   const budgetBytes = useLibrary((s) => s.budgetBytes);
 
-  const running = useScan((s) => s.running);
+  const scanning = useScan((s) => s.running);
+  const preparing = useScan((s) => s.preparing);
+  // Picking a folder, checking it and scanning it are one busy state here.
+  const running = scanning || preparing;
   const progress = useScan((s) => s.progress);
   const lastResult = useScan((s) => s.lastResult);
   const scanError = useScan((s) => s.error);
@@ -232,8 +236,8 @@ export default function SettingsScreen() {
             label={running ? 'Scanning…' : 'Rescan library'}
             detail="Reads anything new or changed"
             tone="accent"
-            onPress={running ? cancel : () => void rescan()}
-            disabled={!libraryRoot}
+            onPress={scanning ? cancel : () => void rescan()}
+            disabled={!libraryRoot || preparing}
           />
           <Row
             label="Full rescan"
@@ -272,11 +276,17 @@ export default function SettingsScreen() {
           />
           {pendingDriveImports.length > 0 ? (
             <Row
-              label={`Copy ${pendingDriveImports.length} to the drive`}
-              detail="Puts books added here onto the drive as well"
+              label={
+                pushingToDrive
+                  ? 'Copying to the drive…'
+                  : `Copy ${pendingDriveImports.length} to the drive`
+              }
+              // A book of any size takes a while to write to a USB drive, and
+              // the row is the only place that can say so.
+              detail={pushingToDrive ?? 'Puts books added here onto the drive as well'}
               tone="accent"
               onPress={() => void pushImportsToDrive()}
-              disabled={running || !driveConnected}
+              disabled={running || !driveConnected || !!pushingToDrive}
             />
           ) : null}
         </View>

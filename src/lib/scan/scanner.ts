@@ -28,6 +28,7 @@ import { resolveName } from '@/lib/library/names';
 import { sanitiseChapters } from '@/lib/library/chapters';
 import { bookIdFor } from '@/lib/library/ids';
 import {
+  claimedDriveFolders,
   existingFingerprints,
   markMissingExcept,
   upsertBook,
@@ -102,15 +103,12 @@ type GroupRead = { file: ScannedFile; read: Awaited<ReturnType<typeof readFileMe
 /**
  * Splits one folder's files into the books they actually hold.
  *
- * A folder is normally one book, but a shelf of short works — a folder of
- * children's stories is the usual case — gives every file its own album tag.
- * When every file carries one and they name different works, the folder is a
- * shelf and each album becomes a book.
+ * A folder is normally one book, but a shelf of short works gives every file
+ * its own album tag; when those name different works, each album is a book.
  *
- * Disc markers are stripped before the albums are compared, because a CD rip
- * tags its discs "Dune, CD 1" and "Dune, CD 2". Treating those as two works
- * would undo the disc merging that happens during grouping, and splitting a
- * book in half is a far more visible mistake than leaving a shelf unsplit.
+ * Disc markers are stripped before the albums are compared — a CD rip tags its
+ * discs "Dune, CD 1" and "Dune, CD 2", and splitting a book in half is a far
+ * more visible mistake than leaving a shelf unsplit.
  */
 function partitionByAlbum(reads: GroupRead[]): GroupRead[][] {
   if (reads.length < 2) return [reads];
@@ -136,6 +134,8 @@ function partitionByAlbum(reads: GroupRead[]): GroupRead[][] {
 async function readGroup(
   group: FileGroup,
   allFiles: ScannedFile[],
+  /** Folders an existing book already claims; see `claimedDriveFolders`. */
+  claimed: Map<string, string>,
 ): Promise<ScannedBook[]> {
   // An image beside the audio beats embedded artwork, and knowing that up front
   // means the embedded cover can be skipped entirely.
@@ -154,7 +154,11 @@ async function readGroup(
 
   const units = partitionByAlbum(reads);
   if (units.length === 1) {
-    const id = bookIdFor(group.folderRelPath, group.files, { split: group.split });
+    // A folder this app put on the drive itself keeps the id of the book it
+    // was copied from, rather than being read back as a new one.
+    const id =
+      claimed.get(group.folderRelPath) ??
+      bookIdFor(group.folderRelPath, group.files, { split: group.split });
     return [await buildBook(group, units[0], allFiles, id, coverImage)];
   }
 
@@ -210,13 +214,12 @@ async function buildBook(
   }
 
   /**
-   * A file only becomes a part if there is something in it to play.
+   * A file only becomes a part if there is something in it to play. Anything
+   * unplayable laid into the timeline gives the book phantom parts that play
+   * silence and push every later part out of step.
    *
-   * A zero-length file, one the parser could not open, and one that yields no
-   * duration at all are all equally unplayable — laying them into the timeline
-   * gave a book phantom parts that produced silence and threw the whole-book
-   * position out. A book left with no parts at all is still recorded, flagged,
-   * and refused at check-out rather than quietly vanishing from the library.
+   * A book left with no parts at all is still recorded, flagged and refused at
+   * check-out, rather than quietly vanishing from the library.
    */
   const playable = reads.filter(({ file, read }) => {
     if (file.sizeBytes === 0) {
@@ -402,6 +405,7 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
 
   const groups = groupIntoBooks(listing.files);
   const fingerprints = await existingFingerprints();
+  const claimed = await claimedDriveFolders();
   console.log(
     `[scan] root=${options.rootUri} files=${listing.files.length} ` +
       `groups=${groups.length} unsupported=${listing.unsupportedCount} ` +
@@ -453,7 +457,7 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
     }
 
     try {
-      const books = await readGroup(group, listing.files);
+      const books = await readGroup(group, listing.files, claimed);
       for (const book of books) {
         await upsertBook(book);
         seenIds.push(book.id);
@@ -478,27 +482,14 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
   });
 
   /*
-   * Only a scan that walked the whole of a readable root is evidence about what
-   * is *not* there any more.
-   *
-   * `markMissingExcept` stamps every book the scan did not see, and it used to
-   * run unconditionally. Two ways that went wrong, both of them one tap away:
-   *
-   *   - Cancel at 10%, and the other 90% were marked NOT ON DRIVE.
-   *   - Press Rescan with the drive unplugged. The root cannot be listed, but
-   *     `listTree` records that as an unreadable folder and returns an empty
-   *     listing rather than throwing — so the scan "saw" nothing, and the
-   *     entire library was stamped missing.
-   *
-   * The second is the one that mattered: both Settings rescan buttons are
-   * enabled whenever a folder is chosen. An unreadable root is not evidence of
-   * an empty library, and a scan the user stopped is not evidence of anything.
+   * Only a scan that walked the whole of a readable root is evidence about
+   * what is no longer there. A cancelled scan says nothing about the 90% it
+   * never reached, and an unreadable root is not an empty library.
    */
   const rootReadable = listing.rootReadable;
   const completed = !cancelled;
-  if (completed && rootReadable) {
-    await markMissingExcept(seenIds);
-  }
+  // The evidence travels with the call; `markMissingExcept` declines without it.
+  await markMissingExcept(seenIds, { completed, rootReadable });
 
   const now = new Date().toISOString();
   // A partial or failed scan is not "last scanned at", either.

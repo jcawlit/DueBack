@@ -19,9 +19,12 @@ let the scan run to the end. Leave the phone alone while it works.
 
 **Expect:** Every book found. A sensible book count. Progress that keeps
 moving. At the end, a report naming anything it could not read.
+- picking library folder and importing books work - when initially choosing a libarary behind the progress bar we see the page your drive isnt connected yet - so that should be removed when books are actively importing.
+- also while clicking the drive for th elibrary folder theres a couple seconds depending on how big th elibrary is after you select with no indication the process has started which should have osme sort of notification were reading the drive 
 
 **Watch for:** books that split into two, box sets that should be one book,
 authors that are obviously wrong, covers that are the wrong art or static.
+- covers that are wrong - shadows linger and the black company. the black comapy is static and shadows linger is plin orange with no title, when i import them to another audiobook app the tiels render. will add the files to audiobooks folder so you can see them 
 
 **Why first:** everything else is downstream of this. The emulator scanned 44
 synthetic books; your library is hundreds of real ones with naming no
@@ -35,6 +38,7 @@ generator would invent.
 progress overlay appears, switch to another app. Wait two minutes. Come back.
 
 **Expect:** The copy finished, and the book is on your phone.
+- the copy finished when i switch apps or turn screen off. so good here
 
 **If it did not:** note roughly how far it got, and whether the app had
 restarted. **This single test decides whether Due Back needs a background
@@ -54,6 +58,7 @@ while the bar is moving.
 **Expect:** The copy stops. A message says so in plain English. The book goes
 back to being on the shelf. **No half-copied book, and nothing claiming to be
 checked out that is not.**
+- when unplugging mid copy getting a call to function error. book wen tback to shelf and one time app quit so need better error handling here for sure
 
 **Then:** plug the drive back in and check the same book out again. It should
 work as if nothing happened.
@@ -76,6 +81,7 @@ app), position jumping, or the lock screen going stale.
 
 **Why:** the harness cannot run the real audio stack for an hour under real
 power management. This is the core promise of the app.
+- whenaudio is playing it is completely normal and have found no issues. have found though sometimes when i go to play a checked out book the play button is buffering. when i go back to a book that has already been palying play that than go back to the book that was buffering i can now play it - so clearly a bug somehwere here. 
 
 ---
 
@@ -91,6 +97,7 @@ loud. Reconnecting does not lose your place.
 expo-audio docs say playback stops on disconnect. **This check confirms
 whether that is actually true on your Pixel.** If audio blares out of the
 phone speaker when your headphones disconnect, tell me and I will add it.
+- seems to be working well. good here
 
 ---
 
@@ -107,6 +114,7 @@ have puts it on hold rather than failing.
 
 **Why:** this is the app's actual daily shape. Most of the time the drive is
 not there.
+- i dont like the section that says your drive isnt conencted these are cached covers blah blah blah it takes aup  big portion of the library and its pertty self explanatory. also can we make the sorting section / settings and select section a bit more compact. 
 
 ---
 
@@ -121,6 +129,7 @@ without you pressing anything.
 **Watch for:** being asked to pick the folder again. Android is supposed to
 remember the permission; if it does not, that is a real bug and worth knowing
 early.
+- library is still there and adnroid remebers the drive - i do think when i reconnect the drive and click on the drive button in the top right there should be a little checking animation like a circular sarrow going arround or something and also instead of the non lit up dot when drive isnt connected maybe a sysmbol to tell theuser to click it to theck if the drive is conencted then after clicked thae animation pops up to check for the drive ususally when you click it and teh drive is not conencted it autamatically says the drive is not connected. 
 
 ---
 
@@ -136,6 +145,7 @@ asks twice before anything is deleted.
 **Why:** returning is the only destructive thing the app does. The last
 confirmation is all that stands between a user and losing audio they cannot
 get back.
+- no pop up for the return after finishing a book. i thinhk thats okay when going to the book view it does say listena gain rather than keep playing - so maybe we just have a little finished or return stamp in the chekcout out view over the book rather than prompting or forcing a return, think this is best approach let user decide when and what to return. also in the checked out view should ghave a little progress bar maybe up the spine showing the progress 
 
 ---
 
@@ -151,6 +161,7 @@ the drive — go and look at the folder on a computer.
 
 **Why:** the import path had the worst bug we found, and the copy-to-drive
 path was rewritten today and has never run against a real drive.
+- getting an error could nto copy to drive wont fit error when i know there is room on the drive 
 
 ---
 
@@ -167,6 +178,7 @@ book is stamped on the cover and explains itself.
 **Why:** all three were built today and have only ever been tested against
 synthetic data. Search in particular is about how it *feels* at real scale,
 which no test can answer.
+- search is working and feels good 
 
 ---
 

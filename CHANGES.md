@@ -450,3 +450,512 @@ counted as skipped files, and never offered as cover art. Counting them as
 - **Pausing when headphones are unplugged.** Android's `ACTION_AUDIO_BECOMING_NOISY`
   is not exposed by `expo-audio`, so this needs native work and a rebuild. It is
   batched with the background-copy foreground service for a single rebuild.
+
+---
+
+# Hardware pass — what changed
+
+Driven by the List B findings written into `TESTING.md` against a real drive and
+a real Pixel. Everything here is JavaScript; no rebuild is needed.
+
+Settled by the phone and needing nothing: a copy survives switching apps and the
+screen going off (check 2), playback is clean for an hour (4), unplugging
+headphones pauses rather than blaring (5), Android remembers the drive across a
+reboot (7), and search feels right at real scale (10).
+
+---
+
+## Every cover in a v2.2-tagged rip was noise or blank
+
+The Black Company came out as static and Shadows Linger as a plain orange panel,
+while other players showed both. Both are tagged **ID3v2.2**, where the picture
+frame is `PIC` and names its format with three bare characters — `JPG`, `PNG` —
+and no terminator. The parser only knew the v2.3/v2.4 `APIC` layout, whose
+format *is* a null-terminated MIME string, so it went hunting for that
+terminator inside the image data: it landed five bytes into the JPEG and nine
+into the PNG, and returned a JPEG with no SOI marker and a PNG with no
+signature. Android draws noise for one and nothing for the other.
+
+Both layouts are now read properly, and the bytes are trimmed back to the
+image's own magic number as a backstop for the tags nobody predicted. Verified
+against both books: 414×671 JPEG and 362×600 PNG, decoding cleanly. Covered by
+four unit tests that build v2.2 tags from scratch.
+
+*`src/lib/metadata/mp3.ts`, `tests/parser.test.ts`, `tests/helpers.ts`*
+
+## A full rescan deleted every checked-out book's audio
+
+`upsertBook` deletes and re-inserts a book's parts on every re-read, and for a
+checked-out book those rows hold the only record of where its copy on the phone
+lives. `local_rel_path` was not carried across. The book stayed marked checked
+out with nothing behind it: the Player refused to open it — "not on your phone
+yet" — while the files sat there, and the next launch's reconciliation deleted
+the copy and put the book back on the shelf. No warning, and one tap away the
+whole time, because Settings offers a full rescan.
+
+The paths are now carried across, keyed on `rel_path` so they survive parts
+being reordered by a changed track tag, and deliberately dropped when a part's
+size has changed — the copy is then a copy of something else, and reconciliation
+should fetch it again. Covered on device by I-12, which checks out a book,
+forces a rescan, and then runs reconciliation against it.
+
+*`src/db/books.ts`, `src/dev/suites.ts`*
+
+## Copying an import to the drive could not work at all
+
+Every push reported "could not copy", stamped WON'T FIT, with no reason given.
+Two separate faults.
+
+**The stamp and the silence.** `pushImportsToDrive` collected only which books
+failed, not why, and passed no stamp — which the slip renders as its default,
+"WON'T FIT", the budget refusal. A drive rejecting a write looked like a drive
+with no room on it, and the one piece of information that identified the problem
+was thrown away.
+
+**The copy itself.** The path staged into a hidden folder and moved it into
+place at the end, the way copying onto the phone does. That does not survive
+contact with a USB volume. The Storage Access Framework has no rename and no
+cheap move; `move()` on a `content://` directory falls back to copying every
+byte a second time; a child path built by joining strings is not a document the
+provider knows about; and `File.create` says outright that it does not work for
+SAF. `Directory.createFile` is the one supported way to make a named document
+on the drive, so the files are now created that way and the bytes streamed
+through a file handle in 4 MB chunks — which also means a push can report
+progress, where before it was a frozen Settings row.
+
+The folder is created under its final name and written into directly, and any
+failure deletes the whole folder. The narrow exposure that buys is named in the
+code: if the app is killed mid-push, a folder of part of a book is left behind
+and the next scan indexes it as a short book. The import stays on the phone and
+is not marked as on the drive, so nothing is lost.
+
+*`src/lib/files/import.ts`, `src/store/library.ts`, `src/app/settings.tsx`*
+
+## A pushed import came back as a second book
+
+Fixing the copy exposed this. A book's identity is a hash of its path under the
+library root, so the folder a push had just created was read back as a brand new
+book — and `markMissingExcept` stamped the original NOT ON DRIVE, since a scan
+of the drive had not seen it. Two of everything, with the listening history on
+the one that looked broken, and the scary "only copy left" warning on a book
+that had just been backed up.
+
+A push now records the folder it wrote in `drive_rel_path`, and the scan treats
+a folder an existing book claims as that book rather than hashing a new id. The
+audio stays in `imported/<id>/` — the book is still checked out, and moving the
+files it may be playing from would be a gratuitous risk. Covered on device by
+IM-H.
+
+While here: the on-drive URIs were paired with the parts index by index, in
+whatever order `list()` answered. The files are now read back by display name in
+part order, which is the only order that means anything.
+
+*`src/db/schema.ts` (migration 5), `src/db/books.ts`, `src/lib/scan/scanner.ts`*
+
+## The play button span for ever on a book that had just been opened
+
+Opening a checked-out book sometimes left the play button buffering, and the
+cure was to play a different book and come back. `open` returns early when the
+book asked for is already the current one — but the id is set at the top of the
+function, before the database read, the audio session and the engine load, so a
+load that failed or never settled left the id in place with nothing behind it.
+Early-returning on that made the state permanent for the rest of the session;
+only opening another book made the id differ.
+
+The shortcut now requires that the engine genuinely holds the book. Alongside
+that: a 20-second timeout, so a load that never settles becomes an error rather
+than a spinner; a token, so a slower `open` can no longer write its book's
+state over a newer one's; `buffering` no longer latched by a player reporting
+`isLoaded: false` while idle; pressing play with nothing loaded retries the load
+instead of claiming to play in silence; and a "try again" in the error card.
+
+*`src/store/player.ts`, `src/app/player/[id].tsx`*
+
+## Unplugging mid-copy reported "a call to function error", and once took the app with it
+
+Expo wraps a native failure as `Call to function 'FileSystemFile.copy' has been
+rejected. → Caused by: …`, and that whole string went into the slip. A pulled
+drive now says so in plain English, the detail goes to the log, and the test for
+it is whether the file is still there rather than what the error text says. A
+pulled drive is told apart from a deleted book by asking whether the root is
+reachable — marking a book NOT ON DRIVE because someone unplugged the drive is a
+lie that outlives the moment, blocking the next check-out and dressing the book
+up as the only copy left. Any failure now also re-checks the drive, so the
+header stops claiming it is connected.
+
+The crash is not explained by this and cannot be from JavaScript: if it happens
+again, `adb logcat` at the moment it quits is the thing that would name it.
+
+*`src/lib/files/copy.ts`, `src/store/library.ts`*
+
+## "Your drive isn't connected" for the whole of the first scan
+
+Books are only loaded once a scan finishes, so the shelves are genuinely empty
+throughout — and the empty state shown there was the disconnected-drive screen,
+under a running progress bar, for several minutes. It was the first thing a new
+library said and it was the opposite of the truth. It now says what is actually
+happening, with the file and book counts as they come in.
+
+*`src/app/index.tsx`, `src/components/FirstRun.tsx`*
+
+## Nothing happened for seconds after choosing the folder
+
+Picking a folder saves it and proves it is readable before the scan proper
+starts, and on a real drive those steps take seconds that nothing reported. The
+scan is now announced the instant the picker closes.
+
+Worse, the walk itself was invisible: `Directory.list()` and the size and
+modification-time reads behind it are all synchronous, so a walk of a real
+library ran start to finish inside one JavaScript turn. Progress was reported
+faithfully all the way through and not one of those messages could be painted
+until the walk had already finished — a frozen app holding a progress bar that
+never moves. The walk now yields between folders.
+
+*`src/store/scan.ts`, `src/lib/files/access.ts`, `src/app/settings.tsx`*
+
+## The header and the select bar took a third of the screen
+
+The four sort chips plus settings and select did not fit a phone, so the row
+wrapped to two lines. They now scroll sideways in one row, with smaller chips, a
+smaller title and tighter padding. The select bar's serif headline said
+"5 books · 3.2 GB" directly above a button reading "Check out 5 books · 3.2 GB";
+the headline is gone and what remains is the one fact the button does not carry,
+how much of the budget is left.
+
+The disconnected-drive banner above the shelves is gone too. It restated what
+the drive button and the subtitle already say, in four lines of prose, and the
+drive being unplugged is the app's normal condition rather than news. The held
+count moved into the subtitle, which was the only part of it the user could not
+already see.
+
+*`src/components/LibraryHeader.tsx`, `src/components/SelectBar.tsx`,
+`src/app/index.tsx`, `src/components/DriveNotConnectedBanner.tsx` (deleted)*
+
+## The drive button looked like a verdict, not a button
+
+An unlit lamp is honest and inert: nothing suggested the thing could be pressed
+to look again. The lamp is now a circular arrow whenever the drive is not
+connected, and it turns while the drive is being looked for. Looking is a single
+directory listing and usually finishes in a few milliseconds, so the answer
+appeared to arrive before the tap had landed — the checking state is now held
+long enough for the arrow to turn once.
+
+*`src/components/LibraryHeader.tsx`, `src/components/icons.tsx`,
+`src/app/index.tsx`*
+
+## Finishing a book, and what the tray says about it
+
+No prompt to return, by decision: returning is the listener's call and their
+timing. What was missing was any acknowledgement at all. The tray now stamps a
+finished book **DONE** in place of the "OUT" tag that said nothing — everything
+in the tray is checked out — and draws how far through each book you are up the
+cover's left edge, filling from the bottom like a bookmark climbing the spine.
+
+Two bits of copy on the Book screen promised an offer to return that was never
+built, and now never will be; they say what actually happens instead. And
+"Listen again" on a finished book loaded the last second of the last part and
+sat there, so pressing play did nothing and the only way back to the start was
+to drag the scrubber the whole way. A finished book now opens at the beginning;
+the library card keeps the date it was finished.
+
+*`src/components/CoverBadges.tsx`, `src/components/BookCover.tsx`,
+`src/components/CheckedOutTray.tsx`, `src/app/book/[id].tsx`,
+`src/store/player.ts`*
+
+---
+
+## Still open after this pass
+
+Everything in this list was taken in the two passes below.
+
+
+---
+
+# Follow-up pass — what changed
+
+Four items off the open list, in the order they were asked for.
+
+---
+
+## Multi-select is gone
+
+Not fixed — removed. `checkOutSelected` looped over the selection and sent each
+book straight to a copy, so choosing five started five simultaneous reads off
+one USB stick: slower than five in a row as well as noisier, with each book's
+budget check blind to the other four and the guard that waits for a running scan
+skipped entirely. `flushHolds` goes to real trouble to serialise held books for
+exactly that reason.
+
+The call was that a long-press per book is quick enough, and it is: the same
+move, the same confirmation, one book at a time, through the one path that was
+already careful. Gone with it: the select chip in the header, the select bar,
+the tick badge, the dimming of unchosen covers, and four store actions. The
+budget rule no longer has a second home in a UI component that had to remember
+to enforce it.
+
+*`src/store/library.ts`, `src/app/index.tsx`, `src/components/LibraryHeader.tsx`,
+`src/components/Shelf.tsx`, `src/components/BookCover.tsx`,
+`src/components/CoverBadges.tsx`, `src/components/SelectBar.tsx` (deleted),
+`README.md`*
+
+## The drive is looked for while you are watching
+
+The drive was only re-checked when the app came to the foreground or when the
+button was tapped, so plugging it in with the Library on screen did nothing at
+all — and holds going out the moment the drive is back is the one thing the app
+promises about them.
+
+A poll every four seconds, and deliberately cheap: one existence check on the
+root, not the directory listing `isReachable` uses to earn its certainty. That
+weaker test is never treated as the answer — a change in it is a reason to go
+and ask properly. Nothing happens unless the answer changes, and the expensive
+part (listing the root, recording the sighting, flushing holds, offering imports
+to the drive, and the re-sync scan that follows from the connected flag) runs
+once per arrival rather than once per look. Keyed on the change in presence
+rather than on a mismatch with `driveConnected`, so a stale permission that
+leaves the root present but unreadable cannot make it re-list every four
+seconds. Foreground only: in the background there is nobody to show a change
+to.
+
+*`src/lib/files/access.ts` (`isPresent`), `src/store/library.ts` (`pollDrive`),
+`src/app/_layout.tsx` (`DriveWatcher`)*
+
+## The sleep timer is a deadline, not a countdown
+
+It was a one-second `setInterval` on the Library's clock decrementing a counter
+— the least reliable mechanism on the phone, for the one feature whose whole
+purpose is to work with the screen off and the phone in a pocket. The comment
+claimed the interval stopped when the app was backgrounded; nothing cancelled
+it.
+
+It is now a wall-clock timestamp, checked in the engine's status callback, which
+the native player drives every 500 ms including in the background. A deadline
+needs nothing to keep it: it is simply true or not yet true whenever anything
+thinks to look. "Off in 30m" now means in thirty minutes, so time spent paused
+counts. The remaining seconds are kept only as the Player's label, and written
+only when the displayed second changes. End of chapter is untouched — it was
+already measured against the position rather than the clock.
+
+*`src/store/player.ts`, `src/app/_layout.tsx`*
+
+## A copy killed mid-flight resumes
+
+The background-copy check passed on the phone, so no foreground service is
+needed and interrupts keep discarding as before: a cancel, a pulled drive, a
+short read or any failure still deletes the staging folder and leaves the book
+on the shelf. What changes is the one case where no code was left to discard
+anything — Android killing the app mid-copy. A gigabyte that had already landed
+was deleted on the next launch and fetched again from the start.
+
+Those files are kept now, on terms that cannot be wrong. A part counts as done
+only when its size matches the source exactly; a short file is the tail of a cut
+write and is deleted. The folder is trusted at all only if a manifest proves it
+was staged for precisely these parts in this order — staged files are named by
+index, so without that, two parts that had swapped places on the drive would be
+read back under each other's names, and if they were the same length even the
+size check would pass. A half-copied book is still never visible as a book: only
+a folder with every part accounted for is moved into `books/`.
+
+Startup no longer deletes the staging folder outright. It keeps what belongs to
+a book that still exists and is less than a week old, and sweeps the rest. And a
+resume is charged only for the bytes still to come, rather than for the whole
+book — asking for the whole book would have refused the resume exactly when it
+had the least left to do.
+
+Covered on device by ST-01 (kept for a known book, swept for an unknown one) and
+ST-05, which stages a first part of exactly the right size with recognisable
+contents and then proves those bytes, and not a fresh copy, are what ended up in
+the final folder.
+
+*`src/lib/files/copy.ts`, `src/store/library.ts`, `src/dev/suites.ts`*
+
+
+---
+
+# Tidying pass — before the next build
+
+The smaller items off the open list, plus what looking at the dependency tree
+turned up.
+
+---
+
+## The dependency "fix" that breaks the bundle — do not repeat it
+
+`npx expo-doctor` reports two things: `expo-asset` missing as a peer dependency
+of `expo-audio`, and four packages a patch version behind (`expo`,
+`expo-dev-client`, `expo-router`, `expo-splash-screen`). Taking its advice —
+`npx expo install expo-asset` followed by `npx expo install --fix` — leaves the
+project unbuildable, and the reason is worth writing down.
+
+With `expo@57.0.28`, npm places `expo-modules-core` at
+`node_modules/expo/node_modules/expo-modules-core` instead of hoisting it to
+the top level. Nothing else in the tree requires a different version; a clean
+`rm -rf node_modules && npm install` and an `npm dedupe` both reproduce it. But
+`expo-audio` imports `expo-modules-core` **at runtime** —
+`requireNativeModule`, `useReleasingSharedObject` — and Node resolution from
+`node_modules/expo-audio/` never looks inside `node_modules/expo/node_modules`.
+TypeScript notices first (`Property 'addListener' does not exist on type
+'AudioPlayer'`, because `SharedObject` no longer resolves), and Metro would
+fail the same way.
+
+Reverted: `package.json` and `package-lock.json` are unchanged, restored with
+`npm ci`, and `expo-modules-core` is hoisted again. The two doctor warnings
+stand, knowingly:
+
+- **`expo-asset`** is a peer of `expo-audio` for playing assets bundled with
+  `require()`. Every source this app plays is a `file://` or `content://` URI,
+  so nothing reaches that code path — which matches the device, where audio has
+  worked for days without it.
+- **The four patch bumps** can wait for a version of `expo` whose tree hoists
+  correctly. Re-check with `npx expo-doctor` before a later build, and verify
+  `node_modules/expo-modules-core` exists at the top level afterwards.
+
+## The microphone permission is gone
+
+`recordAudioAndroid: false` on the `expo-audio` plugin. `RECORD_AUDIO` is added
+by default and an audiobook player has no business asking for it. **Native —
+takes effect at the next build**, which is the only item here that does.
+
+*`app.json`*
+
+## Saving a position no longer rebuilds every shelf
+
+The Library derives the search result, the shelves and the list's data from the
+`books` array, and `recordProgress` replaced that array every five seconds for
+as long as anything was playing, whether or not the Library was on screen.
+
+The database is still written every time — nothing is at risk, and a relaunch
+or any `refresh` reads the current figure. What waits is the copy the screens
+render from, committed when playback pauses, stops, finishes or the app goes to
+the background. The Player already reads its position from the engine, and the
+Book screen now prefers that too while a book is playing, so the one screen
+that could have shown the gap does not.
+
+*`src/store/library.ts`, `src/store/player.ts`, `src/app/book/[id].tsx`*
+
+## Search folds each book once, not once per keystroke
+
+Folding is a Unicode normalisation and two regexes per book, and it ran over
+the whole library on every keystroke: at four hundred books, twelve hundred
+passes between one letter and the next, over text that had not changed. The
+folded words are now remembered in a `WeakMap` keyed on the book object — which
+is exactly the thing that is replaced when the library reloads, so the cache
+invalidates itself and nothing has to remember to clear it. The query is folded
+once for the whole library rather than once per book.
+
+*`src/lib/library/search.ts`*
+
+## The position written to the database is the clamped one
+
+It was clamped in memory and written raw, so a seek past the end could store a
+position beyond the book's own duration — and that is the figure a relaunch
+reads back.
+
+*`src/store/library.ts`*
+
+## A corrected cover actually appears
+
+Thumbnails were stored at one fixed path per book, and Android's image pipeline
+caches by URI without consulting the file's timestamp — so a cover that had
+been *fixed* went on rendering from the old bitmap for the rest of the session,
+which is precisely what would have happened to the two Glen Cook books after
+their rescan. The name now carries a short signature of the artwork, so
+different art is a different URI. A name that changes *only* with the artwork
+means a rescan finding the same picture does not churn the file or the row, and
+a book's older thumbnails are swept when a new one is stored.
+
+Not a `?v=` query on the URI, which is the obvious move: a query string on a
+`file://` URI is not reliably carried through the platform image loaders.
+
+*`src/lib/files/covers.ts`, `src/lib/files/access.ts`*
+
+## The missing-book sweep states its evidence
+
+`markMissingExcept` is the most destructive write in the app — it stamps every
+book the scan did not see, which blocks check-out and dresses a book up as the
+only copy left. It is only meaningful after a scan that walked the whole of a
+readable root, and that condition lived in the caller, one `if` away from being
+forgotten. It is now an argument the function refuses to act without.
+
+The `WHERE` clause itself needed nothing: `NOT (imported AND NOT on_drive)` is
+already "library-sourced, or an import that has reached the drive", which is
+exactly the set a drive scan is evidence about.
+
+*`src/db/books.ts`, `src/lib/scan/scanner.ts`*
+
+## The README describes the app that exists
+
+It still said the copy "fakes progress on a timer" and that audio "advances a
+counter" pending `react-native-track-player`. Both have been real for weeks.
+Rewritten around what is actually there — the real copy with its staging,
+verification and resume, `expo-audio` behind the engine interface, search,
+duplicates, the DRM stamp, phone-local libraries and importing from the phone —
+with the genuine gaps (iOS bookmarks, lock-screen chapter buttons) kept. Two
+comments in `src/store/library.ts` claiming the copy was simulated went the
+same way.
+
+*`README.md`, `src/store/library.ts`*
+
+---
+
+# Cleanup pass — the knowledge base
+
+Comments had become archaeology: a quarter to two fifths of the core files, much
+of it the history of how something broke rather than what the rule is. The fix
+is not to delete the knowledge but to move it somewhere it can be found.
+
+---
+
+## `docs/KNOWLEDGE.md`, searchable
+
+Thirty-eight entries covering what cost time to learn: platform behaviour that
+contradicts the documentation, invariants the code depends on, and decisions
+that look wrong until you know why. Grouped by area — files and SAF, metadata,
+identity and scanning, the database, audio, screens, build and dependencies.
+
+```sh
+npm run kb                # list every entry
+npm run kb saf cover      # read the entries matching those words
+```
+
+`scripts/kb.ts` parses the headings and ranks a heading match above a body
+match, so a half-remembered word finds the entry.
+
+The rule that keeps it alive is in `AGENTS.md`, where it is read every session:
+check it before debugging, update it in the same change that teaches something,
+and **comments state the rule while the knowledge base keeps the story**.
+
+## Comments cut to the rule
+
+Every long comment block in the core files, rewritten to say what the
+invariant is and why it is not obvious — with the account of how it was
+discovered moved to the knowledge base, and a `npm run kb <term>` pointer where
+the full story is worth having.
+
+| | before | after |
+|---|---|---|
+| `src/store/library.ts` | 279 comment lines | 202 |
+| `src/lib/files/copy.ts` | 151 | 119 |
+| `src/lib/files/access.ts` | 133 | 97 |
+| `src/db/books.ts` | 131 | 107 |
+
+Also gone: a header comment still describing select mode, and two in
+`src/store/library.ts` still describing the copy as simulated.
+
+## Dead code removed
+
+`restoreAccess`, `checkedOutBookIds`, `clearLibrary`, `matchesSearch`,
+`isOnHold`, `isCopying` and `remainingSec` — all unreferenced, several of them
+left behind by the features that replaced them.
+
+## The README does one job
+
+The 80-line emulator runbook moved to `docs/EMULATOR.md`. The scanning section
+lost the parts the knowledge base now holds. A **Where to look** table at the
+end points at the knowledge base, this file, the hardware checklist, the
+runbook and the mockups. 288 lines down to 233.
+
+`HANDOFF.md` — the brief the project was built from — is marked historical. It
+still taught the pre-rename vocabulary ("The Stacks", "The Bag", "pack", "put
+back") and recommended `react-native-track-player`, so anyone reading it for
+guidance was being misled by it.

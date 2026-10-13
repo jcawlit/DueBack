@@ -11,6 +11,15 @@ import { useLibrary } from './library';
 
 type ScanState = {
   running: boolean;
+  /**
+   * True between the folder picker closing and the scan proper starting.
+   *
+   * Choosing a folder saves it, proves it is readable and only then begins —
+   * and on a real drive those first two steps take seconds. Nothing reported
+   * them, so the app sat still immediately after the one action in the product
+   * that most needs an acknowledgement.
+   */
+  preparing: boolean;
   progress: ScanProgress | null;
   lastResult: ScanResult | null;
   error: string | null;
@@ -42,8 +51,20 @@ type ScanState = {
  */
 let syncedRoot: string | null = null;
 
+/** The first thing shown, before the scanner has reported anything of its own. */
+const OPENING_PROGRESS: ScanProgress = {
+  phase: 'listing',
+  message: 'Reading the drive…',
+  booksTotal: 0,
+  booksDone: 0,
+  filesSeen: 0,
+  skippedUnsupported: 0,
+  errors: 0,
+};
+
 export const useScan = create<ScanState>((set, get) => ({
   running: false,
+  preparing: false,
   progress: null,
   lastResult: null,
   error: null,
@@ -53,11 +74,19 @@ export const useScan = create<ScanState>((set, get) => ({
     set({ error: null });
     const root = await pickLibraryRoot();
     if (!root) return;
-    // Claimed before `setLibraryRoot`, which reports the drive as connected and
-    // would otherwise kick off an incremental scan that blocks this forced one.
-    syncedRoot = root.uri;
-    await useLibrary.getState().setLibraryRoot(root);
-    await get().rescan({ force: true });
+    // Say something the instant the picker closes. Saving the root checks that
+    // it is readable, which on a large drive is a wait of its own.
+    set({ preparing: true, progress: OPENING_PROGRESS });
+    try {
+      // Claimed before `setLibraryRoot`, which reports the drive as connected
+      // and would otherwise kick off an incremental scan that blocks this
+      // forced one.
+      syncedRoot = root.uri;
+      await useLibrary.getState().setLibraryRoot(root);
+      await get().rescan({ force: true });
+    } finally {
+      set({ preparing: false });
+    }
   },
 
   rescan: async (options = {}) => {
@@ -68,28 +97,27 @@ export const useScan = create<ScanState>((set, get) => ({
     }
     if (get().running) return;
 
-    /*
-     * Refuse outright when the folder cannot be read.
-     *
-     * This is the first of two defences, and the one the user sees. Without
-     * it, pressing Rescan with the drive unplugged walked an empty tree and
-     * reported "0 books found", which is a lie about a library that is merely
-     * out of reach. The scanner declines to reconcile in that case as well, so
-     * nothing is marked missing either way — but refusing here means the
-     * message says what is actually wrong.
-     */
-    if (!(await isReachable(root.uri))) {
-      set({ error: "The library folder couldn't be read. Is the drive connected?" });
-      useLibrary.setState({ driveConnected: false });
-      syncedRoot = null;
-      return;
-    }
-
-    set({ running: true, error: null, cancelRequested: false, progress: null });
+    // Marked as running before anything is checked: proving a USB root can be
+    // listed takes a moment of its own, and that moment used to pass with
+    // nothing on screen at all.
+    set({ running: true, error: null, cancelRequested: false, progress: OPENING_PROGRESS });
     // Announced outside the store so the library store can wait for it without
     // importing this one, which would be a cycle.
     setScanning(true);
     try {
+      /*
+       * Refuse outright when the folder cannot be read — the defence the user
+       * sees. The scanner declines to reconcile either way, so nothing is
+       * marked missing; refusing here is what makes the message honest rather
+       * than "0 books found".
+       */
+      if (!(await isReachable(root.uri))) {
+        set({ error: "The library folder couldn't be read. Is the drive connected?" });
+        useLibrary.setState({ driveConnected: false });
+        syncedRoot = null;
+        return;
+      }
+
       const result = await scanLibrary({
         rootUri: root.uri,
         force: options.force,

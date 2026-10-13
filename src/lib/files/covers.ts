@@ -8,7 +8,7 @@
 
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { File } from 'expo-file-system';
-import { coverUri, deleteCover, writeCoverBytes } from './access';
+import { coverUri, deleteCover, deleteCoversFor, writeCoverBytes } from './access';
 
 /** Long side of the stored thumbnail, in pixels. */
 export const THUMBNAIL_SIZE = 400;
@@ -22,6 +22,32 @@ export type StoredCover = {
   source: CoverSource;
   bytes: number;
 };
+
+/**
+ * A short signature of the artwork, which becomes part of the thumbnail's name.
+ *
+ * Covers used to be stored at one fixed path per book, and Android's image
+ * pipeline caches by URI without consulting the file's timestamp — so a cover
+ * that had been *corrected* went on rendering from the old bitmap for the rest
+ * of the session. A name that changes with the artwork makes that impossible,
+ * and one that changes *only* with the artwork means a rescan that finds the
+ * same picture does not churn the file or the row.
+ *
+ * Sampled rather than hashed whole: a few hundred kilobytes per book across a
+ * few hundred books is real time, and the cost of a collision here is a cover
+ * that looks stale — exactly the thing that was already happening.
+ */
+function coverToken(bytes: Uint8Array): string {
+  let h = 0x811c9dc5;
+  const step = Math.max(1, Math.floor(bytes.length / 2048));
+  for (let i = 0; i < bytes.length; i += step) {
+    h ^= bytes[i];
+    h = Math.imul(h, 0x01000193);
+  }
+  h ^= bytes.length & 0xff;
+  h = Math.imul(h, 0x01000193);
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
 
 /** Picks a file extension the platform image decoder will recognise. */
 function extensionFor(bytes: Uint8Array): string {
@@ -50,9 +76,11 @@ export async function storeCover(
   source: Exclude<CoverSource, 'none'>,
 ): Promise<StoredCover | null> {
   // The scratch file needs a real extension: Android's image decoder can refuse
-  // a file whose name tells it nothing, which silently loses the artwork.
-  const scratchName = `${bookId}.src.${extensionFor(raw)}`;
-  const finalName = `${bookId}.jpg`;
+  // a file whose name tells it nothing, which silently loses the artwork. Its
+  // name deliberately does not begin with the book's id, so that sweeping a
+  // book's old thumbnails cannot delete the file being worked on.
+  const scratchName = `scratch-${bookId}.${extensionFor(raw)}`;
+  const finalName = `${bookId}.${coverToken(raw)}.jpg`;
 
   const scratchUri = writeCoverBytes(scratchName, raw);
   if (!scratchUri) return null;
@@ -71,6 +99,8 @@ export async function storeCover(
     if (target.exists) target.delete();
     const produced = new File(saved.uri);
     produced.move(target);
+    // Anything this book used to look like is now dead weight.
+    deleteCoversFor(bookId, finalName);
 
     return {
       fileName: finalName,
@@ -85,6 +115,7 @@ export async function storeCover(
     if (raw.length <= 3 * 1024 * 1024) {
       const kept = writeCoverBytes(finalName, raw);
       if (kept) {
+        deleteCoversFor(bookId, finalName);
         return { fileName: finalName, uri: kept, source, bytes: raw.length };
       }
     }
@@ -95,5 +126,5 @@ export async function storeCover(
 }
 
 export function removeCover(bookId: string) {
-  deleteCover(`${bookId}.jpg`);
+  deleteCoversFor(bookId);
 }

@@ -1,11 +1,13 @@
 /**
  * Copying a book from the drive onto the phone.
  *
- * All-or-nothing, by design. Parts are copied into a temporary folder and each
- * one's size is verified; only when every part has landed does the folder move
- * into place. Anything else — a pulled drive, a cancel, a failed read — deletes
- * the temporary folder and leaves the book on the shelf. There is no resume and
- * no half-copied state to reason about later.
+ * All-or-nothing: parts are copied into a temporary folder and verified by
+ * size, and only a complete set is moved into place, so a half-copied book is
+ * never visible as a book. Any interrupt discards the folder.
+ *
+ * The exception is the app being killed, where no code runs to discard
+ * anything: those staged files are kept and re-used, on terms set out in
+ * `stagingIsFor` below. `npm run kb resume`.
  */
 
 import { Directory, File, Paths } from 'expo-file-system';
@@ -81,14 +83,42 @@ function removeQuietly(entry: Directory | File) {
 }
 
 /**
- * Deletes anything left in the temp folder.
+ * Deletes everything in the temp folder, staged or not.
  *
- * Called on every launch: if the app was killed mid-copy there is no process
- * left to clean up after itself, and a half-written book must never be
- * mistaken for a complete one.
+ * For "forget this library" and for tests. Startup uses `sweepTempCopies`,
+ * which keeps what an interrupted copy can still use.
  */
 export function clearTempCopies() {
   removeQuietly(tmpRoot());
+}
+
+/**
+ * Tidies the temp folder on launch, keeping staged files for a book that still
+ * exists and whose staging is recent, so checking it out again carries on from
+ * where it stopped. Everything else goes.
+ */
+export function sweepTempCopies(knownBookIds: string[]) {
+  const known = new Set(knownBookIds);
+  try {
+    const root = tmpRoot();
+    if (!root.exists) return;
+    for (const entry of root.list()) {
+      if (!(entry instanceof Directory) || !known.has(entry.name)) {
+        removeQuietly(entry);
+        continue;
+      }
+      let staledAt = 0;
+      try {
+        const manifest = new File(entry, MANIFEST_NAME);
+        staledAt = manifest.exists ? (manifest.modificationTime ?? 0) : 0;
+      } catch {
+        staledAt = 0;
+      }
+      if (Date.now() - staledAt > STAGING_KEEP_MS) removeQuietly(entry);
+    }
+  } catch {
+    // The temp folder is not there, or cannot be listed. Nothing to do.
+  }
 }
 
 /** Free space on the phone right now, in bytes. */
@@ -115,12 +145,9 @@ export function checkFreeSpace(bytes: number): { ok: true } | { ok: false; short
 }
 
 /**
- * Resolves a stored relative path to a playable `file://` URI.
- *
- * Paths are stored relative to the documents directory rather than as absolute
- * URIs, because the app's data directory can move between installs and OS
- * upgrades — an absolute URI recorded today may not exist tomorrow. Resolving
- * at the point of use keeps the database portable.
+ * Resolves a stored relative path to a playable `file://` URI. Paths are
+ * stored relative to the documents directory because the app's data directory
+ * can move between installs and OS upgrades.
  */
 export function localUriFor(relPath: string): string | null {
   try {
@@ -166,12 +193,81 @@ export function listLocalBookIds(): string[] {
 /** See `safeLocalName`: the drive's own filenames cannot be trusted here. */
 const partFileName = safeLocalName;
 
+/** Records which parts a staged folder was built for. */
+export const MANIFEST_NAME = 'manifest.json';
+
 /**
- * Copies every part into place.
+ * How long staged files from an interrupted copy are kept.
  *
- * `onProgress` reports real bytes: the native copy runs off the JS thread, so
- * progress comes from measuring the destination file as it grows rather than
- * from pushing the bytes through JavaScript, which would be far slower.
+ * They are only ever re-used by a check-out of the same book, and a book the
+ * user never asks for again should not hold on to gigabytes for ever.
+ */
+export const STAGING_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
+
+function manifestFor(parts: CopyPart[]): string {
+  return JSON.stringify(parts.map((p) => [p.name, p.sizeBytes]));
+}
+
+/**
+ * Whether a staged folder was left by an interrupted copy of exactly these
+ * parts.
+ *
+ * Staged files are named by index, so without this two parts that swapped
+ * places on the drive would be read back under each other's names — and if
+ * they were the same length, even the size check would pass.
+ */
+async function stagingIsFor(staging: Directory, parts: CopyPart[]): Promise<boolean> {
+  try {
+    const file = new File(staging, MANIFEST_NAME);
+    if (!file.exists) return false;
+    return (await file.text()) === manifestFor(parts);
+  } catch {
+    return false;
+  }
+}
+
+/** The bytes of a staged part, if it is complete. Null if it is not there. */
+function stagedBytes(target: File, expected: number): number | null {
+  try {
+    if (!target.exists) return null;
+    const size = target.size ?? 0;
+    // Only an exact match counts. Short means the write was cut off; longer
+    // means it is not this file at all.
+    return expected > 0 && size === expected ? size : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a file is still there. A drive that has gone answers false. */
+function exists(uri: string): boolean {
+  try {
+    return new File(uri).exists;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A sentence a person can read, from whatever the platform threw. Expo's own
+ * wrapping ("Call to function … has been rejected") is no use on screen, so
+ * the detail goes to the log and the screen gets the plain version.
+ */
+function plainCopyFailure(detail: string): string {
+  if (detail) console.warn('[dueback] copy failed:', detail);
+  if (/ENOENT|No such file|EIO|Input\/output error|bad file descriptor|EBADF/i.test(detail)) {
+    return 'The drive stopped responding partway through. Nothing was saved.';
+  }
+  if (/EACCES|permission/i.test(detail)) {
+    return 'The phone was not allowed to read that file. Nothing was saved.';
+  }
+  return 'The copy stopped unexpectedly. Nothing was saved.';
+}
+
+/**
+ * Copies every part into place. `onProgress` reports real bytes, measured from
+ * the destination file as it grows: the native copy runs off the JS thread,
+ * and pushing the bytes through JavaScript would be far slower.
  */
 export async function copyBookToDevice(
   bookId: string,
@@ -187,15 +283,7 @@ export async function copyBookToDevice(
   // deleted from the drive while the app was open leaves the index pointing at
   // files that have gone, and the copy would then die partway through with a
   // native error that means nothing to anyone. Ask first.
-  const missingNames = parts
-    .filter((part) => {
-      try {
-        return !new File(part.uri).exists;
-      } catch {
-        return true;
-      }
-    })
-    .map((part) => part.name);
+  const missingNames = parts.filter((part) => !exists(part.uri)).map((part) => part.name);
 
   if (missingNames.length > 0) {
     return {
@@ -209,7 +297,40 @@ export async function copyBookToDevice(
     };
   }
 
-  const space = checkFreeSpace(totalBytes);
+  ensure(tmpRoot());
+  const staging = new Directory(tmpRoot(), bookId);
+
+  /*
+   * Keep what an interrupted copy of this same book already landed. Only ever
+   * reached after a kill — every other exit discards the folder — and only
+   * believed when the manifest matches.
+   */
+  const resuming = staging.exists && (await stagingIsFor(staging, parts));
+  if (!resuming) {
+    removeQuietly(staging);
+    ensure(staging);
+    try {
+      const manifest = new File(staging, MANIFEST_NAME);
+      manifest.create();
+      manifest.write(manifestFor(parts));
+    } catch {
+      // Without a manifest the next run simply starts over, which is the
+      // behaviour this replaced. Not worth failing a copy for.
+    }
+  }
+
+  /**
+   * What an interrupted run already landed, per part. `null` means copy it.
+   *
+   * Worked out up front because it decides how much room is still needed: a
+   * resume is charged for the bytes still to come, not for the whole book.
+   */
+  const staged = parts.map((part, i) =>
+    resuming ? stagedBytes(new File(staging, partFileName(i, part.name)), part.sizeBytes) : null,
+  );
+  const alreadyStaged = staged.reduce<number>((n, bytes) => n + (bytes ?? 0), 0);
+
+  const space = checkFreeSpace(totalBytes - alreadyStaged);
   if (!space.ok) {
     return {
       ok: false,
@@ -218,12 +339,10 @@ export async function copyBookToDevice(
     };
   }
 
-  ensure(tmpRoot());
-  const staging = new Directory(tmpRoot(), bookId);
-  removeQuietly(staging);
-  ensure(staging);
-
   let bytesDone = 0;
+  let resumedParts = 0;
+  /** The part being read when something went wrong. */
+  let inFlight = -1;
 
   try {
     for (let i = 0; i < parts.length; i += 1) {
@@ -233,8 +352,26 @@ export async function copyBookToDevice(
       }
 
       const part = parts[i];
+      inFlight = i;
       const target = new File(staging, partFileName(i, part.name));
       const source = new File(part.uri);
+
+      // Already here, and exactly the right size: an earlier run got this far.
+      const already = staged[i];
+      if (already !== null) {
+        resumedParts += 1;
+        bytesDone += already;
+        options.onProgress?.({
+          bytesCopied: bytesDone,
+          totalBytes,
+          partIndex: i,
+          partCount: parts.length,
+        });
+        continue;
+      }
+      // A short file is the tail of a write that was cut off; `copy` would
+      // refuse to write over it anyway.
+      removeQuietly(target);
 
       // Watch the destination grow while the native copy runs.
       let timer: ReturnType<typeof setInterval> | undefined;
@@ -290,6 +427,11 @@ export async function copyBookToDevice(
     }
 
     // Everything is here and the right size: now it becomes a checked-out book.
+    // The manifest has done its job and must not travel with the audio.
+    removeQuietly(new File(staging, MANIFEST_NAME));
+    if (resumedParts > 0) {
+      console.log(`[dueback] resumed ${resumedParts}/${parts.length} staged parts for ${bookId}`);
+    }
     const finalDir = new Directory(booksDir(), bookId);
     ensure(booksDir());
     removeQuietly(finalDir);
@@ -317,10 +459,22 @@ export async function copyBookToDevice(
       };
     }
 
-    return {
-      ok: false,
-      reason: 'failed',
-      message: `${detail || 'The copy failed'}. Nothing was saved.`,
-    };
+    /*
+     * A read that died because its source went away is not a fault. The error
+     * text is no way to tell — the honest test is whether the file is still
+     * there — and the caller asks the root to separate a pulled drive from a
+     * deleted book.
+     */
+    const part = parts[inFlight];
+    if (part && !exists(part.uri)) {
+      return {
+        ok: false,
+        reason: 'source-missing',
+        missingNames: [part.name],
+        message: `${part.name} could not be read any more. Nothing was saved.`,
+      };
+    }
+
+    return { ok: false, reason: 'failed', message: plainCopyFailure(detail) };
   }
 }

@@ -68,17 +68,41 @@ function textFrame(body: Uint8Array): string {
   return decodeText(body.subarray(1), body[0]);
 }
 
-/** APIC: encoding, mime\0, picture type, description\0, then the image. */
-function parseApic(body: Uint8Array): { bytes: Uint8Array; mime: string } | undefined {
-  if (body.length < 4) return undefined;
+/**
+ * The image inside a picture frame.
+ *
+ * There are two layouts, and the difference is not cosmetic. `APIC`, in
+ * ID3v2.3 and 2.4, names its format with a null-terminated MIME string. `PIC`,
+ * in ID3v2.2, uses a fixed three-character code — `JPG`, `PNG` — with no
+ * terminator at all. Reading a v2.2 frame as though it were a v2.3 one sends
+ * `indexOf(0, …)` hunting for a NUL inside the picture itself: it lands five
+ * or nine bytes in and hands back a JPEG with no SOI marker, or a PNG with no
+ * signature. Android draws noise for the one and nothing at all for the other,
+ * and because every part of a book carries the same tag, the whole book loses
+ * its cover — as did every v2.2-tagged rip in the library.
+ */
+function parsePicture(
+  body: Uint8Array,
+  version: number,
+): { bytes: Uint8Array; mime: string } | undefined {
+  if (body.length < 5) return undefined;
   const encoding = body[0];
   let p = 1;
-  const mimeEnd = body.indexOf(0, p);
-  if (mimeEnd < 0) return undefined;
-  const mime = utf8.decode(body.subarray(p, mimeEnd));
-  p = mimeEnd + 1;
+  let mime: string;
+
+  if (version === 2) {
+    const code = utf8.decode(body.subarray(1, 4)).trim().toLowerCase();
+    mime = code === 'png' ? 'image/png' : code === 'jpg' ? 'image/jpeg' : `image/${code}`;
+    p = 4;
+  } else {
+    const mimeEnd = body.indexOf(0, p);
+    if (mimeEnd < 0) return undefined;
+    mime = utf8.decode(body.subarray(p, mimeEnd));
+    p = mimeEnd + 1;
+  }
+
   p += 1; // picture type
-  // Description, terminated by one NUL (latin1) or two (UTF-16).
+  // Description, terminated by one NUL (latin1/utf8) or two (UTF-16).
   if (encoding === 1 || encoding === 2) {
     while (p + 1 < body.length && !(body[p] === 0 && body[p + 1] === 0)) p += 2;
     p += 2;
@@ -88,7 +112,41 @@ function parseApic(body: Uint8Array): { bytes: Uint8Array; mime: string } | unde
     p = descEnd + 1;
   }
   if (p >= body.length) return undefined;
-  return { bytes: body.subarray(p), mime: mime || 'image/jpeg' };
+
+  return { bytes: alignToImage(body.subarray(p)), mime: mime || 'image/jpeg' };
+}
+
+/** JPEG, PNG, GIF or WebP magic at `o`. */
+function imageMagicAt(b: Uint8Array, o: number): boolean {
+  if (b[o] === 0xff && b[o + 1] === 0xd8 && b[o + 2] === 0xff) return true;
+  if (b[o] === 0x89 && b[o + 1] === 0x50 && b[o + 2] === 0x4e && b[o + 3] === 0x47) return true;
+  if (b[o] === 0x47 && b[o + 1] === 0x49 && b[o + 2] === 0x46 && b[o + 3] === 0x38) return true;
+  if (
+    b[o] === 0x52 && b[o + 1] === 0x49 && b[o + 2] === 0x46 && b[o + 3] === 0x46 &&
+    b[o + 8] === 0x57 && b[o + 9] === 0x45 && b[o + 10] === 0x42 && b[o + 11] === 0x50
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Trims anything before the image's own magic number.
+ *
+ * A last line of defence rather than the main event. Tags in the wild carry
+ * stray padding, mislabelled description encodings and the occasional byte
+ * order mark, and each of those shifts the picture by a few bytes. A decoder
+ * handed those bytes does not complain — it draws nothing, or it draws noise —
+ * so proving that the first bytes really are an image is worth the look. Bytes
+ * that already begin with a signature are returned untouched.
+ */
+function alignToImage(bytes: Uint8Array): Uint8Array {
+  if (imageMagicAt(bytes, 0)) return bytes;
+  const limit = Math.min(bytes.length, 64);
+  for (let i = 1; i < limit; i += 1) {
+    if (imageMagicAt(bytes, i)) return bytes.subarray(i);
+  }
+  return bytes;
 }
 
 /** CHAP: element id\0, start ms, end ms, start byte, end byte, then subframes. */
@@ -294,7 +352,7 @@ export async function readMp3Metadata(
       }
       case 'APIC':
       case 'PIC':
-        if (wantCover && !out.cover) out.cover = parseApic(f.body);
+        if (wantCover && !out.cover) out.cover = parsePicture(f.body, version);
         break;
       case 'CHAP': {
         const c = parseChap(f, version);

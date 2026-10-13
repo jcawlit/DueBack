@@ -1,12 +1,9 @@
 /**
- * The one place that knows how files are reached on each platform.
+ * The one place that knows how files are reached on each platform. Screens and
+ * scan logic depend on this interface and never branch on `Platform.OS`.
  *
- * Screens and scan logic depend on this interface and never branch on
- * `Platform.OS`. Today it is backed entirely by `expo-file-system`, whose
- * `Directory.pickDirectoryAsync()` and seekable `FileHandle` cover both
- * platforms; the known gap is that iOS does not persist access across app
- * restarts, which surfaces here as `restoreAccess()` returning false and the
- * app showing the drive as not connected.
+ * Backed entirely by `expo-file-system`. The known gap is that iOS does not
+ * persist access across restarts, so a picked folder is lost on relaunch.
  */
 
 import { Directory, File, FileMode, Paths } from 'expo-file-system';
@@ -30,12 +27,9 @@ export type TreeListing = {
   /** Folders that could not be listed, by relative path. */
   unreadableFolders: string[];
   /**
-   * Whether the root folder itself could be listed.
-   *
-   * An unreadable sub-folder is a warning; an unreadable *root* means the walk
-   * saw nothing at all, and the caller must not mistake that for an empty
-   * library. It is a separate flag rather than `files.length === 0` because a
-   * genuinely empty folder is a legitimate, readable answer.
+   * Whether the root folder itself could be listed. A separate flag, not
+   * `files.length === 0`: an empty folder is a legitimate, readable answer,
+   * and an unreadable root must never be mistaken for one.
    */
   rootReadable: boolean;
 };
@@ -47,14 +41,9 @@ export type LibraryRoot = {
 };
 
 /**
- * Normalises a folder URI so it ends in a slash.
- *
- * `expo-file-system` treats a `Directory` URI without a trailing slash as a
- * file: listing one throws, and the scan reports the root as unreadable and
- * finds nothing at all — silently, because an unreadable folder is not an
- * error. The system picker happens to return the slash, so this only bites a
- * root that arrives from anywhere else, which is exactly the sort of thing that
- * should not depend on luck.
+ * Normalises a folder URI so it ends in a slash. `expo-file-system` treats one
+ * without as a file, and listing it throws — silently reporting the root
+ * unreadable. The picker happens to return the slash; nothing else need.
  */
 export function asDirectoryUri(uri: string): string {
   return uri.endsWith('/') ? uri : `${uri}/`;
@@ -107,12 +96,19 @@ export async function isReachable(rootUri: string): Promise<boolean> {
 }
 
 /**
- * Re-establishes access to a saved root. On Android the persisted permission
- * makes this a reachability check; on iOS access is not persisted, so this
- * returns false after a restart and the user is asked to pick again.
+ * Whether the root is there, without proving it can be read. One existence
+ * check, because this runs on a timer while the app is in front of you.
+ *
+ * Deliberately the weaker test — a stale SAF permission can report a folder
+ * that has gone — so a *change* here is a reason to ask `isReachable`
+ * properly, never the answer itself.
  */
-export async function restoreAccess(rootUri: string): Promise<boolean> {
-  return isReachable(rootUri);
+export function isPresent(rootUri: string): boolean {
+  try {
+    return new Directory(asDirectoryUri(rootUri)).exists;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -134,14 +130,9 @@ export async function listTree(
   const root = new Directory(asDirectoryUri(rootUri));
 
   /*
-   * Ask outright whether the root is there, rather than inferring it from a
-   * thrown error.
-   *
-   * `Directory.list()` does not throw for a folder that has gone — it returns
-   * nothing — so a walk of a missing root looked identical to a walk of an
-   * empty one. Everything downstream then concluded the library was empty.
-   * `exists` alone is not enough either: it can be true for a stale SAF
-   * permission, which is why listing is still attempted.
+   * Ask outright, rather than inferring from a thrown error: `list()` does not
+   * throw for a folder that has gone, it returns nothing. `exists` alone is
+   * not enough either, so listing is still attempted. `npm run kb missing root`.
    */
   let rootReadable = true;
   try {
@@ -159,7 +150,19 @@ export async function listTree(
     return { files, unsupportedCount, unreadableFolders, rootReadable };
   }
 
-  const visit = (dir: Directory, relPrefix: string, depth: number) => {
+  /*
+   * Yielded between folders, because every call in here is synchronous: a walk
+   * of a real library would otherwise run start to finish inside one turn, and
+   * no progress message could be painted until it had already finished.
+   */
+  let sinceYield = 0;
+  const breathe = async () => {
+    if (sinceYield < 64) return;
+    sinceYield = 0;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+
+  const visit = async (dir: Directory, relPrefix: string, depth: number) => {
     if (depth > maxDepth) return;
     let entries: (File | Directory)[];
     try {
@@ -172,14 +175,17 @@ export async function listTree(
       unreadableFolders.push(`${relPrefix || '.'}: ${reason}`);
       return;
     }
+    await breathe();
+
     for (const entry of entries) {
+      sinceYield += 1;
       const name = safDisplayName(entry.name);
       // Dropped here rather than later, so junk is never counted as a skipped
       // file, never warned about, and never offered as cover art.
       if (isJunkFile(name)) continue;
       const relPath = relPrefix ? `${relPrefix}/${name}` : name;
       if (entry instanceof Directory) {
-        visit(entry, relPath, depth + 1);
+        await visit(entry, relPath, depth + 1);
         continue;
       }
       if (isUnsupportedAudio(name)) {
@@ -201,7 +207,7 @@ export async function listTree(
     }
   };
 
-  visit(root, '', 0);
+  await visit(root, '', 0);
   options.onProgress?.(files.length);
   return { files, unsupportedCount, unreadableFolders, rootReadable };
 }
@@ -236,14 +242,11 @@ export type FileRead = {
 };
 
 /**
- * Failures worth a second attempt: a handle that went bad rather than a file we
- * genuinely cannot parse.
+ * Failures worth a second attempt: a handle that went bad, rather than a file
+ * we genuinely cannot parse. USB hands back dead descriptors now and then.
  *
- * Scanning 551 files off a USB drive turned up a few `java.io.IOException: Bad
- * file descriptor` failures thrown by the very first seek, on files that read
- * perfectly in isolation — the descriptor the storage provider handed back was
- * already dead. Narrowed to that class deliberately: a corrupt container should
- * be parsed once and reported, not read twice.
+ * Narrowed to that class deliberately: a corrupt container should be parsed
+ * once and reported, not read twice.
  */
 function isStaleHandleError(message: string): boolean {
   return /bad file descriptor|EBADF|closed|invalid file handle/i.test(message);
@@ -312,6 +315,29 @@ export async function readImageFile(uri: string, maxBytes = 8 * 1024 * 1024): Pr
     return file.bytes();
   } catch {
     return null;
+  }
+}
+
+/**
+ * Deletes every cached thumbnail belonging to a book, except `keep`.
+ * Thumbnails are named for their artwork, so deleting by prefix is what clears
+ * a book's covers without having to know what the current one is called.
+ */
+export function deleteCoversFor(bookId: string, keep?: string) {
+  try {
+    const dir = coversDirectory();
+    if (!dir.exists) return;
+    for (const entry of dir.list()) {
+      if (!(entry instanceof File)) continue;
+      if (!entry.name.startsWith(`${bookId}.`) || entry.name === keep) continue;
+      try {
+        entry.delete();
+      } catch {
+        // Already gone, or in use. The next store tries again.
+      }
+    }
+  } catch {
+    // No covers directory yet.
   }
 }
 

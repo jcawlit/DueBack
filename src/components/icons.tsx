@@ -22,6 +22,33 @@ export function DriveIcon({ size = 20, stroke = 'currentColor' }: IconProps) {
   );
 }
 
+/**
+ * A circular arrow: look again.
+ *
+ * It stands where the drive lamp goes when the drive is not connected, because
+ * an unlit lamp reads as a state rather than as something to press — and spins
+ * while the drive is being looked for.
+ */
+export function RefreshIcon({ size = 14, stroke = color.muted }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+      <Path
+        d="M14 8A6 6 0 1 1 12.24 3.76"
+        stroke={stroke}
+        strokeWidth={1.6}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M13.6 1.4v3.2h-3.2"
+        stroke={stroke}
+        strokeWidth={1.6}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
 /** A magnifying glass, for the library search field. */
 export function SearchIcon({ size = 16, stroke = color.muted }: IconProps) {
   return (

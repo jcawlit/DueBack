@@ -45,6 +45,7 @@
     "lint": "expo lint",
     "doctor": "expo-doctor",
     "test": "node --experimental-strip-types --no-warnings --test \"tests/**/*.test.ts\"",
+    "kb": "node --experimental-strip-types --no-warnings scripts/kb.ts",
     "report:books": "node --experimental-strip-types --no-warnings scripts/report.ts",
     "make:testlib": "node --experimental-strip-types --no-warnings scripts/make-testlib.ts",
     "make:fixtures": "node --experimental-strip-types --no-warnings scripts/make-fixtures.ts"

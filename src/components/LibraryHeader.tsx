@@ -1,14 +1,67 @@
 /**
- * The Library header: title, the drive status button, sort chips and
- * the entry point to select mode.
+ * The Library header: title, subtitle, the drive status button, the search
+ * field and the sort chips.
  */
 
-import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Animated, Easing, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SORT_LABELS, type SortMode } from '@/data/types';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
-import { DriveIcon, SearchIcon } from './icons';
+import { DriveIcon, RefreshIcon, SearchIcon } from './icons';
 
 const SORTS: SortMode[] = ['length', 'author', 'color', 'dust'];
+
+/**
+ * The chip row's height. Deliberately under the 44pt touch minimum: these are
+ * repeat, low-stakes controls in a row of their own with generous gaps, and the
+ * header is the thing standing between the user and their shelves.
+ */
+const CHIP_HEIGHT = 28;
+
+/**
+ * The circular arrow, turning while the drive is being looked for.
+ *
+ * Driven by `Animated` rather than an `ActivityIndicator` because the spinner
+ * said "busy" without saying what it had replaced: this is the same glyph that
+ * invites the tap, now moving, so the button plainly reports that the tap
+ * landed and something is happening. Looking for the drive is usually over in
+ * a few milliseconds — fast enough that the caller holds this on screen for a
+ * moment, or the answer appears to arrive before the question.
+ */
+function SpinningRefresh({ spinning, stroke }: { spinning: boolean; stroke: string }) {
+  // Held in state rather than a ref, as Slip does: a ref read during render
+  // is what the rules of hooks are there to stop.
+  const [turn] = useState(() => new Animated.Value(0));
+
+  useEffect(() => {
+    if (!spinning) {
+      turn.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.timing(turn, {
+        toValue: 1,
+        duration: 900,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [spinning, turn]);
+
+  return (
+    <Animated.View
+      style={{
+        transform: [
+          { rotate: turn.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) },
+        ],
+      }}
+    >
+      <RefreshIcon size={13} stroke={stroke} />
+    </Animated.View>
+  );
+}
 
 export function DriveStatusButton({
   connected,
@@ -57,24 +110,26 @@ export function DriveStatusButton({
       >
         DRIVE
       </Text>
-      {/* The lamp: filled and glowing when the drive is there, hollow when not. */}
-      {checking ? (
-        <ActivityIndicator size="small" color={color.accent} style={{ width: 7, height: 7 }} />
-      ) : (
+      {/*
+        The lamp when the drive is there, a circular arrow when it is not.
+        An unlit lamp was honest and inert — it read as a verdict rather than
+        as a button, so nobody knew the thing could be pressed to look again.
+      */}
+      {connected && !checking ? (
         <View
           style={{
             width: 7,
             height: 7,
             borderRadius: 4,
-            backgroundColor: connected ? color.accent : 'transparent',
-            borderWidth: connected ? 0 : 1.5,
-            borderColor: '#8a7658',
+            backgroundColor: color.accent,
             shadowColor: color.accent,
-            shadowOpacity: connected ? 0.9 : 0,
+            shadowOpacity: 0.9,
             shadowRadius: 5,
             shadowOffset: { width: 0, height: 0 },
           }}
         />
+      ) : (
+        <SpinningRefresh spinning={!!checking} stroke={checking ? color.accent : '#a8906c'} />
       )}
     </Pressable>
   );
@@ -88,7 +143,19 @@ export function SortChips({
   onChange: (next: SortMode) => void;
 }) {
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+    /*
+     * One row that scrolls, rather than a block that wraps.
+     *
+     * Four chips plus the two beside them do not fit a phone, so the row
+     * wrapped to two lines and the header ate a third of the screen before a
+     * single cover was visible. Scrolling sideways keeps every sort reachable
+     * and the row one line tall.
+     */
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ flexDirection: 'row', gap: space.sm, paddingRight: space.sm }}
+    >
       {SORTS.map((mode) => {
         const active = mode === sort;
         return (
@@ -99,9 +166,9 @@ export function SortChips({
             accessibilityState={{ selected: active }}
             accessibilityLabel={`Sort ${SORT_LABELS[mode]}`}
             style={({ pressed }) => ({
-              minHeight: 32,
+              minHeight: CHIP_HEIGHT,
               justifyContent: 'center',
-              paddingHorizontal: 10,
+              paddingHorizontal: 9,
               borderRadius: radius.chip,
               borderWidth: 1,
               borderColor: active ? color.accent : color.borderSoft,
@@ -111,7 +178,7 @@ export function SortChips({
             <Text
               style={{
                 fontFamily: font.mono,
-                fontSize: 12,
+                fontSize: 11,
                 color: active ? color.accent : color.muted,
               }}
             >
@@ -120,7 +187,7 @@ export function SortChips({
           </Pressable>
         );
       })}
-    </View>
+    </ScrollView>
   );
 }
 
@@ -132,8 +199,6 @@ export function LibraryHeader({
   onCheckDrive,
   sort,
   onSort,
-  selecting,
-  onToggleSelect,
   checking,
   onOpenSettings,
   search,
@@ -148,18 +213,16 @@ export function LibraryHeader({
   onOpenSettings?: () => void;
   sort?: SortMode;
   onSort?: (next: SortMode) => void;
-  selecting?: boolean;
-  onToggleSelect?: () => void;
   search?: string;
   onSearch?: (next: string) => void;
 }) {
   return (
     <View
       style={{
-        paddingTop: 22,
+        paddingTop: 14,
         paddingHorizontal: space.xl,
-        paddingBottom: 14,
-        gap: 14,
+        paddingBottom: 10,
+        gap: 10,
         borderBottomWidth: 1,
         borderBottomColor: color.line,
       }}
@@ -175,11 +238,14 @@ export function LibraryHeader({
         <View style={{ gap: space.xs, flexShrink: 1 }}>
           <Text
             accessibilityRole="header"
-            style={{ fontFamily: font.serif, fontSize: 32, lineHeight: 34, color: color.paper }}
+            style={{ fontFamily: font.serif, fontSize: 26, lineHeight: 28, color: color.paper }}
           >
             {title}
           </Text>
-          <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.muted }}>
+          <Text
+            numberOfLines={1}
+            style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}
+          >
             {subtitle}
           </Text>
         </View>
@@ -216,7 +282,7 @@ export function LibraryHeader({
             autoCapitalize="none"
             style={{
               flex: 1,
-              minHeight: TOUCH,
+              minHeight: 40,
               fontFamily: font.sans,
               fontSize: 15,
               color: color.paper,
@@ -243,11 +309,13 @@ export function LibraryHeader({
         <View
           style={{
             flexDirection: 'row',
-            alignItems: 'flex-start',
+            alignItems: 'center',
             gap: space.sm,
           }}
         >
-          <View style={{ flex: 1 }}>
+          {/* minWidth 0 so the scroller gives way to the two fixed chips
+              instead of pushing them off the edge. */}
+          <View style={{ flex: 1, minWidth: 0 }}>
             <SortChips sort={sort} onChange={onSort} />
           </View>
           {onOpenSettings ? (
@@ -256,49 +324,18 @@ export function LibraryHeader({
               accessibilityRole="button"
               accessibilityLabel="Settings"
               style={({ pressed }) => ({
-                minHeight: 32,
+                minHeight: CHIP_HEIGHT,
                 flexShrink: 0,
                 justifyContent: 'center',
-                paddingHorizontal: 10,
+                paddingHorizontal: 9,
                 borderRadius: radius.chip,
                 borderWidth: 1,
                 borderColor: color.borderSoft,
                 opacity: pressed ? 0.7 : 1,
               })}
             >
-              <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.muted }}>
+              <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>
                 settings
-              </Text>
-            </Pressable>
-          ) : null}
-          {onToggleSelect ? (
-            <Pressable
-              onPress={onToggleSelect}
-              accessibilityRole="button"
-              accessibilityState={{ selected: !!selecting }}
-              accessibilityLabel={
-                selecting ? 'Leave select mode' : 'Select several books to check out'
-              }
-              style={({ pressed }) => ({
-                minHeight: 32,
-                flexShrink: 0,
-                justifyContent: 'center',
-                paddingHorizontal: 10,
-                borderRadius: radius.chip,
-                borderWidth: 1,
-                borderColor: selecting ? color.accent : color.borderSoft,
-                backgroundColor: selecting ? color.accent : 'transparent',
-                opacity: pressed ? 0.7 : 1,
-              })}
-            >
-              <Text
-                style={{
-                  fontFamily: font.mono,
-                  fontSize: 12,
-                  color: selecting ? color.ground : color.muted,
-                }}
-              >
-                {selecting ? 'done' : 'select'}
               </Text>
             </Pressable>
           ) : null}

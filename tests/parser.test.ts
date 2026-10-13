@@ -9,7 +9,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import * as path from 'node:path';
-import { FIXTURE_DIR, ffprobe, hasFfprobe, nodeReader } from './helpers.ts';
+import { FIXTURE_DIR, ffprobe, hasFfprobe, memoryReader, nodeReader } from './helpers.ts';
 import { readMp4Metadata } from '../src/lib/metadata/mp4.ts';
 import { readMp3Metadata } from '../src/lib/metadata/mp3.ts';
 import { readMetadata } from '../src/lib/metadata/index.ts';
@@ -123,6 +123,109 @@ describe('mp3 / id3', () => {
     assert.equal(meta.durationSource, 'xing');
     assert.ok(Math.abs(meta.durationSec - 30) < 1, `duration ${meta.durationSec}`);
     await r.close();
+  });
+});
+
+/**
+ * ID3v2.2 picture frames.
+ *
+ * Two real books in the library — both Glen Cook rips — are tagged v2.2, where
+ * the picture frame is `PIC` and names its format with three bare characters
+ * instead of a null-terminated MIME string. Parsed as though it were a v2.3
+ * `APIC`, the hunt for that terminator runs into the image and the cover comes
+ * back with its first five to nine bytes missing: a JPEG with no SOI marker, a
+ * PNG with no signature. Android drew noise for one and a blank cover for the
+ * other, on every book in the rip, because every part carries the same tag.
+ */
+describe('id3v2.2 pictures', () => {
+  const ascii = (text: string) => [...text].map((c) => c.charCodeAt(0));
+
+  const PNG_BYTES = Uint8Array.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, // signature
+    0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, // length + IHDR
+    ...new Array(40).fill(0x7f),
+  ]);
+  const JPEG_BYTES = Uint8Array.from([
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
+    ...new Array(40).fill(0x42),
+    0xff, 0xd9,
+  ]);
+
+  /** A v2.2 tag holding one TT2 and one PIC frame. */
+  function v22Tag(format: string, image: Uint8Array, description = '') {
+    const title = Uint8Array.from([0x00, ...ascii('Chapter 01: Legate')]);
+    const pic = Uint8Array.from([
+      0x00, // latin-1 description
+      ...ascii(format), // three characters, no terminator
+      0x03, // picture type: front cover
+      ...ascii(description),
+      0x00, // description terminator
+      ...image,
+    ]);
+
+    const frame = (id: string, body: Uint8Array) =>
+      Uint8Array.from([
+        ...ascii(id),
+        (body.length >> 16) & 0xff,
+        (body.length >> 8) & 0xff,
+        body.length & 0xff,
+        ...body,
+      ]);
+
+    const frames = Uint8Array.from([...frame('TT2', title), ...frame('PIC', pic)]);
+    const size = frames.length;
+    return Uint8Array.from([
+      ...ascii('ID3'),
+      0x02, 0x00, 0x00, // version 2.2, no flags
+      (size >> 21) & 0x7f, (size >> 14) & 0x7f, (size >> 7) & 0x7f, size & 0x7f,
+      ...frames,
+    ]);
+  }
+
+  it('keeps a PNG signature intact', async () => {
+    const r = memoryReader(v22Tag('PNG', PNG_BYTES));
+    const meta = await readMp3Metadata(r);
+    assert.equal(meta.title, 'Chapter 01: Legate', 'v2.2 text frames still read');
+    assert.ok(meta.cover, 'expected a cover');
+    assert.equal(meta.cover!.mime, 'image/png');
+    assert.deepEqual([...meta.cover!.bytes], [...PNG_BYTES]);
+    await r.close();
+  });
+
+  it('keeps a JPEG SOI marker intact, description or not', async () => {
+    for (const description of ['', 'Front cover']) {
+      const r = memoryReader(v22Tag('JPG', JPEG_BYTES, description));
+      const meta = await readMp3Metadata(r);
+      assert.ok(meta.cover, `expected a cover (description ${JSON.stringify(description)})`);
+      assert.equal(meta.cover!.mime, 'image/jpeg');
+      assert.deepEqual([...meta.cover!.bytes], [...JPEG_BYTES]);
+      await r.close();
+    }
+  });
+
+  /**
+   * The alignment guard, which is what catches the layouts nobody predicted.
+   * A tag that lies about its description encoding leaves the picture a few
+   * bytes along, and a decoder handed those bytes draws noise rather than
+   * complaining — so the bytes are trimmed back to the image's own magic.
+   */
+  it('trims junk in front of the image', async () => {
+    const tag = v22Tag('JPG', Uint8Array.from([0x00, 0x00, 0x00, ...JPEG_BYTES]));
+    const r = memoryReader(tag);
+    const meta = await readMp3Metadata(r);
+    assert.ok(meta.cover, 'expected a cover');
+    assert.deepEqual([...meta.cover!.bytes], [...JPEG_BYTES]);
+    await r.close();
+  });
+
+  it('still reads a v2.3 APIC, whose layout is different', async () => {
+    const { meta, reader } = await parse('chap.mp3');
+    assert.ok(meta.cover, 'expected a cover');
+    assert.ok(
+      meta.cover!.bytes[0] === 0xff || meta.cover!.bytes[0] === 0x89,
+      `v2.3 cover should start with an image magic, got ${meta.cover!.bytes[0]?.toString(16)}`,
+    );
+    await reader.close();
   });
 });
 

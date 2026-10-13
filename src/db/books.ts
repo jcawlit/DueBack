@@ -109,15 +109,11 @@ function localStateFrom(row: BookRow): LocalState {
 }
 
 /**
- * Writes a scanned book, preserving the playback and checkout columns that the
- * scan knows nothing about. A rescan must never reset someone's progress.
- */
-/**
  * Options for a book that did not come from a library scan.
  *
  * An imported book arrives already on the phone, so it is checked out from the
- * moment it exists, and it carries `on_drive = 0` until it has been copied
- * across — the state that means the phone holds the only copy.
+ * moment it exists, and carries `on_drive = 0` until it has been copied across
+ * — the state that means the phone holds the only copy.
  */
 export type UpsertOptions = {
   sourceKind?: 'library' | 'imported';
@@ -126,6 +122,10 @@ export type UpsertOptions = {
   localRelPaths?: string[];
 };
 
+/**
+ * Writes a scanned book, preserving the playback and checkout columns the scan
+ * knows nothing about. A rescan must never reset someone's progress.
+ */
 export async function upsertBook(book: ScannedBook, options: UpsertOptions = {}) {
   const db = await getDb();
   await db.withExclusiveTransactionAsync(async (txn) => {
@@ -182,6 +182,27 @@ export async function upsertBook(book: ScannedBook, options: UpsertOptions = {})
       book.chaptersFromParts ? 1 : 0,
     );
 
+    /*
+     * Carry the local copy's whereabouts across the rewrite. These rows hold
+     * the only record of where a checked-out book's copy lives, and losing it
+     * leaves the book checked out with nothing behind it. `npm run kb rescan`.
+     *
+     * Keyed on `rel_path` so the paths survive parts being reordered by a
+     * changed track tag. A part whose size changed is deliberately not
+     * carried: the local copy is then a copy of something else.
+     */
+    const carried = new Map<string, string>();
+    if (!options.localRelPaths) {
+      const previous = await txn.getAllAsync<{
+        rel_path: string;
+        size_bytes: number;
+        local_rel_path: string | null;
+      }>('SELECT rel_path, size_bytes, local_rel_path FROM parts WHERE book_id = ?', book.id);
+      for (const row of previous) {
+        if (row.local_rel_path) carried.set(`${row.rel_path}:${row.size_bytes}`, row.local_rel_path);
+      }
+    }
+
     await txn.runAsync('DELETE FROM parts WHERE book_id = ?', book.id);
     for (let i = 0; i < book.parts.length; i += 1) {
       const p = book.parts[i];
@@ -192,7 +213,7 @@ export async function upsertBook(book: ScannedBook, options: UpsertOptions = {})
         book.id, i, p.relPath, p.name, p.uri, p.sizeBytes, p.modifiedMs,
         p.durationSec, p.startSec, p.trackNumber ?? null, p.error ?? null,
       );
-      const local = options.localRelPaths?.[i];
+      const local = options.localRelPaths?.[i] ?? carried.get(`${p.relPath}:${p.sizeBytes}`);
       if (local) {
         await txn.runAsync(
           'UPDATE parts SET local_rel_path = ? WHERE book_id = ? AND idx = ?',
@@ -225,14 +246,19 @@ export async function upsertBook(book: ScannedBook, options: UpsertOptions = {})
 }
 
 /**
- * Reconciles what the scan saw with what the database holds: anything missed is
- * flagged rather than deleted, and anything seen is un-flagged.
+ * Reconciles what the scan saw with what the database holds: anything missed
+ * is flagged rather than deleted, and anything seen is un-flagged. Clearing
+ * the flag matters because an unchanged book skips `upsertBook` entirely.
  *
- * Clearing the flag matters because a book whose files are unchanged skips
- * `upsertBook` entirely — without this, a book marked missing once (a drive
- * unplugged mid-scan, say) would stay marked forever.
+ * The evidence is an argument, not something the caller is trusted to check.
+ * This is the most destructive write in the app, and it is only meaningful
+ * after a scan that walked the whole of a readable root. `npm run kb evidence`.
  */
-export async function markMissingExcept(seenIds: string[]) {
+export async function markMissingExcept(
+  seenIds: string[],
+  evidence: { completed: boolean; rootReadable: boolean },
+) {
+  if (!evidence.completed || !evidence.rootReadable) return;
   const db = await getDb();
   await db.withExclusiveTransactionAsync(async (txn) => {
     // Books added from the phone that have never been copied across were
@@ -258,15 +284,12 @@ export async function markMissingExcept(seenIds: string[]) {
 /**
  * What a rescan compares against to decide whether a folder changed.
  *
- * Keyed on the folder rather than on a book, because one folder can hold
- * several books once a shelf of short works is split by album tag, and the
- * scan has to decide whether to re-read the folder before it knows how many
- * books are in it. The ids come back too, so a folder that is skipped still
- * counts its books as seen rather than letting them be marked missing.
+ * Keyed on the folder, not the book: one folder can hold several books, and
+ * the decision to re-read comes before the tags that would say so. The ids
+ * come back too, so a skipped folder's books still count as seen.
  *
- * The fingerprint is assembled here rather than in SQL so that it sorts the
- * same way `fingerprintOf` does in the scanner; `group_concat` has no
- * guaranteed order.
+ * Assembled here rather than in SQL so that it sorts the same way
+ * `fingerprintOf` does in the scanner; `group_concat` has no guaranteed order.
  */
 export async function existingFingerprints(): Promise<
   Map<string, { fingerprint: string; ids: string[] }>
@@ -524,15 +547,12 @@ export async function forgetMissingBooks(): Promise<string[]> {
   return ids;
 }
 
-/** Books the database says are on the phone, with how many parts each has. */
 /**
  * Every checked-out book, with the local paths actually recorded for its parts.
  *
- * The recorded paths are the point. A library book's files sit in `books/<id>/`
- * and an imported book's in `imported/<id>/`, and reconciliation used to assume
- * the former for everything — so on every launch it decided each imported book
- * had no files, reset it to "on the shelf" and cleared its part paths, which
- * quietly destroyed every book added from the phone.
+ * The recorded paths are the point: a library book's files sit in
+ * `books/<id>/` and an imported book's in `imported/<id>/`, so reconciliation
+ * cannot assume either.
  */
 export async function checkedOutLocalParts(): Promise<
   { id: string; sourceKind: string; onDrive: boolean; partCount: number; localPaths: string[] }[]
@@ -596,17 +616,6 @@ export async function deleteBook(id: string) {
     await txn.runAsync('DELETE FROM books WHERE id = ?', id);
   });
 }
-export async function checkedOutBookIds(): Promise<{ id: string; partCount: number }[]> {
-  const db = await getDb();
-  const rows = await db.getAllAsync<{ id: string; n: number }>(
-    `SELECT b.id AS id, COUNT(p.rel_path) AS n
-     FROM books b LEFT JOIN parts p ON p.book_id = b.id
-     WHERE b.local_status = 'checked-out'
-     GROUP BY b.id`,
-  );
-  return rows.map((r) => ({ id: r.id, partCount: r.n }));
-}
-
 /** Imported books that have not yet been copied onto the library drive. */
 export async function importsAwaitingDrive(): Promise<
   { id: string; title: string; folderName: string }[]
@@ -618,21 +627,62 @@ export async function importsAwaitingDrive(): Promise<
   );
 }
 
-/** Re-points an imported book at the drive once its files have been copied. */
-export async function markImportOnDrive(bookId: string, driveUris: string[]) {
+/**
+ * Re-points an imported book at the drive once its files have been copied.
+ *
+ * The book keeps its id, and its audio keeps sitting in `imported/<id>/`: it
+ * is still checked out, and moving files it may be playing from would be a
+ * gratuitous risk. What changes is that `drive_rel_path` now claims the folder
+ * on the drive, so the next scan knows it. `npm run kb claimed`.
+ */
+export async function markImportOnDrive(
+  bookId: string,
+  folderRelPath: string,
+  files: { uri: string; name: string; modifiedMs: number }[],
+) {
   const db = await getDb();
   await db.withExclusiveTransactionAsync(async (txn) => {
-    for (let i = 0; i < driveUris.length; i += 1) {
-      await txn.runAsync('UPDATE parts SET uri = ? WHERE book_id = ? AND idx = ?',
-        driveUris[i], bookId, i);
+    for (let i = 0; i < files.length; i += 1) {
+      await txn.runAsync(
+        'UPDATE parts SET uri = ?, rel_path = ?, name = ?, modified_ms = ? WHERE book_id = ? AND idx = ?',
+        files[i].uri,
+        `${folderRelPath}/${files[i].name}`,
+        files[i].name,
+        files[i].modifiedMs,
+        bookId,
+        i,
+      );
     }
-    await txn.runAsync('UPDATE books SET on_drive = 1, missing = 0 WHERE id = ?', bookId);
+    await txn.runAsync(
+      `UPDATE books
+          SET on_drive = 1,
+              missing = 0,
+              drive_rel_path = ?,
+              folder_rel_path = ?,
+              raw_folder_name = ?,
+              -- "Added from this phone. Not on the drive yet." is no longer true.
+              warnings = NULL
+        WHERE id = ?`,
+      folderRelPath,
+      folderRelPath,
+      folderRelPath,
+      bookId,
+    );
   });
 }
 
-export async function clearLibrary() {
+/**
+ * Folders on the drive that an existing book already claims, by relative path.
+ *
+ * Only ever written by a push of an imported book onto the drive. Without it a
+ * scan would hash the folder's path into a fresh id and index the app's own
+ * copy as a second book.
+ */
+export async function claimedDriveFolders(): Promise<Map<string, string>> {
   const db = await getDb();
-  await db.execAsync(
-    'DELETE FROM chapters; DELETE FROM parts; DELETE FROM checkouts; DELETE FROM books;',
+  const rows = await db.getAllAsync<{ id: string; path: string }>(
+    `SELECT id, drive_rel_path AS path FROM books
+      WHERE drive_rel_path IS NOT NULL AND drive_rel_path <> ''`,
   );
+  return new Map(rows.map((r) => [r.path, r.id]));
 }

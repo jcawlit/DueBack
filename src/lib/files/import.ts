@@ -1,14 +1,12 @@
 /**
  * Adding a book that lives on the phone rather than on the library drive.
  *
- * The picked audio is copied into the app's own storage straight away. That is
- * not merely tidy: a file picked through the system picker carries a permission
- * that may not survive a restart, and the user can delete or move the original
- * at any time. Once copied, the book is ours to index, play and later push
- * across to the drive.
+ * The picked audio is copied into app storage straight away: a picked file's
+ * permission may not survive a restart, and the user can move or delete the
+ * original at any time.
  */
 
-import { Directory, File, Paths } from 'expo-file-system';
+import { Directory, File, FileMode, Paths } from 'expo-file-system';
 import { isSupportedAudio } from '@/lib/metadata';
 import { naturalCompare } from '@/lib/library/names';
 import { safeLocalName } from './localNames';
@@ -198,37 +196,105 @@ export function importedUriFor(relPath: string): string | null {
   }
 }
 
+/** How much of a file moves per turn. Big enough to be quick, small enough to yield. */
+const DRIVE_CHUNK_BYTES = 4 * 1024 * 1024;
+
+/** Reports how far a push to the drive has got, so a 1 GB book is not a dead screen. */
+export type DrivePushProgress = (step: {
+  fileIndex: number;
+  fileCount: number;
+  name: string;
+  bytesCopied: number;
+  totalBytes: number;
+}) => void;
+
+/** The content type to hand the storage provider when creating a document. */
+function audioMimeFor(name: string): string {
+  const ext = /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase();
+  if (ext === 'mp3') return 'audio/mpeg';
+  if (ext === 'm4b' || ext === 'm4a' || ext === 'mp4') return 'audio/mp4';
+  return 'application/octet-stream';
+}
+
 /**
- * Copies an imported book onto the library drive.
+ * Writes one file onto the drive under a readable name.
  *
- * Returns the new on-drive URIs so the book's parts can be re-pointed at the
- * drive, which is what makes it an ordinary library book from then on.
+ * Deliberately not `copy()`, which cannot be told what to call its destination
+ * on a `content://` volume. `Directory.createFile` is the one supported way to
+ * make a named document there, and the bytes then have to be put through it by
+ * hand. `npm run kb saf rename`.
+ *
+ * `readBytes` and `writeBytes` are synchronous, so the await between chunks is
+ * not decoration: without it nothing on screen moves until the file is done.
+ */
+async function streamOntoDrive(
+  source: File,
+  dest: File,
+  onBytes?: (copied: number) => void,
+): Promise<number> {
+  const read = source.open(FileMode.ReadOnly);
+  const write = dest.open(FileMode.WriteOnly);
+  let copied = 0;
+  try {
+    for (;;) {
+      const chunk = read.readBytes(DRIVE_CHUNK_BYTES);
+      if (chunk.length === 0) break;
+      write.writeBytes(chunk);
+      copied += chunk.length;
+      onBytes?.(copied);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  } finally {
+    try {
+      write.close();
+    } catch {
+      // Already released.
+    }
+    try {
+      read.close();
+    } catch {
+      // Already released.
+    }
+  }
+  return copied;
+}
+
+/**
+ * Copies an imported book onto the library drive, returning where each file
+ * landed so the book's parts can be re-pointed at it.
+ *
+ * There is no staging folder here, unlike the copy onto the phone: SAF has no
+ * rename and no cheap move, so the folder is created under its final name and
+ * written into directly, and any failure deletes the whole folder.
+ * `npm run kb saf rename`.
+ *
+ * The exposure that buys is worth naming: if the app is killed mid-push, part
+ * of a book is left on the drive and the next scan indexes it as a short book.
+ * The import stays on the phone and unmarked, so nothing is lost.
  */
 export async function copyImportToDrive(
   libraryRootUri: string,
   folderName: string,
   files: { relPath: string; name: string; sizeBytes: number }[],
-): Promise<{ ok: true; uris: string[] } | { ok: false; message: string }> {
-  // Staged under a hidden sibling, then moved into place in one step.
-  //
-  // This used to write straight into the destination folder, so a copy that
-  // failed halfway — the drive pulled out, the card full — left a folder of
-  // half a book on the drive, indistinguishable from a real one to the next
-  // scan. Copying onto the phone has always staged and then moved; the drive
-  // is the user's own library and deserves the same care, more so because
-  // nothing else holds a copy of what is written there.
-  //
-  // The staging folder is named with the book's folder name so two imports
-  // running back to back cannot collide, and it is swept away on every exit
-  // path, including the failures.
-  let staging: Directory | null = null;
+  onProgress?: DrivePushProgress,
+): Promise<
+  | {
+      ok: true;
+      /** The new folder's path relative to the library root. */
+      folderRelPath: string;
+      /** The files as they now exist on the drive, in part order. */
+      files: { uri: string; name: string; modifiedMs: number }[];
+    }
+  | { ok: false; message: string }
+> {
+  let target: Directory | null = null;
+  let committed = false;
 
   try {
     const root = new Directory(libraryRootUri);
     if (!root.exists) return { ok: false, message: 'The drive is not reachable.' };
 
-    const entries = root.list();
-    const taken = new Set(entries.map((e) => e.name));
+    const taken = new Set(root.list().map((e) => e.name));
 
     // Never write over a folder that is already there. A name that is taken
     // gets a numbered suffix, the way a desktop would do it, because the
@@ -239,50 +305,85 @@ export async function copyImportToDrive(
       finalName = `${folderName} (${n})`;
     }
 
-    const stagingName = `.dueback-tmp-${finalName}`;
-    const leftover = entries.find(
-      (e): e is Directory => e instanceof Directory && e.name === stagingName,
-    );
-    if (leftover) removeQuietly(leftover);
+    target = root.createDirectory(finalName);
+    const totalBytes = files.reduce((n, f) => n + f.sizeBytes, 0);
+    /** What the provider actually called each file, in part order. */
+    const createdNames: string[] = [];
+    let done = 0;
 
-    staging = root.createDirectory(stagingName);
-
-    for (const file of files) {
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
       const source = new File(Paths.document, file.relPath);
       if (!source.exists) return { ok: false, message: `${file.name} is missing from the phone.` };
-      // Constructed, not created. `createFile` makes a zero-byte file and
-      // `copy` then refuses to write over it — the copy onto the phone has
-      // always built its destination this way, and this path had quietly kept
-      // the older pattern. Nothing covered it, so nothing caught it.
-      const created = new File(staging, file.name);
-      await source.copy(created);
-      const written = created.exists ? (created.size ?? 0) : 0;
-      if (file.sizeBytes > 0 && written !== file.sizeBytes) {
-        return { ok: false, message: `${file.name} copied incompletely to the drive.` };
+
+      const base = done;
+      onProgress?.({
+        fileIndex: i,
+        fileCount: files.length,
+        name: file.name,
+        bytesCopied: base,
+        totalBytes,
+      });
+
+      // The provider may hand back a different display name than the one asked
+      // for — a clash gets a suffix — so everything downstream uses the file it
+      // returns rather than the name we wanted.
+      const created = target.createFile(file.name, audioMimeFor(file.name));
+      createdNames.push(safDisplayName(created.name));
+      const written = await streamOntoDrive(source, created, (copied) =>
+        onProgress?.({
+          fileIndex: i,
+          fileCount: files.length,
+          name: file.name,
+          bytesCopied: base + copied,
+          totalBytes,
+        }),
+      );
+
+      // Size is the only integrity check that is free, and the drive filling up
+      // partway through is exactly what it catches.
+      const landed = created.exists ? (created.size ?? written) : 0;
+      if (file.sizeBytes > 0 && landed !== file.sizeBytes) {
+        return {
+          ok: false,
+          message: `${file.name} copied incompletely — ${landed} of ${file.sizeBytes} bytes. Is the drive full?`,
+        };
       }
+      done = base + written;
     }
 
-    // Everything landed and verified: now it becomes a book on the drive.
-    const target = new Directory(root, finalName);
-    staging.move(target);
-    // Nothing is swept up after the move. `move` updates the instance it was
-    // called on to point at the new location, so deleting "the staging folder"
-    // afterwards deletes the book that was just put in place — which is
-    // exactly what happened here until a test caught it. Anything a failed run
-    // does leave behind is named `.dueback-tmp-…` and is cleared by the next
-    // attempt at the same book.
-    staging = null;
+    /*
+     * Read back what landed, by display name, in part order — not in the order
+     * `list()` happens to return, which is the provider's business and would
+     * scramble a multi-part book's timeline.
+     */
+    const landed = new Map(
+      target
+        .list()
+        .filter((e): e is File => e instanceof File)
+        .map((f) => [safDisplayName(f.name), f]),
+    );
+    const written: { uri: string; name: string; modifiedMs: number }[] = [];
+    for (const name of createdNames) {
+      const file = landed.get(name);
+      if (!file) return { ok: false, message: `${name} did not reach the drive.` };
+      written.push({ uri: file.uri, name, modifiedMs: file.modificationTime ?? 0 });
+    }
 
-    const uris = target
-      .list()
-      .filter((e): e is File => e instanceof File)
-      .map((f) => f.uri);
-
-    return { ok: true, uris };
+    committed = true;
+    return { ok: true, folderRelPath: safDisplayName(target.name), files: written };
   } catch (err) {
-    return { ok: false, message: (err as Error)?.message ?? 'The copy to the drive failed.' };
+    const detail = (err as Error)?.message ?? '';
+    console.warn('[dueback] copy to drive failed:', detail);
+    if (/ENOSPC|No space left|EFBIG/i.test(detail)) {
+      return { ok: false, message: 'The drive ran out of room. Nothing was copied.' };
+    }
+    if (/read-only|EROFS|EACCES|permission/i.test(detail)) {
+      return { ok: false, message: 'The drive would not accept new files — it may be read-only.' };
+    }
+    return { ok: false, message: detail || 'The copy to the drive failed.' };
   } finally {
-    // Any path that did not complete the move leaves nothing behind.
-    if (staging) removeQuietly(staging);
+    // Anything that did not run to the end leaves nothing behind.
+    if (target && !committed) removeQuietly(target);
   }
 }

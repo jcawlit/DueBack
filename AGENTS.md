@@ -8,6 +8,25 @@ Expo ships breaking changes every SDK release. APIs you remember are likely rena
 2. Fetch the matching versioned docs: `https://docs.expo.dev/versions/v<major>.0.0/`
 3. For anything else, fetch https://docs.expo.dev/llms.txt — an index of all Expo docs with corrections to common LLM misconceptions. Follow its links to the specific page you need; never answer from memory.
 
+## The knowledge base
+
+`docs/KNOWLEDGE.md` holds what this project has learned the hard way: platform
+behaviour that contradicts the docs, invariants the code depends on, and
+decisions that look wrong until you know why.
+
+```bash
+npm run kb                  # list every entry
+npm run kb saf cover        # read the entries matching those words
+```
+
+- **Check it before debugging.** Most odd behaviour here has been met before.
+- **Update it in the same change.** Anything that teaches something — a
+  platform quirk, a bug whose cause was not obvious, a new invariant — gets an
+  entry. A change that removes a behaviour removes its entry.
+- **Comments state the rule; the knowledge base keeps the story.** Write the
+  invariant and why it is not obvious, not the history of how it broke. Where
+  the full account is worth having, it belongs in `docs/KNOWLEDGE.md`.
+
 ## Commands
 
 Use `bunx` instead of `npx` if the project uses bun (`bun.lock` present).

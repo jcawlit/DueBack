@@ -95,6 +95,51 @@ export function FirstRun({ onPick, busy }: { onPick: () => void; busy: boolean }
   );
 }
 
+/**
+ * What fills the Library during the very first scan. The shelves are genuinely
+ * empty throughout — books are only loaded once the scan finishes — so without
+ * this the empty state shown there is the disconnected-drive screen.
+ */
+export function ScanningLibrary({ progress }: { progress: ScanProgress | null }) {
+  const filesSeen = progress?.filesSeen ?? 0;
+  const booksTotal = progress?.booksTotal ?? 0;
+
+  return (
+    <View
+      style={{
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 32,
+        gap: space.md,
+      }}
+    >
+      <ActivityIndicator size="large" color={color.accent} />
+      <Text
+        accessibilityRole="header"
+        style={{ fontFamily: font.serif, fontSize: 22, color: color.paper, textAlign: 'center' }}
+      >
+        Reading your library
+      </Text>
+      <Text
+        style={{
+          fontFamily: font.sans,
+          fontSize: 15,
+          lineHeight: 15 * 1.45,
+          color: '#cbbb9e',
+          textAlign: 'center',
+        }}
+      >
+        {booksTotal > 0
+          ? `${booksTotal} books found. Reading their titles and covers — the audio stays on the drive.`
+          : filesSeen > 0
+            ? `${filesSeen} files so far. This is the long one; it only happens once.`
+            : 'Looking through the drive. This is the long one; it only happens once.'}
+      </Text>
+    </View>
+  );
+}
+
 /** The line shown while a scan runs, over the shelves or the first-run screen. */
 export function ScanProgressBar({ progress }: { progress: ScanProgress }) {
   const fraction =

@@ -1,5 +1,18 @@
 # Audiobook Shelf: build handoff
 
+> **Historical.** This is the brief the project was built from, kept for the
+> design intent behind `design/`. It is not current and should not be followed:
+>
+> - The vocabulary changed. "The Stacks", "The Bag", "pack" and "put back"
+>   became **the shelf**, **checked out**, **check out** and **return** — see
+>   the table in [README.md](README.md), which the code and the UI both follow.
+> - `react-native-track-player` was ruled out on licensing; playback is
+>   `expo-audio` behind the engine interface in `src/lib/audio/engine.ts`.
+> - The build order is done.
+>
+> For how things actually work: [README.md](README.md), `npm run kb`, and
+> [CHANGES.md](CHANGES.md).
+
 A phone app for managing a large audiobook library that lives on a USB drive. The whole point: keep phone storage low by carrying only a few books at a time, and make moving books between USB and phone feel effortless.
 
 The `design/` folder holds four mockup screens (`Main`, `Book`, `Player`, `Drawer`). They are written in a design-tool format (`.dc.html` with `<x-dc>`, `<sc-for>`, `<sc-if>` tags and a small logic class). **Treat them as the visual reference only**: copy the colors, type, spacing, shadows and layout, but do not port the runtime or tag syntax. The logic classes inside `Main.dc.html` and `Player.dc.html` show the intended behavior (packing, budget refusal, scrubbing, speed and sleep cycling).

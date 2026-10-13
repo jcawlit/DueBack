@@ -1,14 +1,10 @@
 /**
- * The paper slip, mounted once at the root.
- *
- * It used to live on the Library screen alone, which meant every message raised
- * from anywhere else was written and never drawn — the import buttons in
- * Settings reported both their successes and their failures into a void, so
- * adding a book folder looked like it had done nothing at all.
+ * The paper slip, mounted once at the root so that a message raised from any
+ * screen is actually drawn.
  *
  * Like `GlobalConfirm`, it belongs here rather than on each screen: a
- * navigation stack keeps the screens beneath the current one mounted, so a copy
- * on both Library and Settings would put two slips on screen at once.
+ * navigation stack keeps the screens beneath the current one mounted, so a
+ * copy on both Library and Settings would put two slips on screen at once.
  */
 
 import { usePathname } from 'expo-router';

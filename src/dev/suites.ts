@@ -36,7 +36,13 @@ import {
   type Suite,
 } from './harness';
 import { Directory, File } from 'expo-file-system';
-import { forgetMissingBooks, loadDevBooks, loadParts } from '@/db/books';
+import {
+  deleteBook,
+  forgetMissingBooks,
+  loadDevBooks,
+  loadParts,
+  markImportOnDrive,
+} from '@/db/books';
 import { SETTING_KEYS, getSetting } from '@/db/schema';
 import { usePlayer } from '@/store/player';
 import { SPEEDS } from '@/lib/audio/engine';
@@ -53,7 +59,9 @@ import {
   BOOKS_DIR,
   BOOKS_TMP_DIR,
   FREE_SPACE_MARGIN_BYTES,
+  MANIFEST_NAME,
   clearTempCopies,
+  sweepTempCopies,
 } from '@/lib/files/copy';
 
 const player = () => usePlayer.getState();
@@ -574,6 +582,46 @@ const a2Identity: Suite = {
         return `${books().length} books, ids unchanged`;
       },
     },
+    {
+      /*
+       * A rescan rewrites a book's parts, and for a checked-out book those
+       * rows hold the only record of where its copy on the phone lives.
+       * Losing it left the book marked checked out with nothing behind it:
+       * the Player said "not on your phone yet" while the files sat there,
+       * and the next launch deleted the copy and put the book back on the
+       * shelf. Nothing covered the two features meeting, and Settings offers
+       * a full rescan one tap away at any time.
+       */
+      id: 'I-12',
+      name: 'a full rescan leaves a checked-out book checked out and playable',
+      async run() {
+        const book = await oneBookIn('Hyperion - Dan Simmons');
+        await checkOutAndSettle(book.id);
+        equal(bookById(book.id)!.local.status, 'checked-out', `checked out (${lastMessage()})`);
+        const before = (await loadParts(book.id)).map((pt) => pt.local_rel_path ?? '');
+        check(
+          before.every((path) => path.length > 0),
+          `local paths before the rescan: ${before.join(',')}`,
+        );
+
+        await ensureScan({ force: true });
+
+        equal(bookById(book.id)!.local.status, 'checked-out', 'status after a full rescan');
+        const after = (await loadParts(book.id)).map((pt) => pt.local_rel_path ?? '');
+        equal(after.join(','), before.join(','), 'local paths after a full rescan');
+        await assertLocalFilesPresent(book.id);
+
+        // The real consequence, reproduced: reconciliation on the next launch
+        // is what used to delete the copy.
+        await reconcileLocalCopies();
+        await library().refresh();
+        equal(bookById(book.id)!.local.status, 'checked-out', 'status after reconciling');
+        await assertLocalFilesPresent(book.id);
+
+        await returnAndSettle(book.id);
+        return `${after.length} parts kept their local paths`;
+      },
+    },
   ],
 };
 
@@ -742,14 +790,91 @@ const a9Startup: Suite = {
   name: 'Startup reconciliation',
   cases: [
     {
+      /*
+       * Startup used to delete every staged file, so a gigabyte that had
+       * already landed before the app was killed was fetched again from the
+       * start. What an interrupted copy left is now kept for a book that still
+       * exists, and swept for anything else.
+       */
       id: 'ST-01',
-      name: 'leftover staging folders are deleted on startup',
+      name: 'startup keeps staged files for a known book and sweeps the rest',
       async run() {
-        const junk = ensureDir(appDir(BOOKS_TMP_DIR, 'junk'));
-        check(junk.exists, 'could not create the staging folder');
+        const known = books()[0];
+        check(!!known, 'no books to stage against');
+
+        const mine = ensureDir(appDir(BOOKS_TMP_DIR, known.id));
+        const junk = ensureDir(appDir(BOOKS_TMP_DIR, 'junk-no-such-book'));
+        // The manifest's own age is what dates the staging, so a folder
+        // without one is stale by definition.
+        const manifest = new File(mine, MANIFEST_NAME);
+        if (manifest.exists) manifest.delete();
+        manifest.create();
+        manifest.write('[]');
+        check(mine.exists && junk.exists, 'could not create the staging folders');
+
+        sweepTempCopies(books().map((b) => b.id));
+
+        check(mine.exists, 'staged files for a known book were deleted');
+        check(!junk.exists, 'staged files for an unknown book survived');
+
         clearTempCopies();
-        equal(listNames(appDir(BOOKS_TMP_DIR)).length, 0, 'books-tmp/ after startup');
-        return 'staging cleared';
+        equal(listNames(appDir(BOOKS_TMP_DIR)).length, 0, 'books-tmp/ after a full clear');
+        return 'known kept, unknown swept';
+      },
+    },
+    {
+      /*
+       * The resume itself. A killed process leaves no code behind to discard
+       * anything, so the staged files are still there — and a part counts as
+       * done only when its size matches the source exactly and the manifest
+       * proves the folder was staged for these parts.
+       */
+      id: 'ST-05',
+      name: 'a copy killed mid-flight resumes from what it had',
+      async run() {
+        const book = await oneBookIn('Natural Sort');
+        if (bookById(book.id)!.local.status !== 'on-shelf') await returnAndSettle(book.id);
+        const parts = await loadParts(book.id);
+        check(parts.length > 1, `needs a multi-part book, got ${parts.length} part(s)`);
+
+        const sentinel = 'DUEBACK-RESUMED';
+        const first = parts[0];
+        check(first.size_bytes > sentinel.length, `first part is only ${first.size_bytes} bytes`);
+
+        // Stand in for the process that went away: a staged folder, a manifest
+        // for exactly these parts, and a first part of exactly the right size
+        // whose contents are recognisable afterwards.
+        const staging = ensureDir(appDir(BOOKS_TMP_DIR, book.id));
+        const ext = first.name.split('.').pop() ?? 'm4b';
+        const staged = new File(staging, `0000.${ext}`);
+        if (staged.exists) staged.delete();
+        staged.create();
+        staged.write(sentinel.padEnd(first.size_bytes, '.'));
+        equal(staged.size ?? 0, first.size_bytes, 'the staged part is the right size');
+
+        const manifest = new File(staging, MANIFEST_NAME);
+        if (manifest.exists) manifest.delete();
+        manifest.create();
+        manifest.write(JSON.stringify(parts.map((p) => [p.name, p.size_bytes])));
+
+        try {
+          await checkOutAndSettle(book.id);
+          equal(bookById(book.id)!.local.status, 'checked-out', `status (${lastMessage()})`);
+          await assertLocalFilesPresent(book.id);
+
+          const landed = new File(appDir(BOOKS_DIR, book.id), `0000.${ext}`);
+          check(landed.exists, 'the resumed part is not in the final folder');
+          const head = (await landed.text()).slice(0, sentinel.length);
+          equal(head, sentinel, 'the staged part was copied again instead of being kept');
+
+          equal(listNames(appDir(BOOKS_TMP_DIR)).length, 0, 'staging survived a finished copy');
+          return `${parts.length - 1} parts copied, 1 resumed`;
+        } finally {
+          // The resumed part is not real audio, so this book must not be left
+          // on the phone.
+          await returnAndSettle(book.id);
+          clearTempCopies();
+        }
       },
     },
     {
@@ -1405,12 +1530,12 @@ const a8Imports: Suite = {
     },
     {
       id: 'IM-F',
-      name: 'copying an import to the drive is all-or-nothing',
+      name: 'a failed copy to the drive leaves nothing behind',
       async run(ctx) {
-        // Writing straight into the destination left half a book on the drive
-        // when a copy failed partway — indistinguishable from a real one to
-        // the next scan. A missing source file is the cheapest way to make the
-        // copy fail after the staging folder exists.
+        // A copy that fails partway must not leave half a book on the drive,
+        // wearing a real book's name and indistinguishable from one to the
+        // next scan. A missing source file is the cheapest way to make the
+        // copy fail after the folder has been created.
         const rootUri = `file://${ctx.rootPath}`;
         const folderName = `Self Test To Drive ${Date.now().toString(36)}`;
 
@@ -1471,9 +1596,9 @@ const a8Imports: Suite = {
             'the second copy did not get a numbered name',
           );
 
-          // No staging folder survived either run.
+          // Nothing half-written survived either run.
           const leftovers = listNames(root).filter((n) => n.startsWith('.dueback-tmp-'));
-          equal(leftovers.length, 0, `staging folders left: ${leftovers.join(', ')}`);
+          equal(leftovers.length, 0, `leftover folders: ${leftovers.join(', ')}`);
 
           return 'second copy landed beside the first, not over it';
         } finally {
@@ -1486,6 +1611,93 @@ const a8Imports: Suite = {
             }
           }
           deleteImport(bookId);
+          await ensureScan({ force: true });
+        }
+      },
+    },
+    {
+      /*
+       * A book's identity is a hash of its path under the library root, so the
+       * folder a push creates would be read back as a brand new book: the scan
+       * indexed the copy as a second book and stamped the original NOT ON
+       * DRIVE — two of everything, with the listening history attached to the
+       * one that looked broken. The push now records its folder, and the scan
+       * recognises it.
+       */
+      id: 'IM-H',
+      name: 'a pushed import is not indexed a second time',
+      async run(ctx) {
+        const source = await oneBookIn('Embedded Only');
+        const sourceParts = await loadParts(source.id);
+        const bookId = `imp-push-${Date.now().toString(36)}`;
+        const dir = ensureDir(appDir(IMPORTS_DIR, bookId));
+
+        const staged = [];
+        for (let i = 0; i < sourceParts.length; i += 1) {
+          const part = sourceParts[i];
+          const name = `${String(i).padStart(4, '0')}.${part.name.split('.').pop() ?? 'm4b'}`;
+          const dest = new File(dir, name);
+          if (dest.exists) dest.delete();
+          await new File(part.uri).copy(dest);
+          staged.push({
+            relPath: `${IMPORTS_DIR}/${bookId}/${name}`,
+            uri: dest.uri,
+            name: part.name,
+            sizeBytes: dest.size ?? 0,
+          });
+        }
+
+        const folderName = `Self Test Push ${Date.now().toString(36)}`;
+        const built = await buildImportedBook(bookId, folderName, staged);
+        await saveImportedBook(
+          built,
+          staged.map((x) => x.relPath),
+        );
+        await library().refresh();
+
+        const rootUri = `file://${ctx.rootPath}`;
+        const root = new Directory(asDirectoryUri(rootUri));
+        let pushed = folderName;
+        try {
+          const outcome = await copyImportToDrive(
+            rootUri,
+            folderName,
+            staged.map((x) => ({ relPath: x.relPath, name: x.name, sizeBytes: x.sizeBytes })),
+          );
+          check(outcome.ok, `the push failed: ${outcome.ok ? '' : outcome.message}`);
+          if (!outcome.ok) return 'the push failed';
+          pushed = outcome.folderRelPath;
+          await markImportOnDrive(bookId, outcome.folderRelPath, outcome.files);
+          await library().refresh();
+
+          const before = bookById(bookId);
+          check(!!before, 'the import vanished when it was pushed');
+          check(!before!.onlyCopyOnPhone, 'still flagged as the only copy on the phone');
+
+          await ensureScan({ force: true });
+
+          const inFolder = await booksInFolder(pushed);
+          equal(
+            inFolder.map((b) => b.id).join(','),
+            bookId,
+            `books indexed in ${pushed}: ${inFolder.map((b) => `${b.title} (${b.id})`).join(' | ')}`,
+          );
+          const after = bookById(bookId);
+          check(!!after, 'the pushed book was dropped by the scan');
+          check(!after!.missingFromDrive, 'the pushed book was marked missing from the drive');
+          equal(after!.local.status, 'checked-out', 'status after the scan');
+          return `one book in ${pushed} after a forced rescan`;
+        } finally {
+          for (const name of [folderName, pushed]) {
+            try {
+              const d = new Directory(root, name);
+              if (d.exists) d.delete();
+            } catch {
+              // Best effort; a forced scan ignores what is not there.
+            }
+          }
+          deleteImport(bookId);
+          await deleteBook(bookId);
           await ensureScan({ force: true });
         }
       },

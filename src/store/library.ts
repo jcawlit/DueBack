@@ -2,12 +2,9 @@
  * Library state: what is on the shelf, what is checked out, what is on hold,
  * and the rules governing the moves between those states.
  *
- * The database is the source of truth. This store is a cache of it for the UI;
- * every move writes through to SQLite before the screens see it.
- *
- * The copy itself is still simulated — `startCopy` fakes progress on a timer.
- * Every rule around it is already final: budget refusal, holds while the drive
- * is disconnected, and the warning before returning a book that has left the drive.
+ * The database is the source of truth; this store is a cache of it for the UI,
+ * and every move writes through to SQLite before the screens see it. `copying`
+ * is the one state never written there — `npm run kb copying`.
  */
 
 import { create } from 'zustand';
@@ -39,16 +36,16 @@ import { buildImportedBook, saveImportedBook } from '@/lib/scan/importBook';
 import { libraryOnDeviceOverride } from '@/dev/faults';
 import {
   checkFreeSpace,
-  clearTempCopies,
   copyBookToDevice,
   deleteLocalCopy,
   listLocalBookIds,
   localUriFor,
+  sweepTempCopies,
   type CopyPart,
 } from '@/lib/files/copy';
 import { removeCover } from '@/lib/files/covers';
 import { SETTING_KEYS, getSetting, setSetting } from '@/db/schema';
-import { isReachable } from '@/lib/files/access';
+import { isPresent, isReachable } from '@/lib/files/access';
 import { isDeviceStorage } from '@/lib/files/safNames';
 import { waitForScanToFinish } from '@/lib/scanBusy';
 
@@ -92,8 +89,6 @@ type LibraryState = {
    */
   libraryOnDevice: boolean;
   driveLastSeenAt: string;
-  selecting: boolean;
-  selected: string[];
   slip: Slip | null;
   confirm: Confirm | null;
 
@@ -104,6 +99,11 @@ type LibraryState = {
   setLibraryRoot: (root: LibraryRootInfo | null) => Promise<void>;
   /** Re-checks whether the drive is reachable; called on launch and resume. */
   checkDrive: () => Promise<boolean>;
+  /**
+   * The cheap check behind the foreground poller. Does nothing at all unless
+   * the drive has appeared or disappeared since the last look.
+   */
+  pollDrive: () => Promise<void>;
 
   setSort: (sort: SortMode) => void;
   setBudgetBytes: (value: number) => void;
@@ -120,31 +120,27 @@ type LibraryState = {
    */
   checkOutAndPlay: (id: string, onReady: (id: string) => void) => void;
 
-  /**
-   * What an in-flight import is doing, for the Settings rows. Pressing "add a
-   * book folder" used to look like nothing had happened: the copy and the tag
-   * read both take a moment, and the only feedback was a slip that the Settings
-   * screen had no way to draw.
-   */
+  /** What an in-flight import is doing, for the Settings row to report. */
   importing: string | null;
   /** Imported books waiting to be copied onto the drive. */
   pendingDriveImports: { id: string; title: string; folderName: string }[];
+  /** What a push to the drive is doing, for the Settings row. */
+  pushingToDrive: string | null;
   /** Adds a book from phone storage. `kind` picks file or folder. */
   importBook: (kind: 'file' | 'folder') => Promise<void>;
   /** Copies the pending imports onto the library drive. */
   pushImportsToDrive: () => Promise<void>;
   dismissDriveImportOffer: () => void;
 
-  enterSelect: (seedId?: string) => void;
-  exitSelect: () => void;
-  toggleSelected: (id: string) => void;
-  checkOutSelected: () => void;
-
   showSlip: (slip: Slip) => void;
   dismissSlip: () => void;
   dismissConfirm: () => void;
 
-  recordProgress: (id: string, positionSec: number) => void;
+  /**
+   * Saves a playback position. Always writes the database; only replaces the
+   * book in memory when `commit` is set — see the implementation.
+   */
+  recordProgress: (id: string, positionSec: number, options?: { commit?: boolean }) => void;
 };
 
 /** Books the user has asked to stop copying. */
@@ -154,12 +150,18 @@ const copiesInFlight = new Set<string>();
 let slipTimer: ReturnType<typeof setTimeout> | undefined;
 /** Guards against two concurrent hydrations racing the database open. */
 let hydrating = false;
+/**
+ * What the last cheap presence check saw.
+ *
+ * The poller acts on a change in this rather than on a mismatch with
+ * `driveConnected`: a stale permission leaves the root present but unreadable,
+ * and comparing the two would re-list the root every few seconds.
+ */
+let lastPresence: boolean | null = null;
 
 /**
- * Whether the chosen library already lives on the phone.
- *
- * A test can stand in an answer here; see src/dev/faults.ts. Everything else
- * asks the root, which is the only honest source.
+ * Whether the chosen library already lives on the phone. A test can stand in
+ * an answer here; see src/dev/faults.ts.
  */
 function resolveOnDevice(rootUri: string | null | undefined): boolean {
   const forced = libraryOnDeviceOverride();
@@ -189,16 +191,11 @@ export function holdBytes(books: Book[]): number {
 }
 
 /**
- * Puts the database back in step with the filesystem.
+ * Puts the database back in step with the filesystem: a book counts as checked
+ * out only if its files are really there. They might not be — the app was
+ * killed mid-copy, or app storage was cleared.
  *
- * A book is only checked out if its files are actually present. They might not
- * be: the app was killed mid-copy, the user cleared app storage, or — during
- * development — the copy was simulated and never wrote anything. Without this,
- * such a book looks available and then fails to play.
- */
-/**
- * Exported for the dev self-test harness, which needs to run this on demand to
- * prove that a relaunch does not un-check-out a book.
+ * Exported for the dev self-test harness, which runs it on demand.
  */
 export async function reconcileLocalCopies() {
   try {
@@ -206,12 +203,8 @@ export async function reconcileLocalCopies() {
     /** Books that survived reconciliation and still own their local folder. */
     const stillCheckedOut = new Set<string>();
     for (const row of rows) {
-      // Every part this book recorded must still be on disk for it to count as
-      // checked out. Checking the paths the book actually recorded — rather than
-      // looking in `books/<id>/` and assuming — is what makes this correct for
-      // imported books, whose audio lives in `imported/<id>/`. Getting that
-      // wrong meant every book added from the phone was reset to "on the shelf"
-      // on the next launch, with its files orphaned.
+      // Checked against the paths the book actually recorded, not against
+      // `books/<id>/`: an imported book's audio lives in `imported/<id>/`.
       const complete =
         row.partCount > 0 &&
         row.localPaths.length >= row.partCount &&
@@ -266,22 +259,14 @@ export const useLibrary = create<LibraryState>((set, get) => {
   };
 
   /**
-   * Copies a book onto the phone, all-or-nothing.
-   *
-   * Progress is driven by the real bytes landing on disk. Anything that goes
-   * wrong — a cancel, a pulled drive, a short file — leaves the book on the
-   * shelf with nothing saved.
+   * Copies a book onto the phone, all-or-nothing. Progress is the real bytes
+   * landing on disk; anything that goes wrong leaves the book on the shelf
+   * with nothing saved.
    */
   const startCopy = async (book: Book, onCheckedOut?: (id: string) => void) => {
-    // One copy per book, ever.
-    //
-    // `checkDrive` flushes holds, and it runs on every return to the
-    // foreground, from the Settings button, from the drive watcher and from
-    // the test harness. Two overlapping calls both saw a book still "on hold"
-    // before either had marked it "copying", so both started a copy — and the
-    // two of them fought over the same staging folder, one deleting it while
-    // the other was still writing into it. The loser left the book stuck
-    // mid-copy with its files already moved into place.
+    // One copy per book, ever. `checkDrive` flushes holds and runs from
+    // several places at once, so without this two calls can both start a copy
+    // and fight over the same staging folder.
     if (copiesInFlight.has(book.id)) return;
     copiesInFlight.add(book.id);
     try {
@@ -337,10 +322,25 @@ export const useLibrary = create<LibraryState>((set, get) => {
       await setLocalState(book.id, { status: 'on-shelf' });
       await clearPartLocalPaths(book.id);
 
-      // The book has been deleted from the drive since the last scan. Record
-      // that now so the shelf tells the truth immediately, rather than leaving
-      // the user to guess that a rescan is what they need.
       if (outcome.reason === 'source-missing') {
+        /*
+         * A deleted book and a pulled drive look identical from inside the
+         * copy, and asking the root is what tells them apart. Marking a book
+         * NOT ON DRIVE because someone unplugged the drive is a lie that
+         * outlives the moment.
+         */
+        if (!(await proveDriveReachable())) {
+          flashSlip({
+            kind: 'note',
+            stamp: 'DRIVE REMOVED',
+            text: `The drive was disconnected, so ${book.title} wasn't copied. Nothing was saved — plug it back in and check it out again.`,
+          });
+          return;
+        }
+
+        // The book really has gone from the library folder. Record that now so
+        // the shelf tells the truth immediately, rather than leaving the user
+        // to guess that a rescan is what they need.
         await markBookMissing(book.id);
         await get().refresh();
         flashSlip({
@@ -350,6 +350,11 @@ export const useLibrary = create<LibraryState>((set, get) => {
         });
         return;
       }
+
+      // Any other failure may also be a drive that has gone; the header should
+      // not keep claiming it is connected until the app next comes back to the
+      // foreground.
+      if (outcome.reason === 'failed') await proveDriveReachable();
 
       flashSlip({
         kind: outcome.reason === 'no-space' ? 'wont-fit' : 'note',
@@ -377,23 +382,14 @@ export const useLibrary = create<LibraryState>((set, get) => {
   };
 
   /**
-   * Everything that can stop a check-out, in one place.
-   *
-   * `checkOut` and `checkOutAndPlay` had drifted apart: only the first refused
-   * a book that had gone missing from the drive, and only the second refused a
-   * DRM-protected one — so each had a route that started a copy certain to
-   * fail deep in the file layer. Returns the slip to show, or null to proceed.
+   * Everything that can stop a check-out, in one place, so that no route to a
+   * copy can miss one. Returns the slip to show, or null to proceed.
    */
   const refusalFor = (book: Book): Slip | null => {
     /*
-     * A library already on the phone has nothing to check out.
-     *
-     * The screens know this — no corner tab, no select mode, "Play" instead
-     * of "Check out" — but that is a presentation decision, and the store
-     * would still happily copy a book from the library folder into app
-     * storage and hold it twice. The promise that nothing is duplicated
-     * belongs here, where every route to a copy passes through, rather than
-     * resting on each screen remembering to hide a button.
+     * A library already on the phone has nothing to check out. The screens
+     * know this too, but the promise that no book is stored twice belongs
+     * here, where every route to a copy passes through.
      */
     if (get().libraryOnDevice) {
       return {
@@ -448,10 +444,8 @@ export const useLibrary = create<LibraryState>((set, get) => {
   };
 
   /**
-   * Proves the drive is really readable right now.
-   *
-   * `driveConnected` is only refreshed when the app comes to the foreground,
-   * so it goes stale the moment someone pulls the drive with the app open.
+   * Proves the drive is really readable right now. `driveConnected` can be
+   * seconds stale, and the poller behind it uses a deliberately weaker test.
    */
   const proveDriveReachable = async (): Promise<boolean> => {
     const root = get().libraryRoot;
@@ -465,12 +459,9 @@ export const useLibrary = create<LibraryState>((set, get) => {
   };
 
   /**
-   * Starts copies for anything on hold that now fits.
-   *
-   * Strictly one at a time. Five held books used to start five simultaneous
-   * copies off a single USB stick, which turns a sequential read into thrashing
-   * and runs five progress pollers at once; the drive is the bottleneck, so
-   * queueing is faster as well as calmer.
+   * Starts copies for anything on hold that now fits — strictly one at a time.
+   * The drive is the bottleneck, so a queue is faster than parallel reads off
+   * one stick, as well as calmer.
    */
   const flushHolds = () => {
     const held = get().books.filter((b) => b.local.status === 'on-hold');
@@ -522,20 +513,16 @@ export const useLibrary = create<LibraryState>((set, get) => {
     driveConnected: false,
     libraryOnDevice: false,
     driveLastSeenAt: new Date().toISOString(),
-    selecting: false,
-    selected: [],
     slip: null,
     confirm: null,
     importing: null,
     pendingDriveImports: [],
+    pushingToDrive: null,
 
     hydrate: async () => {
       // Idempotent: mounting effects and fast refresh can both call this.
       if (get().ready || hydrating) return;
       hydrating = true;
-      // If the app was killed mid-copy there was no process left to tidy up.
-      // A half-written book must never be mistaken for a complete one.
-      clearTempCopies();
       await reconcileLocalCopies();
       try {
         const [rootUri, rootName, lastSeen, budget, books] = await Promise.all([
@@ -545,6 +532,13 @@ export const useLibrary = create<LibraryState>((set, get) => {
           getSetting(SETTING_KEYS.budgetBytes),
           loadBooks(),
         ]);
+        /*
+         * Tidy the staging folder now the books are known. What an interrupted
+         * copy left is kept only for a book that still exists, so checking it
+         * out again carries on from where it stopped.
+         */
+        sweepTempCopies(books.map((b) => b.id));
+
         const root = rootUri ? { uri: rootUri, name: rootName ?? rootUri } : null;
         set({
           libraryOnDevice: resolveOnDevice(root?.uri),
@@ -570,22 +564,12 @@ export const useLibrary = create<LibraryState>((set, get) => {
     refresh: async () => {
       const loaded = await loadBooks();
 
-      // A copy in flight exists only in memory. `copying` is deliberately never
-      // written to the database, so that a half-finished copy cannot survive a
-      // crash and be mistaken for a real one — but that means reloading throws
-      // the state of any copy running right now straight back to whatever the
-      // database last said.
+      // A copy in flight exists only in memory, so a reload would throw it
+      // back to whatever the database last said.
       //
-      // Which is precisely what happened when the drive reappeared: the same
-      // event flushes the holds and starts the re-sync scan, so the scan's
-      // refresh landed in the middle of the copies the flush had just begun.
-      // The progress bar vanished, the book snapped back to "on hold", and the
-      // files finished landing with the database out of step.
-      // Read inside the updater, not before the await above. Taken earlier, the
-      // snapshot goes stale the moment a copy finishes while the load is in
-      // flight: the finished `checked-out` is overwritten with a remembered
-      // `copying`, and because that leaves the book copying again, every later
-      // refresh reapplies it and the book never escapes.
+      // Read inside the updater, not before the await above: a snapshot taken
+      // earlier goes stale when a copy finishes mid-load, and the remembered
+      // `copying` then overwrites the finished state on every later refresh.
       set((s) => {
         const inFlight = new Map(
           s.books.filter((b) => b.local.status === 'copying').map((b) => [b.id, b.local]),
@@ -615,6 +599,9 @@ export const useLibrary = create<LibraryState>((set, get) => {
         return false;
       }
       const connected = await isReachable(root.uri);
+      // Keep the poller in step, so a manual check does not leave it thinking
+      // the drive has just changed state.
+      lastPresence = connected;
       const now = new Date().toISOString();
       set({
         driveConnected: connected,
@@ -633,6 +620,28 @@ export const useLibrary = create<LibraryState>((set, get) => {
         set({ pendingDriveImports: [] });
       }
       return connected;
+    },
+
+    pollDrive: async () => {
+      const { libraryRoot: root, libraryOnDevice } = get();
+      // A library on the phone has nothing to plug in, and nothing to watch.
+      if (!root || libraryOnDevice) return;
+
+      const present = isPresent(root.uri);
+      if (present === lastPresence) return;
+      lastPresence = present;
+
+      if (!present) {
+        if (get().driveConnected) set({ driveConnected: false, pendingDriveImports: [] });
+        return;
+      }
+
+      // The drive has just appeared. `checkDrive` is the honest answer —
+      // it lists the root, records the sighting, picks up anything on hold and
+      // offers to put imports across — and the re-sync scan follows from the
+      // connected flag changing, so it happens once per arrival rather than
+      // once per look.
+      await get().checkDrive();
     },
 
     setSort: (sort) => set({ sort }),
@@ -865,40 +874,68 @@ export const useLibrary = create<LibraryState>((set, get) => {
     pushImportsToDrive: async () => {
       const root = get().libraryRoot;
       const pending = get().pendingDriveImports;
-      if (!root || pending.length === 0) return;
+      if (!root || pending.length === 0 || get().pushingToDrive) return;
 
       let copied = 0;
-      const failures: string[] = [];
-      for (const item of pending) {
-        const rows = await loadParts(item.id);
-        const files = rows.map((r) => ({
-          relPath: r.local_rel_path ?? '',
-          name: r.name,
-          sizeBytes: r.size_bytes,
-        }));
-        if (files.some((f) => !f.relPath)) {
-          failures.push(item.title);
-          continue;
+      /** Why each book failed, not just that it did — see the slip below. */
+      const failures: { title: string; message: string }[] = [];
+      set({ pushingToDrive: 'Starting…' });
+      try {
+        for (const item of pending) {
+          const rows = await loadParts(item.id);
+          const files = rows.map((r) => ({
+            relPath: r.local_rel_path ?? '',
+            name: r.name,
+            sizeBytes: r.size_bytes,
+          }));
+          if (files.some((f) => !f.relPath)) {
+            failures.push({ title: item.title, message: 'its files are no longer on the phone' });
+            continue;
+          }
+          const outcome = await copyImportToDrive(
+            root.uri,
+            item.folderName,
+            files,
+            ({ fileIndex, fileCount, bytesCopied, totalBytes }) => {
+              const pct = totalBytes > 0 ? Math.floor((bytesCopied / totalBytes) * 100) : 0;
+              set({
+                pushingToDrive:
+                  fileCount > 1
+                    ? `${item.title}: file ${fileIndex + 1} of ${fileCount} · ${pct}%`
+                    : `${item.title}: ${pct}%`,
+              });
+            },
+          );
+          if (outcome.ok) {
+            await markImportOnDrive(item.id, outcome.folderRelPath, outcome.files);
+            copied += 1;
+          } else {
+            failures.push({ title: item.title, message: outcome.message });
+          }
         }
-        const outcome = await copyImportToDrive(root.uri, item.folderName, files);
-        if (outcome.ok) {
-          await markImportOnDrive(item.id, outcome.uris);
-          copied += 1;
-        } else {
-          failures.push(item.title);
-        }
+      } finally {
+        set({ pushingToDrive: null });
       }
 
       set({ pendingDriveImports: await importsAwaitingDrive() });
       await get().refresh();
+
+      /*
+       * The reason, every time, and a stamp of its own: the slip renders an
+       * unstamped refusal as "WON'T FIT", which is a lie about a drive that
+       * rejected a write.
+       */
+      const failed = failures.length;
       flashSlip({
-        kind: failures.length > 0 && copied === 0 ? 'wont-fit' : 'note',
-        stamp: copied > 0 ? 'ON THE DRIVE' : undefined,
+        kind: failed > 0 && copied === 0 ? 'wont-fit' : 'note',
+        stamp: copied > 0 ? 'ON THE DRIVE' : 'NOT COPIED',
         text:
           copied > 0
             ? `${copied} ${copied === 1 ? 'book' : 'books'} copied to the drive.` +
-              (failures.length > 0 ? ` ${failures.length} could not be copied.` : '')
-            : `Could not copy to the drive: ${failures.join(', ')}.`,
+              (failed > 0 ? ` ${failures[0].title} could not be: ${failures[0].message}` : '')
+            : failed === 1
+              ? `${failures[0].title} could not be copied: ${failures[0].message}`
+              : `${failed} books could not be copied. ${failures[0].title}: ${failures[0].message}`,
       });
     },
 
@@ -912,23 +949,6 @@ export const useLibrary = create<LibraryState>((set, get) => {
       flashSlip({ kind: 'note', stamp: 'CANCELLED', text: `${book.title} taken off hold.` });
     },
 
-    enterSelect: (seedId) =>
-      set({ selecting: true, selected: seedId ? [seedId] : [], slip: null }),
-    exitSelect: () => set({ selecting: false, selected: [] }),
-    toggleSelected: (id) =>
-      set((s) => ({
-        selected: s.selected.includes(id)
-          ? s.selected.filter((x) => x !== id)
-          : [...s.selected, id],
-      })),
-
-    checkOutSelected: () => {
-      const { selected, checkOut } = get();
-      set({ selecting: false, selected: [] });
-      // Sequential, so each one is budget-checked against the running total.
-      selected.forEach((id) => checkOut(id));
-    },
-
     showSlip: flashSlip,
     dismissSlip: () => {
       clearTimeout(slipTimer);
@@ -936,31 +956,44 @@ export const useLibrary = create<LibraryState>((set, get) => {
     },
     dismissConfirm: () => set({ confirm: null }),
 
-    recordProgress: (id, positionSec) => {
-      let finishedAt: string | undefined;
-      patch(id, (b) => {
-        const clamped = Math.max(0, Math.min(b.durationSec, Math.round(positionSec)));
-        finishedAt =
-          clamped >= b.durationSec - 1
-            ? (b.finishedAt ?? new Date().toISOString())
-            : b.finishedAt;
-        return {
+    recordProgress: (id, positionSec, options = {}) => {
+      const book = get().books.find((b) => b.id === id);
+      if (!book) return;
+
+      // Clamped once, here, and used for both the memory and the database. The
+      // database was being given the raw figure while only the in-memory copy
+      // was clamped, so a seek past the end could store a position beyond the
+      // book's own duration — and that is the figure a relaunch reads back.
+      const clamped = Math.max(0, Math.min(book.durationSec, Math.round(positionSec)));
+      const finishedAt =
+        clamped >= book.durationSec - 1
+          ? (book.finishedAt ?? new Date().toISOString())
+          : book.finishedAt;
+
+      void updateProgress(id, clamped, finishedAt);
+
+      /*
+       * Replacing the book in memory is the expensive half — the Library
+       * derives its shelves from this array — so it waits for a moment that
+       * matters: a pause, a stop, the end of the book, or the app going to the
+       * background. The database is written every time, so nothing is at risk.
+       */
+      if (options.commit ?? true) {
+        patch(id, (b) => ({
           ...b,
           progressSec: clamped,
           lastPlayedAt: new Date().toISOString(),
           finishedAt,
-        };
-      });
-      void updateProgress(id, positionSec, finishedAt);
+        }));
+      }
     },
   };
 });
 
 /**
- * Convenience selectors. Each one must return a stable value: zustand v5 is
- * backed by `useSyncExternalStore`, which re-renders forever if a selector
- * builds a new array or object on every call. Anything that needs a filtered
- * list takes `books` and derives it with `useMemo` in the component instead.
+ * Convenience selectors. Each must return a stable value — zustand v5 re-renders
+ * for ever if a selector builds a new array or object on every call, so a
+ * filtered list is derived with `useMemo` in the component instead.
  */
 export const selectBook = (id: string | undefined) => (s: LibraryState) =>
   id ? s.books.find((b) => b.id === id) : undefined;

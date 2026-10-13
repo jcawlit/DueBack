@@ -14,10 +14,8 @@ import type { Book } from '@/data/types';
 import { isCheckedOut } from '@/data/types';
 import {
   checkedOutFrom,
-  committedBytes,
   heldCount,
   holdBytes,
-  onShelfCount,
   selectTotalBooks,
   selectTotalDuration,
   usedBytes,
@@ -31,11 +29,9 @@ import { daysOfListening, relativeTime, relativeTimeShort } from '@/lib/format';
 import { color, font, space } from '@/theme/tokens';
 import { CheckedOutTray } from '@/components/CheckedOutTray';
 import { DriveNotConnected } from '@/components/DriveNotConnected';
-import { DriveNotConnectedBanner } from '@/components/DriveNotConnectedBanner';
-import { FirstRun, ScanProgressBar } from '@/components/FirstRun';
+import { FirstRun, ScanProgressBar, ScanningLibrary } from '@/components/FirstRun';
 import { NoSearchResults } from '@/components/NoSearchResults';
 import { LibraryHeader } from '@/components/LibraryHeader';
-import { SelectBar } from '@/components/SelectBar';
 import { Shelf } from '@/components/Shelf';
 import type { Shelf as ShelfModel } from '@/lib/shelves';
 
@@ -56,8 +52,6 @@ export default function LibraryScreen() {
   const libraryOnDevice = useLibrary((s) => s.libraryOnDevice);
   const driveLastSeenAt = useLibrary((s) => s.driveLastSeenAt);
   const checkDrive = useLibrary((s) => s.checkDrive);
-  const selecting = useLibrary((s) => s.selecting);
-  const selected = useLibrary((s) => s.selected);
   const showSlip = useLibrary((s) => s.showSlip);
 
   const checkOut = useLibrary((s) => s.checkOut);
@@ -66,42 +60,30 @@ export default function LibraryScreen() {
   const pushImportsToDrive = useLibrary((s) => s.pushImportsToDrive);
   const dismissDriveImportOffer = useLibrary((s) => s.dismissDriveImportOffer);
   const returnBook = useLibrary((s) => s.returnBook);
-  const enterSelect = useLibrary((s) => s.enterSelect);
-  const exitSelect = useLibrary((s) => s.exitSelect);
-  const toggleSelected = useLibrary((s) => s.toggleSelected);
-  const checkOutSelected = useLibrary((s) => s.checkOutSelected);
 
   const totalBooks = useLibrary(selectTotalBooks);
   const totalDuration = useLibrary(selectTotalDuration);
 
   const scanRunning = useScan((s) => s.running);
+  const scanPreparing = useScan((s) => s.preparing);
   const scanProgress = useScan((s) => s.progress);
+  // Picking a folder, checking it and scanning it are one wait to the user.
+  const scanBusy = scanRunning || scanPreparing;
   const chooseFolderAndScan = useScan((s) => s.chooseFolderAndScan);
 
   // Derived from `books` here rather than inside a store selector: a selector
   // that builds a new array every call re-renders without end under zustand v5.
   const checkedOut = useMemo(() => checkedOutFrom(books), [books]);
-  const shelfCount = useMemo(() => onShelfCount(books), [books]);
   const onHoldCount = useMemo(() => heldCount(books), [books]);
 
   const used = usedBytes(books);
-  const held = holdBytes(books);
-  const freeBytes = Math.max(0, budgetBytes - committedBytes(books));
+  const heldBytes = holdBytes(books);
 
   // Shelves show everything, so a checked-out book keeps its place in the
   // stacks with an "OUT" tag rather than vanishing from where the user left it.
   const found = useMemo(() => searchBooks(books, search), [books, search]);
   const shelves = useMemo(() => buildShelves(found, sort), [found, sort]);
   const searching = search.trim().length > 0;
-
-  const selectionBytes = useMemo(
-    () =>
-      selected.reduce((sum, id) => {
-        const b = books.find((x) => x.id === id);
-        return b ? sum + b.sizeBytes : sum;
-      }, 0),
-    [selected, books],
-  );
 
   /**
    * Offers to put books added from the phone onto the drive, once it is back.
@@ -135,7 +117,18 @@ export default function LibraryScreen() {
     if (checkingDrive) return;
     setCheckingDrive(true);
     void (async () => {
-      const connected = await checkDrive();
+      /*
+       * Held on screen for a moment, whatever the answer.
+       *
+       * Looking for the drive is a single directory listing and usually
+       * finishes in a few milliseconds, so the slip saying it is not connected
+       * appeared to arrive before the tap had landed — it read as a button
+       * that did not check anything. Long enough for the arrow to turn once.
+       */
+      const [connected] = await Promise.all([
+        checkDrive(),
+        new Promise((resolve) => setTimeout(resolve, 650)),
+      ]);
       setCheckingDrive(false);
       // `checkDrive` already announces anything it picked up off hold.
       if (!useLibrary.getState().slip) {
@@ -155,17 +148,7 @@ export default function LibraryScreen() {
   // The shelf callbacks are memoised so that scrolling, which re-renders this
   // screen as rows come and go, does not hand every mounted shelf a new set of
   // props and undo the work `React.memo` does on them.
-  const onPressBook = useCallback(
-    (book: Book) => {
-      if (selecting) {
-        // Only books not already on the phone can be added to a trip.
-        if (book.local.status === 'on-shelf') toggleSelected(book.id);
-        return;
-      }
-      openBook(book);
-    },
-    [selecting, toggleSelected, openBook],
-  );
+  const onPressBook = useCallback((book: Book) => openBook(book), [openBook]);
 
   const onMoveBook = useCallback(
     (book: Book) => {
@@ -188,11 +171,9 @@ export default function LibraryScreen() {
         onLongPressBook={libraryOnDevice ? onPressBook : onMoveBook}
         onTabBook={libraryOnDevice ? undefined : onMoveBook}
         onCancelCopy={onCancelCopy}
-        selecting={selecting}
-        selectedIds={selected}
       />
     ),
-    [onPressBook, onMoveBook, onCancelCopy, selecting, selected, libraryOnDevice],
+    [onPressBook, onMoveBook, onCancelCopy, libraryOnDevice],
   );
 
   if (!ready) {
@@ -229,7 +210,7 @@ export default function LibraryScreen() {
   }
 
   // Nothing has been indexed yet: ask for the folder.
-  if (!libraryRoot || (books.length === 0 && !scanRunning)) {
+  if (!libraryRoot || (books.length === 0 && !scanBusy)) {
     return (
       <View style={{ flex: 1, backgroundColor: color.ground, paddingTop: insets.top }}>
         <LibraryHeader
@@ -240,19 +221,20 @@ export default function LibraryScreen() {
           checking={checkingDrive}
           onOpenSettings={libraryRoot ? () => router.push('/settings') : undefined}
         />
-        {scanProgress && scanRunning ? <ScanProgressBar progress={scanProgress} /> : null}
-        <FirstRun onPick={() => void chooseFolderAndScan()} busy={scanRunning} />
+        {scanProgress && scanBusy ? <ScanProgressBar progress={scanProgress} /> : null}
+        <FirstRun onPick={() => void chooseFolderAndScan()} busy={scanBusy} />
       </View>
     );
   }
 
   // While searching, the count is the useful fact — "3 of 412" answers both
   // "did it find anything" and "is this all of them".
+  const holdNote = onHoldCount > 0 ? ` · ${onHoldCount} on hold` : '';
   const subtitle = searching
     ? `${found.length} of ${books.length} ${books.length === 1 ? 'book' : 'books'}`
     : driveConnected
-      ? `${totalBooks} ${totalBooks === 1 ? 'book' : 'books'} · ${daysOfListening(totalDuration)}`
-      : `last seen ${relativeTimeShort(driveLastSeenAt)} · ${totalBooks} books`;
+      ? `${totalBooks} ${totalBooks === 1 ? 'book' : 'books'} · ${daysOfListening(totalDuration)}${holdNote}`
+      : `last seen ${relativeTimeShort(driveLastSeenAt)} · ${totalBooks} books${holdNote}`;
 
   return (
     <View style={{ flex: 1, backgroundColor: color.ground, paddingTop: insets.top }}>
@@ -268,34 +250,29 @@ export default function LibraryScreen() {
         onSort={setSort}
         search={search}
         onSearch={setSearch}
-        selecting={selecting}
-        onToggleSelect={
-          shelfCount > 0 && !libraryOnDevice
-            ? () => (selecting ? exitSelect() : enterSelect())
-            : undefined
-        }
       />
 
-      {scanProgress && scanRunning ? <ScanProgressBar progress={scanProgress} /> : null}
+      {scanProgress && scanBusy ? <ScanProgressBar progress={scanProgress} /> : null}
 
       {books.length === 0 ? (
-        <DriveNotConnected heldCount={onHoldCount} />
+        // A scan in flight is the one reason the shelves can be empty while a
+        // folder is chosen: books are not loaded until it finishes.
+        scanBusy ? (
+          <ScanningLibrary progress={scanProgress} />
+        ) : (
+          <DriveNotConnected heldCount={onHoldCount} />
+        )
       ) : searching && found.length === 0 ? (
         <NoSearchResults query={search} total={books.length} onClear={() => setSearch('')} />
       ) : (
         /*
-         * Virtualized, not a ScrollView. A 400-book library is 134 shelves and
-         * 400 covers; mounting them all at once put several hundred megabytes of
-         * decoded bitmap on the heap and made the screen unusable. A FlatList
-         * keeps roughly a screenful alive.
+         * Virtualized, not a ScrollView: 400 books is 134 shelves and several
+         * hundred megabytes of decoded bitmap if they all mount at once.
          *
-         * No `getItemLayout`: shelf height varies with the label card's
-         * wrapping, and a layout function that guesses wrong is worse than
-         * letting the list measure — as the Contents sheet taught us.
-         *
-         * `removeClippedSubviews` stays off on purpose. Status tags sit at
-         * `top: -9` and ribbons at `bottom: -16`, outside their row's bounds,
-         * and clipping eats them.
+         * Two settings are deliberate. No `getItemLayout`, because shelf
+         * height varies with the label card's wrapping. And
+         * `removeClippedSubviews` stays off, because tags and ribbons sit
+         * outside their row's bounds and clipping eats them.
          */
         <FlatList
           style={{ flex: 1 }}
@@ -308,14 +285,12 @@ export default function LibraryScreen() {
           initialNumToRender={4}
           maxToRenderPerBatch={4}
           windowSize={7}
-          ListHeaderComponent={
-            !driveConnected ? (
-              <DriveNotConnectedBanner
-                lastSeenLabel={relativeTime(driveLastSeenAt)}
-                heldCount={onHoldCount}
-              />
-            ) : null
-          }
+          /*
+           * No disconnected-drive banner: the header's drive button and
+           * subtitle already say it, and the drive being unplugged is the
+           * app's normal condition rather than news. The held count moved into
+           * the subtitle.
+           */
           ListFooterComponent={
             <Text
               numberOfLines={1}
@@ -339,25 +314,15 @@ export default function LibraryScreen() {
         // slip both stack above whatever this screen pins to the bottom.
         onLayout={(e) => setBottomObstruction(e.nativeEvent.layout.height)}
       >
-        {selecting ? (
-          <SelectBar
-            count={selected.length}
-            selectionBytes={selectionBytes}
-            freeBytes={freeBytes}
-            onConfirm={checkOutSelected}
-            onCancel={exitSelect}
-          />
-        ) : (
-          <CheckedOutTray
-            books={checkedOut}
-            usedBytes={used}
-            holdBytes={held}
-            budgetBytes={budgetBytes}
-            onPressBook={openBook}
-            onLongPressBook={onMoveBook}
-            showRuler
-          />
-        )}
+        <CheckedOutTray
+          books={checkedOut}
+          usedBytes={used}
+          holdBytes={heldBytes}
+          budgetBytes={budgetBytes}
+          onPressBook={openBook}
+          onLongPressBook={onMoveBook}
+          showRuler
+        />
         <View style={{ height: insets.bottom, backgroundColor: color.panel }} />
       </View>
     </View>

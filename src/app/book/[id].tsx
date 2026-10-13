@@ -7,8 +7,9 @@ import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-na
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMemo } from 'react';
-import { isCheckedOut, progressFraction, remainingSec } from '@/data/types';
+import { isCheckedOut } from '@/data/types';
 import { selectBook, useLibrary } from '@/store/library';
+import { usePlayer } from '@/store/player';
 import { duplicatesOf, folderLabel } from '@/lib/library/duplicates';
 import { bytes, hoursMinutes, hoursLeft, stampDate } from '@/lib/format';
 import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
@@ -44,6 +45,15 @@ export default function BookScreen() {
 
   // Before the early return below, because hooks cannot run conditionally.
   const twins = useMemo(() => (book ? duplicatesOf(books, book) : []), [books, book]);
+  /*
+   * The live position, while this is the book playing.
+   *
+   * The library's own copy is only committed when playback pauses or stops, so
+   * that saving it does not rebuild every shelf. This is the one screen that
+   * would show the gap — and the engine's figure is the better answer anyway,
+   * being where the listener actually is.
+   */
+  const livePosition = usePlayer((s) => (book && s.bookId === book.id ? s.positionSec : null));
 
   if (!book) {
     return (
@@ -72,14 +82,15 @@ export default function BookScreen() {
   const out = isCheckedOut(book);
   const copying = book.local.status === 'copying';
   const onHold = book.local.status === 'on-hold';
-  const fraction = progressFraction(book);
-  const started = book.progressSec > 60;
+  const position = livePosition ?? book.progressSec;
+  const fraction = book.durationSec > 0 ? Math.min(1, position / book.durationSec) : 0;
+  const started = position > 60;
   const finished = !!book.finishedAt;
 
   const progressLabel = finished
     ? `finished ${stampDate(book.finishedAt!)}`
     : started
-      ? `${Math.round(fraction * 100)}% · ${hoursLeft(remainingSec(book))} to go`
+      ? `${Math.round(fraction * 100)}% · ${hoursLeft(Math.max(0, book.durationSec - position))} to go`
       : 'not started';
 
   /** The primary action depends entirely on where the audio currently lives. */
@@ -377,10 +388,16 @@ export default function BookScreen() {
             color: color.faint,
           }}
         >
+          {/*
+            No offer to return, deliberately. Finishing a book used to promise
+            one here and never make it; the decision taken was that returning
+            is the listener's call and their timing, and that the tray marking
+            a book DONE is the whole of what the app should say about it.
+          */}
           {finished && out
-            ? 'all done — shall I put it back?'
+            ? 'all done — return it whenever you like'
             : out
-              ? "finish it and I'll offer to return it for you"
+              ? 'your place is kept, however long it sits here'
               : driveConnected
                 ? 'checking out copies it to your phone'
                 : 'holds check out as soon as the drive is connected'}

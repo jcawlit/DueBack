@@ -1,14 +1,10 @@
 /**
- * A flag saying a library scan is writing to the database.
+ * A flag saying a library scan is writing to the database, so that a copy can
+ * wait for it: plugging the drive in starts a re-sync scan and flushes holds
+ * from the same event, and the two were reaching SQLite together.
  *
- * It lives in its own module rather than in either store because the scan
- * store already imports the library store, so the library store cannot import
- * it back without a cycle.
- *
- * The need for it is specific: plugging the drive in starts a re-sync scan and
- * flushes any holds from the same event, so a scan writing a few hundred rows
- * and a copy recording where it put its files were hitting SQLite at the same
- * moment. One of them lost every time.
+ * Its own module because the scan store already imports the library store,
+ * which could not import it back without a cycle.
  */
 
 let scanning = false;

@@ -90,19 +90,12 @@ export const SORT_LABELS: Record<SortMode, string> = {
   dust: 'gathering dust',
 };
 
-/** Derived helpers, so screens never pattern-match on `local.status` inline. */
 export const isCheckedOut = (b: Book) => b.local.status === 'checked-out';
-export const isOnHold = (b: Book) => b.local.status === 'on-hold';
-export const isCopying = (b: Book) => b.local.status === 'copying';
 /** A book counts against the storage budget as soon as a copy is under way. */
 export const occupiesBudget = (b: Book) =>
   b.local.status === 'checked-out' || b.local.status === 'copying';
 export const isInProgress = (b: Book) =>
   b.progressSec > 60 && !b.finishedAt && b.progressSec < b.durationSec;
-
-export function remainingSec(b: Book) {
-  return Math.max(0, b.durationSec - b.progressSec);
-}
 
 export function progressFraction(b: Book) {
   if (b.durationSec <= 0) return 0;

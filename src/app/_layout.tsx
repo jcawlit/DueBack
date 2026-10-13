@@ -25,31 +25,18 @@ import { usePlayer } from '@/store/player';
 import { useLibrary } from '@/store/library';
 import { useScan } from '@/store/scan';
 
+/**
+ * How often the drive is looked for while the app is in the foreground.
+ *
+ * Plugging a drive in is a physical act with someone waiting on the result, so
+ * this wants to be noticed in about the time it takes to put the phone down —
+ * and the check is cheap enough that it can be.
+ */
+const DRIVE_POLL_MS = 4000;
+
 SplashScreen.preventAutoHideAsync().catch(() => {
   // Already hidden, or unavailable in this environment — nothing to do.
 });
-
-/**
- * Counts down the sleep timer.
- *
- * Playback position no longer needs a clock — the audio engine reports it —
- * but the sleep timer is measured in real seconds, so it does. It only runs
- * while something is playing, and stops when the app is backgrounded, which is
- * the right behaviour: a JS interval is not reliable in the background, and
- * the sleep timer only matters while someone is awake with the app open.
- */
-function SleepTimerClock() {
-  const playing = usePlayer((s) => s.playing);
-  const armed = usePlayer((s) => s.sleepIndex !== 0);
-
-  useEffect(() => {
-    if (!playing || !armed) return;
-    const id = setInterval(() => usePlayer.getState().tickSleep(), 1000);
-    return () => clearInterval(id);
-  }, [playing, armed]);
-
-  return null;
-}
 
 /**
  * Opens the database, loads the saved library, and re-checks whether the drive
@@ -95,15 +82,51 @@ function LibraryBootstrap() {
 }
 
 /**
- * Re-reads the drive whenever it appears.
+ * Looks for the drive while the app is in front of you, so that holds go out
+ * the moment it is plugged back in.
  *
- * Plugging a drive in used to tell the app only that the folder was readable,
- * never what was inside it. A book deleted from the drive on a computer stayed
- * on the shelf offering a check-out that could not possibly work, until someone
- * thought to rescan by hand — which is not something a person should have to
- * think about. An incremental scan skips every book whose files are unchanged,
- * so this costs a tree walk, runs behind the existing progress bar, and can be
- * cancelled from Settings like any other scan.
+ * Nothing happens unless the answer changes: the check is a single existence
+ * test and the expensive part only runs on an arrival. Foreground only — in
+ * the background there is nobody to show a change to.
+ */
+function DriveWatcher() {
+  const hasRoot = useLibrary((s) => !!s.libraryRoot);
+  const onDevice = useLibrary((s) => s.libraryOnDevice);
+
+  useEffect(() => {
+    if (!hasRoot || onDevice) return;
+    let timer: ReturnType<typeof setInterval> | undefined;
+
+    const start = () => {
+      if (timer) return;
+      timer = setInterval(() => void useLibrary.getState().pollDrive(), DRIVE_POLL_MS);
+    };
+    const stop = () => {
+      clearInterval(timer);
+      timer = undefined;
+    };
+
+    if (AppState.currentState === 'active') start();
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') start();
+      else stop();
+    });
+
+    return () => {
+      sub.remove();
+      stop();
+    };
+  }, [hasRoot, onDevice]);
+
+  return null;
+}
+
+/**
+ * Re-indexes the drive whenever it appears, so a book deleted on a computer
+ * does not sit on the shelf offering a check-out that cannot work.
+ *
+ * An incremental scan skips every unchanged book, so this costs a tree walk,
+ * runs behind the existing progress bar, and can be cancelled from Settings.
  */
 function DriveSync() {
   const driveConnected = useLibrary((s) => s.driveConnected);
@@ -164,8 +187,8 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <StatusBar style="light" />
       <LibraryBootstrap />
+      <DriveWatcher />
       <DriveSync />
-      <SleepTimerClock />
       <Stack
         screenOptions={{
           headerShown: false,

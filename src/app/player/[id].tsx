@@ -64,6 +64,7 @@ export default function PlayerScreen() {
   const cycleSpeed = usePlayer((s) => s.cycleSpeed);
   const cycleSleep = usePlayer((s) => s.cycleSleep);
   const skipChapter = usePlayer((s) => s.skipChapter);
+  const reload = usePlayer((s) => s.reload);
 
   useEffect(() => {
     if (id) void open(id);
@@ -368,6 +369,26 @@ export default function PlayerScreen() {
           >
             {playbackError}
           </Text>
+          {/*
+            A load can fail for reasons that have gone by the time the message
+            is read — the drive was busy, the playback service had not bound
+            yet. Offering the retry here saves leaving the screen and coming
+            back, which was the only way out of it.
+          */}
+          <Pressable
+            onPress={() => void reload(true)}
+            accessibilityRole="button"
+            style={({ pressed }) => ({
+              alignSelf: 'flex-start',
+              minHeight: TOUCH,
+              justifyContent: 'center',
+              opacity: pressed ? 0.6 : 1,
+            })}
+          >
+            <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.accent }}>
+              try again
+            </Text>
+          </Pressable>
         </View>
       ) : null}
 

@@ -52,14 +52,8 @@ export function createExpoAudioEngine(): AudioEngine {
   let switching = false;
   /**
    * Whether the listener wants audio, as opposed to whether audio is coming
-   * out right now.
-   *
-   * At a part boundary `status.playing` is already false — playback has
-   * ended — so it cannot answer "should the next part start?". The code here
-   * used to paper over that with `status.playing || true`, which is simply
-   * `true`: a book paused a few seconds before the end of a part would start
-   * itself again when the part ran out. This is the question that was
-   * actually being asked.
+   * out right now. At a part boundary `status.playing` is already false —
+   * playback has ended — so it cannot answer "should the next part start?".
    */
   let wantsToPlay = false;
   let preloadedFor = -1;
@@ -73,17 +67,12 @@ export function createExpoAudioEngine(): AudioEngine {
   };
 
   /**
-   * What the lock screen is given.
+   * What the lock screen is given. The field names are misleading: Android
+   * renders `title` as the first line and `artist` as the second, while
+   * `albumTitle` goes to a sub-text the lock screen does not show at all.
    *
-   * The field names are misleading, so this is worth spelling out. Android's
-   * media controls render `title` as the first line and `artist` as the
-   * second; `albumTitle` goes to the notification's `setSubText`, which the
-   * modern lock screen does not show at all. The chapter therefore has to go in
-   * `artist` — putting it in `albumTitle`, as this used to, meant the chapter
-   * was never visible on any book and the author sat in its place.
-   *
-   * While listening, where you are matters more than who wrote it, so the
-   * chapter takes the visible line and the author keeps the hidden one.
+   * So the chapter takes `artist` and the author keeps the hidden field —
+   * while listening, where you are matters more than who wrote it.
    */
   const metadataFor = () => ({
     title: track?.title,
