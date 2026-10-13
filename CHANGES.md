@@ -968,3 +968,44 @@ runbook and the mockups. 288 lines down to 233.
 still taught the pre-rename vocabulary ("The Stacks", "The Bag", "pack", "put
 back") and recommended `react-native-track-player`, so anyone reading it for
 guidance was being misled by it.
+
+---
+
+# Drive pass — what the first real push found
+
+## Pushing a book to the drive failed with "bad file descriptor"
+
+Reported from a real drive: a push interrupted by a force-stop left the
+part-written folder and its `.dueback-incomplete` marker exactly as designed —
+the scan skipped it, nothing appeared in the library — but the retry died at
+once with
+
+> could not be copied: call to function 'FileSystemFileHandle:writeBytes' has
+> been rejected — unable to write to a file handle: bad file descriptor
+
+Not the retry, and not the marker. `FileSystemFileHandle.forContentURI` opens a
+`ParcelFileDescriptor`, wraps its `fileDescriptor` in a `FileOutputStream`
+channel and keeps only the channel. Nothing holds the descriptor, so it is
+collectable the instant `open()` returns, and its finalizer closes the fd out
+from under the channel. The next `writeBytes` gets `EBADF`.
+
+That makes it a race, not a bug in the reclaim: the first attempt survived long
+enough to write part of a file, the retry did not. The `await` between chunks —
+there so the progress bar can paint — is what gives the collector its chance.
+Expo's own `copyFileViaChannel` keeps both descriptors in `use {}` blocks for
+the whole transfer, which is why ordinary `copy()` never shows this.
+
+The same fault was already known on the read side: `isStaleHandleError` in
+`src/lib/files/access.ts` retries a scan read that comes back "Bad file
+descriptor", with the comment "USB hands back dead descriptors now and then".
+A retry is the right answer there and the wrong one here, because half the
+bytes have already landed.
+
+So the destination is no longer held open. Each chunk goes through
+`write(bytes, { append })`, which opens and closes its own stream inside a
+single native call — nothing survives to be collected. The first chunk is
+written without `append`, so it truncates whatever an earlier attempt left
+under that name. The source stays on a handle: it is a real path in app
+storage, where `RandomAccessFile` is used and there is no descriptor to lose.
+
+*`src/lib/files/import.ts`, `docs/KNOWLEDGE.md`*

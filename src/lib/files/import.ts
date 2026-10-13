@@ -234,32 +234,34 @@ function audioMimeFor(name: string): string {
  * make a named document there, and the bytes then have to be put through it by
  * hand. `npm run kb saf rename`.
  *
- * `readBytes` and `writeBytes` are synchronous, so the await between chunks is
- * not decoration: without it nothing on screen moves until the file is done.
+ * The destination is never held open. A write handle on a `content://` URI
+ * dies partway through a long copy — "bad file descriptor" — so each chunk is
+ * written with `write(..., { append })`, which opens and closes its own stream
+ * inside a single native call. `npm run kb drive handle`.
+ *
+ * `readBytes` is synchronous, so the await between chunks is not decoration:
+ * without it nothing on screen moves until the file is done.
  */
 async function streamOntoDrive(
   source: File,
   dest: File,
   onBytes?: (copied: number) => void,
 ): Promise<number> {
+  // The source is in app storage, a real path, where a handle is safe.
   const read = source.open(FileMode.ReadOnly);
-  const write = dest.open(FileMode.WriteOnly);
   let copied = 0;
   try {
     for (;;) {
       const chunk = read.readBytes(DRIVE_CHUNK_BYTES);
       if (chunk.length === 0) break;
-      write.writeBytes(chunk);
+      // The first chunk truncates, so a file left by an earlier attempt cannot
+      // leave a tail behind the bytes written now.
+      dest.write(chunk, { append: copied > 0 });
       copied += chunk.length;
       onBytes?.(copied);
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
   } finally {
-    try {
-      write.close();
-    } catch {
-      // Already released.
-    }
     try {
       read.close();
     } catch {

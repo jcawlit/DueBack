@@ -74,11 +74,14 @@ The limits that shaped `copyImportToDrive`, none of them documented:
 - `move()` on a `content://` directory falls back to copying every byte and
   deleting, because `DocumentsContract.moveDocument` needs a destination parent
   that exists and `DocumentFile.fromTreeUri` returns no parent.
-- `FileMode.ReadWrite` is unsupported; `WriteOnly` is fine.
+- `FileMode.ReadWrite` is unsupported. `WriteOnly` is accepted, but a handle
+  held over a `content://` URI dies partway through a long copy — see **A file
+  handle on a content:// URI goes dead on its own**.
 
-So: `Directory.createFile(name, mime)` to make a named document, then stream the
-bytes through a file handle. There is no atomic commit on a drive — write into
-the final folder and delete it on failure.
+So: `Directory.createFile(name, mime)` to make a named document, then put the
+bytes through it a chunk at a time with `write(bytes, { append })`. There is no
+atomic commit on a drive — write into the final folder and delete it on
+failure.
 
 *`src/lib/files/import.ts`*
 
@@ -92,15 +95,41 @@ can paint until the work has already finished. Both the walk and the drive copy
 
 *`src/lib/files/access.ts`, `src/lib/files/import.ts`*
 
-### USB hands back dead file descriptors
+### A file handle on a content:// URI goes dead on its own
 
-Scanning 551 files off a drive produced a few `java.io.IOException: Bad file
-descriptor` failures on the very first seek, for files that read perfectly in
-isolation. One retry with a fresh handle covers it. Narrowed to that error class
-deliberately: a corrupt container should be parsed once and reported, not read
-twice.
+`FileSystemFileHandle.forContentURI` opens a `ParcelFileDescriptor`, wraps its
+`fileDescriptor` in a channel, and **keeps only the channel**:
 
-*`src/lib/files/access.ts` (`isStaleHandleError`)*
+```kotlin
+val pfd = contentResolver.openFileDescriptor(uri, mode.descriptor) ?: throw …
+val channel = FileOutputStream(pfd.fileDescriptor).channel
+return FileSystemFileHandle(channel, mode)   // nothing holds pfd
+```
+
+The `ParcelFileDescriptor` is unreachable the moment that returns, and its
+finalizer closes the fd underneath the channel. So any handle held across a
+garbage collection can fail with `bad file descriptor` — and the longer it is
+held, the likelier that is. Expo's own `copyFileViaChannel` keeps both
+descriptors in `use {}` blocks for the whole transfer, which is why `copy()`
+never shows this.
+
+Two consequences, and they want different answers:
+
+- **Reads** (scanning). Short-lived, and a failed read can simply be redone:
+  551 files off a drive produced a few `Bad file descriptor` failures on the
+  first seek, for files that read perfectly in isolation. One retry with a
+  fresh handle covers it. Narrowed to that error class deliberately — a corrupt
+  container should be parsed once and reported, not read twice.
+- **Writes** (pushing a book to the drive). Held for the length of a whole
+  audio file, with a yield between chunks that gives the collector its chance,
+  and a retry is no use because half the bytes have already landed. So the
+  destination is not held open at all: each chunk goes through
+  `write(bytes, { append })`, which opens and closes its own stream inside one
+  native call. The first chunk is written without `append`, so it truncates
+  anything an earlier attempt left.
+
+*`src/lib/files/access.ts` (`isStaleHandleError`), `src/lib/files/import.ts`
+(`streamOntoDrive`)*
 
 ### Copying is staged and verified, and resumed only after a kill
 
