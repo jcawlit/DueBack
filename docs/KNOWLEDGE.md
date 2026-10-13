@@ -385,6 +385,22 @@ a slow `open` cannot overwrite a newer one.
 
 ## Screens
 
+### scrollToIndex on an empty list kills the app
+
+`FlatList.scrollToIndex` throws `Invariant Violation: scrollToIndex out of
+range: item length 0 but minimum is 1` when `data` is empty — and an invariant
+violation in a release build is a fatal exception, not a red screen. Clamping
+the index is not enough, because index 0 is still out of range for an empty
+list; the call has to be skipped entirely.
+
+This reached a user through the contents sheet, which lists `book.chapters`
+directly. A book whose tags carry no chapters is perfectly ordinary — the
+Player stands in a single chapter for one, via `chapterAt` — so opening
+Contents on a plain rip took the whole app down.
+
+*`src/components/ContentsSheet.tsx`*
+
+
 ### zustand v5 selectors must return stable values
 
 It is backed by `useSyncExternalStore`, which re-renders forever if a selector

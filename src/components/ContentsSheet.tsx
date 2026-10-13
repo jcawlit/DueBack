@@ -51,9 +51,17 @@ export function ContentsSheet({ visible, book, currentIndex, onSelect, onClose }
     return { rows: list, offsets: offsetList };
   }, [book]);
 
-  // Open on the chapter the listener is actually in, not at chapter one.
+  /*
+   * Open on the chapter the listener is actually in, not at chapter one.
+   *
+   * Nothing to scroll to when the book has no chapters, and asking anyway is
+   * fatal: `scrollToIndex` on an empty list throws an invariant violation,
+   * which in a release build takes the whole app down. A book whose tags carry
+   * no chapters is ordinary — the Player stands in a single chapter for it —
+   * so this is reachable from any plain rip, not just a damaged file.
+   */
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || rows.length === 0) return;
     const target = Math.max(0, Math.min(rows.length - 1, currentIndex));
     const id = setTimeout(() => {
       listRef.current?.scrollToIndex({ index: target, viewPosition: 0.35, animated: false });
@@ -138,6 +146,19 @@ export function ContentsSheet({ visible, book, currentIndex, onSelect, onClose }
               });
             }}
             contentContainerStyle={{ paddingBottom: 40 }}
+            ListEmptyComponent={
+              <Text
+                style={{
+                  fontFamily: font.sans,
+                  fontSize: 15,
+                  color: color.faint,
+                  paddingHorizontal: space.xl,
+                  paddingTop: space.xl,
+                }}
+              >
+                This book has no chapters.
+              </Text>
+            }
             renderItem={({ item }) => {
               const current = item.index === currentIndex;
               return (

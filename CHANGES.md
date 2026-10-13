@@ -1009,3 +1009,29 @@ under that name. The source stays on a handle: it is a real path in app
 storage, where `RandomAccessFile` is used and there is no descriptor to lose.
 
 *`src/lib/files/import.ts`, `docs/KNOWLEDGE.md`*
+
+## Opening Contents on a book with no chapters killed the app
+
+From a real crash log:
+
+```
+FATAL EXCEPTION: mqt_v_native
+Invariant Violation: scrollToIndex out of range: item length 0 but minimum is 1
+```
+
+`ContentsSheet` scrolls to the chapter you are in when it opens. `rows` is
+built straight from `book.chapters`, and the target was clamped with
+`Math.max(0, Math.min(rows.length - 1, currentIndex))` — which is `0` for an
+empty list, and index 0 is still out of range when there are no items. In a
+debug build an invariant violation is a red screen; in a release build it is a
+fatal exception.
+
+The guard is now on the length, not the index, and the sheet says "This book
+has no chapters" instead of opening blank.
+
+Worth being clear about the blast radius: this was found on a part-written
+file, but it is not about damaged books. Any rip whose tags carry no chapters
+reaches it — the Player handles that case by standing in a single chapter
+through `chapterAt`, and the contents sheet never did.
+
+*`src/components/ContentsSheet.tsx`*
