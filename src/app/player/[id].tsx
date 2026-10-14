@@ -16,7 +16,6 @@ import { BookCover } from '@/components/BookCover';
 import { ChapterScrubber } from '@/components/ChapterScrubber';
 import { ContentsSheet } from '@/components/ContentsSheet';
 import { LampGlow } from '@/components/LampGlow';
-import { Slip } from '@/components/Slip';
 import {
   ChevronDown,
   ContentsIcon,
@@ -45,8 +44,6 @@ export default function PlayerScreen() {
   );
 
   const book = useLibrary(selectBook(id));
-  const slip = useLibrary((s) => s.slip);
-  const dismissSlip = useLibrary((s) => s.dismissSlip);
 
   const open = usePlayer((s) => s.open);
   const positionSec = usePlayer((s) => s.positionSec);
@@ -460,7 +457,6 @@ export default function PlayerScreen() {
         />
       </View>
 
-      {slip ? <Slip slip={slip} onDismiss={dismissSlip} bottom={110} /> : null}
 
       <ContentsSheet
         visible={contentsOpen}

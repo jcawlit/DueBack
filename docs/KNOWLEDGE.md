@@ -405,6 +405,59 @@ a slow `open` cannot overwrite a newer one.
 
 ## Screens
 
+### Only one slip, mounted at the root
+
+A navigation stack keeps the screens beneath the current one mounted, so a
+slip rendered per screen draws once per mounted screen — two at a time on the
+Book screen, one above the other. `GlobalSlip` exists for this and is route
+aware: it reads the path to sit above the checked-out tray and the mini
+player. No screen renders `Slip` itself.
+
+*`src/components/GlobalSlip.tsx`*
+
+### A finished book is still the loaded book
+
+`open()` returns early when the engine already holds the book asked for, so
+that leaving the Player and coming back does not reload it. The book that has
+just finished is exactly that book, sitting on its last second, so "Listen
+again" lands on the shortcut — and has to rewind rather than hand back the
+end. The rewind decision is made before the early return, not after it.
+
+*`src/store/player.ts`*
+
+### A copy in flight cannot be interrupted mid-part
+
+One part is one native `copy()` call and there is no way to abort it. Cancel
+is therefore only noticed between parts: for a single-file m4b that means the
+whole file. So `cancelCopy` answers the button itself — the book goes back on
+the shelf and the slip appears at once — and the bytes are discarded when the
+part finishes. The drive keeps reading until then.
+
+A copy cancelled while still queued is dropped in `startCopy`, because
+`runCopy` clears the cancelled flag on entry.
+
+*`src/store/library.ts`, `src/lib/files/copy.ts`*
+
+### Every copy runs in turn, whichever route asked
+
+Three copies off one USB stick are slower than three in a row, and running
+them together left books stuck at 100% and then gone: several finish at once
+and write their parts and their checked-out state to SQLite in the same
+moment. `flushHolds` always queued; the check-out buttons called `startCopy`
+directly. Everything now goes through `queueCopy`.
+
+*`src/store/library.ts`*
+
+### Deleting a book's audio has to stop the player first
+
+Returning a book deletes its files. Nothing told the player, so it carried on
+playing from files that no longer existed. The library cannot import the
+player — the player imports the library — so the player registers a callback
+through `onBookAudioRemoved` when it loads, which the root layout guarantees
+happens at startup.
+
+*`src/store/library.ts`, `src/store/player.ts`*
+
 ### scrollToIndex on an empty list kills the app
 
 `FlatList.scrollToIndex` throws `Invariant Violation: scrollToIndex out of

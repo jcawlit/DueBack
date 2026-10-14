@@ -1075,3 +1075,80 @@ Worth recording why it was convincing: from a computer the marker looked
 exactly right, because Windows hides known extensions.
 
 *`src/lib/library/grouping.ts`, `src/lib/files/import.ts`, `tests/grouping.test.ts`*
+
+---
+
+# Hands-on pass — five faults from a day's use
+
+## "Listen again" started at the end
+
+`open()` returns early when the engine already holds the book asked for, so
+that leaving the Player and coming back does not reload it. The book that has
+just finished is exactly that book, parked on its last second — so "Listen
+again" hit the shortcut and handed back the end. The rewind was already
+written, three lines below the early return it never reached. It now happens
+before.
+
+*`src/store/player.ts`*
+
+## Two slips for one message
+
+`GlobalSlip` is mounted at the root precisely so a message raised anywhere is
+drawn once, and its own comment says so. The Book and Player screens each
+rendered a second `Slip` as well, so "frees 1.2 GB" and "on hold" appeared
+twice, stacked.
+
+*`src/app/book/[id].tsx`, `src/app/player/[id].tsx`*
+
+## Cancel waited for the file to finish
+
+Cancel was only noticed between parts, and one part is a single native
+`copy()` call that cannot be aborted — so cancelling a one-file m4b did
+nothing visible until the whole file had copied.
+
+The button is answered where it is pressed: the book goes back on the shelf
+and the slip appears at once. The bytes are still discarded when the part
+finishes, and the drive keeps reading until then, because there is no API to
+stop it. What changed is that the app no longer pretends to be busy.
+
+A copy cancelled while still waiting its turn is now dropped before it starts
+— `runCopy` clears the cancelled flag on entry, so the queue would otherwise
+have copied it anyway.
+
+*`src/store/library.ts`*
+
+## Returning a book left it playing
+
+Returning deletes the audio. Nothing told the player, which carried on from
+files that were no longer there. It now stops before the deletion: paused
+first, then unloaded, so there is no gap where sound comes from a deleted
+file.
+
+The library cannot import the player, because the player imports the library.
+The player registers a callback instead, when it loads — which the root layout
+guarantees happens at startup.
+
+*`src/store/library.ts`, `src/store/player.ts`*
+
+## Three check-outs at once lost books
+
+Reported as books hanging at 100%, vanishing, and one outright error.
+
+`flushHolds` has always copied strictly one at a time, with a comment
+explaining that the drive is the bottleneck and a queue is faster than
+parallel reads off one stick. The check-out buttons did not: they called
+`startCopy` directly, and `copiesInFlight` only stops the *same* book being
+copied twice. Three buttons meant three concurrent copies finishing together
+and writing their parts and their checked-out state to SQLite in the same
+moment.
+
+Every route now goes through `queueCopy`. A book waiting its turn shows
+"Checking out… 0%", which is honest but not informative; a queued state of its
+own would read better and is not in this change.
+
+*`src/store/library.ts`*
+
+## Confirmed working
+
+Pushing an import to the drive, tested across repeated force-quits: the
+part-written folder is skipped every time and the book is offered again.

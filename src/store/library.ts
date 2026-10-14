@@ -145,6 +145,19 @@ type LibraryState = {
 
 /** Books the user has asked to stop copying. */
 const cancelledCopies = new Set<string>();
+
+/**
+ * Told that a book's audio is about to be deleted, so that whatever is
+ * playing it can let go first.
+ *
+ * A callback rather than a direct call because the player store imports this
+ * one, and importing it back would make a cycle. The player registers itself
+ * when it loads, which the root layout guarantees happens at startup.
+ */
+let audioRemovedHandler: ((bookId: string) => void) | null = null;
+export function onBookAudioRemoved(handler: (bookId: string) => void) {
+  audioRemovedHandler = handler;
+}
 /** Books with a copy running right now, so a second one cannot start. */
 const copiesInFlight = new Set<string>();
 let slipTimer: ReturnType<typeof setTimeout> | undefined;
@@ -268,6 +281,12 @@ export const useLibrary = create<LibraryState>((set, get) => {
     // several places at once, so without this two calls can both start a copy
     // and fight over the same staging folder.
     if (copiesInFlight.has(book.id)) return;
+    // Cancelled while it was still waiting its turn. `runCopy` clears the flag
+    // on entry, so without this the queue would copy it anyway.
+    if (cancelledCopies.has(book.id)) {
+      cancelledCopies.delete(book.id);
+      return;
+    }
     copiesInFlight.add(book.id);
     try {
       await runCopy(book, onCheckedOut);
@@ -356,11 +375,14 @@ export const useLibrary = create<LibraryState>((set, get) => {
       // foreground.
       if (outcome.reason === 'failed') await proveDriveReachable();
 
-      flashSlip({
-        kind: outcome.reason === 'no-space' ? 'wont-fit' : 'note',
-        stamp: outcome.reason === 'cancelled' ? 'STOPPED' : undefined,
-        text: outcome.message,
-      });
+      // `cancelCopy` has already said so, at the moment the button was
+      // pressed. Saying it again here would be a second slip for one action.
+      if (outcome.reason !== 'cancelled') {
+        flashSlip({
+          kind: outcome.reason === 'no-space' ? 'wont-fit' : 'note',
+          text: outcome.message,
+        });
+      }
       return;
     }
 
@@ -459,9 +481,43 @@ export const useLibrary = create<LibraryState>((set, get) => {
     if (!reachable) set({ driveConnected: false });
     return reachable;
   };
-  /** Stops an in-flight copy; the staged files are discarded. */
+  /**
+   * Stops a copy; the staged files are discarded.
+   *
+   * The book goes back on the shelf here rather than when the copy notices,
+   * because the copy can only notice between parts: one part is a single
+   * native `copy()` call that cannot be interrupted, so cancelling a one-file
+   * book means waiting for the whole file. The bytes are thrown away either
+   * way, and the drive keeps reading until that part finishes — but the
+   * button answers now, which is what it promises.
+   */
   const cancelCopy = (id: string) => {
+    if (cancelledCopies.has(id)) return;
     cancelledCopies.add(id);
+    const book = get().books.find((b) => b.id === id);
+    patch(id, (b) =>
+      b.local.status === 'copying' ? { ...b, local: { status: 'on-shelf' } } : b,
+    );
+    flashSlip({
+      kind: 'note',
+      stamp: 'STOPPED',
+      text: `${book?.title ?? 'That book'} wasn't checked out. Nothing was saved.`,
+    });
+  };
+
+  /**
+   * Every copy, from every route, in turn.
+   *
+   * The drive is the bottleneck: three copies off one stick are slower than
+   * three in a row, not faster, and running them together left books stuck at
+   * 100% and then gone — several copies reach the end at once and write their
+   * parts and their checked-out state to SQLite in the same moment. Holds were
+   * always queued; the check-out buttons were not.
+   */
+  let copyQueue: Promise<unknown> = Promise.resolve();
+  const queueCopy = (book: Book, onCheckedOut?: (id: string) => void) => {
+    copyQueue = copyQueue.then(() => startCopy(book, onCheckedOut)).catch(() => {});
+    return copyQueue;
   };
 
   /**
@@ -493,7 +549,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
       await waitForScanToFinish();
       for (const book of queued) {
         if (get().books.find((b) => b.id === book.id)?.local.status !== 'on-hold') continue;
-        await startCopy(book);
+        await queueCopy(book);
       }
     })();
 
@@ -694,7 +750,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
           placeOnHold();
           return;
         }
-        void startCopy(book);
+        void queueCopy(book);
       })();
     },
 
@@ -726,6 +782,9 @@ export const useLibrary = create<LibraryState>((set, get) => {
         }
         return { ...b, local: { status: 'on-shelf' }, checkouts };
       });
+      // Playback stops before the audio under it does. Returning a book that
+      // is playing used to leave it playing from files that no longer existed.
+      audioRemovedHandler?.(id);
       // The local files go; progress and history stay in the database.
       deleteLocalCopy(id);
       set({ confirm: null });
@@ -801,7 +860,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
           flashSlip(driveNotConnected);
           return;
         }
-        void startCopy(book, onReady);
+        void queueCopy(book, onReady);
       })();
     },
 

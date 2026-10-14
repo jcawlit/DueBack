@@ -14,7 +14,7 @@ import { SPEEDS, type AudioEngine, type EngineTrack } from '@/lib/audio/engine';
 import { loadParts } from '@/db/books';
 import { SETTING_KEYS, getSetting, setSetting } from '@/db/schema';
 import { localUriFor } from '@/lib/files/copy';
-import { useLibrary } from './library';
+import { onBookAudioRemoved, useLibrary } from './library';
 
 export { SPEEDS };
 
@@ -211,20 +211,6 @@ export const usePlayer = create<PlayerState>((set, get) => {
     sleepRemainingSec: null,
 
     open: async (bookId) => {
-      /*
-       * Re-opening the book already playing is a no-op, so that leaving the
-       * Player and coming back does not reload it — but the engine has to
-       * genuinely hold it for that shortcut to be honest, or a failed load
-       * leaves the play button spinning for ever. `npm run kb load`.
-       */
-      if (get().bookId === bookId && loadedFor === bookId && !get().error) return;
-
-      const token = ++openToken;
-      const current = () => token === openToken;
-
-      await get().close();
-      if (!current()) return;
-
       const b = useLibrary.getState().books.find((x) => x.id === bookId);
       if (!b) return;
 
@@ -234,7 +220,29 @@ export const usePlayer = create<PlayerState>((set, get) => {
        * end and sit there. The library card keeps the date it was finished.
        */
       const atEnd = b.durationSec > 0 && b.progressSec >= b.durationSec - 1;
-      const startAt = b.finishedAt && atEnd ? 0 : b.progressSec;
+      const rewind = !!b.finishedAt && atEnd;
+      const startAt = rewind ? 0 : b.progressSec;
+
+      /*
+       * Re-opening the book already playing is a no-op, so that leaving the
+       * Player and coming back does not reload it — but the engine has to
+       * genuinely hold it for that shortcut to be honest, or a failed load
+       * leaves the play button spinning for ever. `npm run kb load`.
+       *
+       * The book that has just finished is the book still loaded, sitting on
+       * its last second, so "Listen again" lands on exactly this shortcut and
+       * has to rewind rather than hand back the end.
+       */
+      if (get().bookId === bookId && loadedFor === bookId && !get().error) {
+        if (rewind && get().positionSec > 0) get().seekTo(0);
+        return;
+      }
+
+      const token = ++openToken;
+      const current = () => token === openToken;
+
+      await get().close();
+      if (!current()) return;
 
       set({ bookId, positionSec: startAt, playing: false, buffering: true, error: null });
 
@@ -478,6 +486,18 @@ export const usePlayer = create<PlayerState>((set, get) => {
     },
 
   };
+});
+
+/*
+ * Let go of a book whose audio is being deleted — a return, or a copy thrown
+ * away. Silence first and tidy up after: the files are going now, and the
+ * engine must not be left playing from them.
+ */
+onBookAudioRemoved((bookId) => {
+  const player = usePlayer.getState();
+  if (player.bookId !== bookId) return;
+  if (player.playing) player.togglePlay();
+  void player.close();
 });
 
 /** Real seconds needed to finish the book at the current speed. */

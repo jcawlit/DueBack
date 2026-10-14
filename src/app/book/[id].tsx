@@ -15,7 +15,6 @@ import { bytes, hoursMinutes, hoursLeft, stampDate } from '@/lib/format';
 import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
 import { BookCover } from '@/components/BookCover';
 import { LibraryCard } from '@/components/LibraryCard';
-import { Slip } from '@/components/Slip';
 import { StatusTag } from '@/components/CoverBadges';
 import { NoteCard, NoteText } from '@/components/NoteCard';
 import { ChevronLeft } from '@/components/icons';
@@ -40,8 +39,6 @@ export default function BookScreen() {
   const returnBook = useLibrary((s) => s.returnBook);
   const cancelHold = useLibrary((s) => s.cancelHold);
   const checkOutAndPlay = useLibrary((s) => s.checkOutAndPlay);
-  const slip = useLibrary((s) => s.slip);
-  const dismissSlip = useLibrary((s) => s.dismissSlip);
 
   // Before the early return below, because hooks cannot run conditionally.
   const twins = useMemo(() => (book ? duplicatesOf(books, book) : []), [books, book]);
@@ -418,7 +415,6 @@ export default function BookScreen() {
         </Text>
       </View>
 
-      {slip ? <Slip slip={slip} onDismiss={dismissSlip} bottom={180} /> : null}
 
     </View>
   );
