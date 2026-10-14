@@ -140,7 +140,11 @@ export default function BookScreen() {
             }
           : onHold
             ? {
-                label: 'Waiting for the drive',
+                // On hold means two different things depending on what is
+                // missing: the drive, or a turn in the queue behind another
+                // copy. Saying "waiting for the drive" with the drive plugged
+                // in reads as a bug.
+                label: driveConnected ? 'In the queue' : 'Waiting for the drive',
                 onPress: undefined,
                 tone: 'muted' as const,
               }
@@ -161,7 +165,10 @@ export default function BookScreen() {
         onPress: () => returnBook(book.id),
       }
     : onHold
-      ? { label: 'Cancel the hold', onPress: () => cancelHold(book.id) }
+      ? {
+          label: driveConnected ? 'Leave the queue' : 'Cancel the hold',
+          onPress: () => cancelHold(book.id),
+        }
       : null;
 
   const tag = out

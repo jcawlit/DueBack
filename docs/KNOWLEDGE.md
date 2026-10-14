@@ -438,13 +438,30 @@ A copy cancelled while still queued is dropped in `startCopy`, because
 
 *`src/store/library.ts`, `src/lib/files/copy.ts`*
 
-### Every copy runs in turn, whichever route asked
+### One queue, and no button ever starts a copy
 
-Three copies off one USB stick are slower than three in a row, and running
-them together left books stuck at 100% and then gone: several finish at once
-and write their parts and their checked-out state to SQLite in the same
-moment. `flushHolds` always queued; the check-out buttons called `startCopy`
-directly. Everything now goes through `queueCopy`.
+Every route to a copy goes through `drainQueue`: the check-out buttons as much
+as the holds flushed when a drive is plugged in. Two separate reasons.
+
+**Copies must not overlap.** Three off one USB stick are slower than three in
+a row, and running them together lost books — several finish at once and write
+their parts and their checked-out state to SQLite in the same moment.
+
+**A tap must not touch the drive.** `proveDriveReachable` is a synchronous SAF
+`list()` of the library root, and while a copy has the drive busy it answers
+slowly — so a tap that started a copy froze the whole app until it returned.
+Five taps froze it five times. The drive is proved once per copy, inside the
+drain, where nothing is waiting on the answer. For the same reason `pollDrive`
+does nothing while a copy is in flight: a copy in progress is better proof
+than the poll could offer, and it reports a drive that goes away.
+
+The book is put on hold *before* the drain is kicked, so a queued book appears
+in the tray the instant it is asked for, whether the drive is there or not.
+`nextQueued` re-reads the store rather than capturing a list, so a book added
+while another copies is picked up without anything having to remember it.
+
+A book cancelled while queued must be taken off hold as it is skipped, or
+`nextQueued` hands it straight back and the drain spins.
 
 *`src/store/library.ts`*
 

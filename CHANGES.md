@@ -1152,3 +1152,57 @@ own would read better and is not in this change.
 
 Pushing an import to the drive, tested across repeated force-quits: the
 part-written folder is skipped every time and the book is offered again.
+
+---
+
+# Queue pass — check-out stops blocking the app
+
+Serialising copies stopped books being lost, and made the cost obvious: with
+the drive connected, checking out one book and then asking for another left
+the app unresponsive, taps landing minutes later when the first copy finished.
+With the drive unplugged the same five books queue instantly and read well in
+the tray. The two paths should not have felt different.
+
+## A tap no longer touches the drive
+
+`checkOut` proved the drive reachable before starting a copy —
+`proveDriveReachable`, which is a synchronous SAF `list()` of the library
+root. Every file call blocks the JS thread, and a root being read by a copy in
+flight answers slowly. So each tap froze the app until the drive got round to
+answering, which is the lag: five taps, five freezes, and every other action
+queued behind them.
+
+The drive is now proved once per copy, inside the queue, where nothing is
+waiting on the answer. The button writes state and returns.
+
+`pollDrive` is paused for the same reason while a copy runs. It called
+`isPresent` — another synchronous provider query — every four seconds, against
+a drive already saturated. A copy in flight is better proof than the poll can
+give, and the copy reports a drive that goes away.
+
+## Check-out with the drive connected is a queue, like a hold
+
+Both check-out buttons put the book on hold and kick `drainQueue`, rather than
+starting a copy themselves. A queued book is in the tray from the moment it is
+asked for, faded, exactly as it is when the drive is unplugged — which is the
+behaviour that already read well.
+
+`drainQueue` re-reads the store each time round rather than working from a
+list captured at the start, so a book added while another is copying is picked
+up with nothing having to remember it. The promise chain added in the last
+pass is gone; it serialised correctly but was invisible.
+
+"On hold" means two things now, so the Book screen says which: **In the
+queue** with the drive connected, **Waiting for the drive** without it, and
+the cancel beneath it reads **Leave the queue** or **Cancel the hold** to
+match.
+
+A "check out and play" asked for while something else copies parks its
+callback until its turn comes, and says it is behind something rather than
+appearing to do nothing.
+
+A book taken out of the queue is skipped by the drain and put back on the
+shelf as it is skipped — leaving it on hold would have `nextQueued` hand it
+straight back, and the drain would spin on it.
+
+*`src/store/library.ts`, `src/app/book/[id].tsx`*

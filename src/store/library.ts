@@ -281,10 +281,16 @@ export const useLibrary = create<LibraryState>((set, get) => {
     // several places at once, so without this two calls can both start a copy
     // and fight over the same staging folder.
     if (copiesInFlight.has(book.id)) return;
-    // Cancelled while it was still waiting its turn. `runCopy` clears the flag
-    // on entry, so without this the queue would copy it anyway.
+    /*
+     * Cancelled while it was still waiting its turn. `runCopy` clears the flag
+     * on entry, so without this the queue would copy it anyway — and the book
+     * has to leave the queue here too, or `nextQueued` hands it straight back
+     * and the drain spins on it.
+     */
     if (cancelledCopies.has(book.id)) {
       cancelledCopies.delete(book.id);
+      patch(book.id, (b) => ({ ...b, local: { status: 'on-shelf' } }));
+      void setLocalState(book.id, { status: 'on-shelf' }).catch(() => {});
       return;
     }
     copiesInFlight.add(book.id);
@@ -306,6 +312,14 @@ export const useLibrary = create<LibraryState>((set, get) => {
     } finally {
       copiesInFlight.delete(book.id);
     }
+  };
+
+  /** Queues a book and says so, without touching the drive. */
+  const enqueue = (id: string, slip: Slip | null) => {
+    const since = new Date().toISOString();
+    patch(id, (b) => ({ ...b, local: { status: 'on-hold', since } }));
+    void setLocalState(id, { status: 'on-hold', since });
+    if (slip) flashSlip(slip);
   };
 
   const runCopy = async (book: Book, onCheckedOut?: (id: string) => void) => {
@@ -506,24 +520,84 @@ export const useLibrary = create<LibraryState>((set, get) => {
   };
 
   /**
-   * Every copy, from every route, in turn.
-   *
-   * The drive is the bottleneck: three copies off one stick are slower than
-   * three in a row, not faster, and running them together left books stuck at
-   * 100% and then gone — several copies reach the end at once and write their
-   * parts and their checked-out state to SQLite in the same moment. Holds were
-   * always queued; the check-out buttons were not.
+   * Books to start playing the moment their copy lands. Held here rather than
+   * passed along, because a book asked for with "check out and play" may wait
+   * its turn behind others before anything starts.
    */
-  let copyQueue: Promise<unknown> = Promise.resolve();
-  const queueCopy = (book: Book, onCheckedOut?: (id: string) => void) => {
-    copyQueue = copyQueue.then(() => startCopy(book, onCheckedOut)).catch(() => {});
-    return copyQueue;
+  const playWhenCopied = new Map<string, (id: string) => void>();
+
+  /**
+   * The copy that should run next: the book that has waited longest and still
+   * fits in the budget.
+   *
+   * Re-read from the store each time rather than captured in a list, so a book
+   * added while the one before it is copying is picked up without anything
+   * having to remember it.
+   */
+  const nextQueued = (): Book | null => {
+    const books = get().books;
+    const since = (b: Book) => (b.local.status === 'on-hold' ? b.local.since : '');
+    const held = books
+      .filter((b) => b.local.status === 'on-hold')
+      .sort((a, b) => since(a).localeCompare(since(b)));
+    for (const book of held) {
+      const others = books.filter((b) => b.id !== book.id);
+      const free = get().budgetBytes - committedBytes(others);
+      if (book.sizeBytes <= free) return book;
+    }
+    return null;
+  };
+
+  /** True while a copy is running, so nothing starts a second one. */
+  let draining = false;
+
+  /**
+   * Runs the queue down, one copy at a time.
+   *
+   * Every route to a copy goes through here — the check-out buttons as much as
+   * the holds flushed when a drive is plugged in. Two reasons, both learned
+   * the hard way:
+   *
+   * - Copies must not overlap. Several finishing together write their parts
+   *   and their checked-out state to SQLite in the same moment, and books were
+   *   lost: stuck at 100%, then gone.
+   * - A button must not start one. Starting a copy from the tap meant proving
+   *   the drive reachable on the JS thread — a SAF `list()` of a root the copy
+   *   in flight has busy — so every tap froze the app until it answered. The
+   *   drive is proved once per copy, in here, where nothing is waiting on it.
+   *
+   * The book is already on hold by the time this runs, so the queue is visible
+   * in the tray from the moment it is asked for, exactly as it is when the
+   * drive is unplugged.
+   */
+  const drainQueue = () => {
+    if (draining) return;
+    draining = true;
+    void (async () => {
+      try {
+        // The drive reappearing starts a re-sync scan and flushes the holds
+        // from the same event, so without this a scan writing hundreds of rows
+        // and a copy recording where it put its files reached SQLite together,
+        // and one of them lost. Let the scan finish; the books are not going
+        // anywhere.
+        await waitForScanToFinish();
+        while (get().driveConnected) {
+          const book = nextQueued();
+          if (!book) break;
+          if (!(await proveDriveReachable())) break;
+          const onCheckedOut = playWhenCopied.get(book.id);
+          playWhenCopied.delete(book.id);
+          await startCopy(book, onCheckedOut);
+        }
+      } finally {
+        draining = false;
+      }
+    })();
   };
 
   /**
-   * Starts copies for anything on hold that now fits — strictly one at a time.
-   * The drive is the bottleneck, so a queue is faster than parallel reads off
-   * one stick, as well as calmer.
+   * Counts what a newly connected drive is about to do, and says so.
+   * The copying itself is the queue's business.
    */
   const flushHolds = () => {
     const held = get().books.filter((b) => b.local.status === 'on-hold');
@@ -541,17 +615,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     });
 
     const copied = queued.length;
-    void (async () => {
-      // The drive reappearing starts a re-sync scan and flushes the holds from
-      // the same event, so without this a scan writing hundreds of rows and a
-      // copy recording where it put its files reached SQLite together, and one
-      // of them lost. Let the scan finish; the books are not going anywhere.
-      await waitForScanToFinish();
-      for (const book of queued) {
-        if (get().books.find((b) => b.id === book.id)?.local.status !== 'on-hold') continue;
-        await queueCopy(book);
-      }
-    })();
+    drainQueue();
 
     if (copied > 0) {
       flashSlip({
@@ -688,6 +752,13 @@ export const useLibrary = create<LibraryState>((set, get) => {
       const { libraryRoot: root, libraryOnDevice } = get();
       // A library on the phone has nothing to plug in, and nothing to watch.
       if (!root || libraryOnDevice) return;
+      /*
+       * A copy in flight is better proof the drive is there than this poll
+       * could offer — and `isPresent` is a synchronous call into the document
+       * provider, which answers slowly while the drive is busy and blocks the
+       * JS thread until it does. The copy says so if the drive goes away.
+       */
+      if (copiesInFlight.size > 0) return;
 
       const present = isPresent(root.uri);
       if (present === lastPresence) return;
@@ -728,30 +799,34 @@ export const useLibrary = create<LibraryState>((set, get) => {
         return;
       }
 
-      const placeOnHold = () => {
+      if (!driveConnected) {
         // The file lives on the drive, so queue it rather than dead-ending.
-        const since = new Date().toISOString();
-        patch(id, (b) => ({ ...b, local: { status: 'on-hold', since } }));
-        void setLocalState(id, { status: 'on-hold', since });
-        flashSlip({
+        enqueue(id, {
           kind: 'note',
           stamp: 'ON HOLD',
           text: `${book.title} is on hold. It'll check out when the drive is connected.`,
         });
-      };
-
-      if (!driveConnected) {
-        placeOnHold();
         return;
       }
 
-      void (async () => {
-        if (!(await proveDriveReachable())) {
-          placeOnHold();
-          return;
-        }
-        void queueCopy(book);
-      })();
+      /*
+       * The drive is here, so this will copy — but it joins the queue like
+       * everything else rather than starting from the button. The tap does
+       * nothing but write state, which is what makes five of them in a row
+       * feel the same as five holds do with the drive unplugged.
+       */
+      const waiting = draining || get().books.some((b) => b.local.status === 'copying');
+      enqueue(
+        id,
+        waiting
+          ? {
+              kind: 'note',
+              stamp: 'IN THE QUEUE',
+              text: `${book.title} will check out when the book before it is done.`,
+            }
+          : null,
+      );
+      drainQueue();
     },
 
     returnBook: (id, opts) => {
@@ -853,15 +928,24 @@ export const useLibrary = create<LibraryState>((set, get) => {
         return;
       }
 
-      void (async () => {
-        // Unlike `checkOut`, there is no hold to fall back on here: the user
-        // asked to listen now, so a vanished drive has to be said out loud.
-        if (!(await proveDriveReachable())) {
-          flashSlip(driveNotConnected);
-          return;
-        }
-        void queueCopy(book, onReady);
-      })();
+      /*
+       * Through the queue as well, with the "play it when it lands" callback
+       * parked until the copy actually runs. Unlike `checkOut` the user asked
+       * to listen now, so being behind something else is worth saying.
+       */
+      playWhenCopied.set(id, onReady);
+      const waiting = draining || get().books.some((b) => b.local.status === 'copying');
+      enqueue(
+        id,
+        waiting
+          ? {
+              kind: 'note',
+              stamp: 'IN THE QUEUE',
+              text: `${book.title} will start playing once the book before it is done.`,
+            }
+          : null,
+      );
+      drainQueue();
     },
 
     importBook: async (kind) => {
@@ -1009,9 +1093,18 @@ export const useLibrary = create<LibraryState>((set, get) => {
     cancelHold: (id) => {
       const book = get().books.find((b) => b.id === id);
       if (!book || book.local.status !== 'on-hold') return;
+      // Or it would start playing on its own if the book were checked out
+      // again later in the session.
+      playWhenCopied.delete(id);
       patch(id, (b) => ({ ...b, local: { status: 'on-shelf' } }));
       void setLocalState(id, { status: 'on-shelf' });
-      flashSlip({ kind: 'note', stamp: 'CANCELLED', text: `${book.title} taken off hold.` });
+      flashSlip({
+        kind: 'note',
+        stamp: 'CANCELLED',
+        text: get().driveConnected
+          ? `${book.title} taken out of the queue.`
+          : `${book.title} taken off hold.`,
+      });
     },
 
     showSlip: flashSlip,
