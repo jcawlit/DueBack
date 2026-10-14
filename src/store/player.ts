@@ -46,6 +46,14 @@ type PlayerState = {
 
   open: (bookId: string) => Promise<void>;
   /**
+   * Opens a book and lands on a given second — what a note's time chip does.
+   *
+   * Separate from `open` because seeking has to wait for the engine to hold
+   * the book: calling `seekTo` straight after `open` from a screen would race
+   * the load it has just started.
+   */
+  openAt: (bookId: string, positionSec: number) => Promise<void>;
+  /**
    * Throws away whatever the engine is holding and opens the current book
    * again, optionally starting playback. The way out of a load that failed.
    */
@@ -344,6 +352,13 @@ export const usePlayer = create<PlayerState>((set, get) => {
           error: (err as Error)?.message ?? 'That book would not open.',
         });
       }
+    },
+
+    openAt: async (bookId, positionSec) => {
+      await get().open(bookId);
+      // Another book may have been opened while this one loaded.
+      if (get().bookId !== bookId) return;
+      get().seekTo(positionSec);
     },
 
     reload: async (andPlay = false) => {

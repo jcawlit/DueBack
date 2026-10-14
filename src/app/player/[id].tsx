@@ -9,16 +9,20 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { chapterAt, fractionAt } from '@/data/types';
 import { selectBook, useLibrary } from '@/store/library';
+import { useNotes } from '@/store/notes';
+import { isPro } from '@/lib/pro';
 import { SLEEP_OPTIONS, SPEEDS, realSecondsLeft, usePlayer } from '@/store/player';
 import { clock, finishTime, hoursLeft } from '@/lib/format';
 import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
 import { BookCover } from '@/components/BookCover';
 import { ChapterScrubber } from '@/components/ChapterScrubber';
 import { ContentsSheet } from '@/components/ContentsSheet';
+import { NoteSheet } from '@/components/NoteSheet';
 import { LampGlow } from '@/components/LampGlow';
 import {
   ChevronDown,
   ContentsIcon,
+  PencilIcon,
   Forward30,
   LampIcon,
   PauseIcon,
@@ -33,6 +37,8 @@ export default function PlayerScreen() {
   const { height: windowHeight } = useWindowDimensions();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [contentsOpen, setContentsOpen] = useState(false);
+  /** The note the sheet is editing, and whether the pencil has just made it. */
+  const [editing, setEditing] = useState<{ noteId: string; justSaved: boolean } | null>(null);
 
   // Everything but the cover — header, chapter, scrubber, transport, book line
   // and the control row — needs about this much height. The cover takes the
@@ -63,9 +69,23 @@ export default function PlayerScreen() {
   const skipChapter = usePlayer((s) => s.skipChapter);
   const reload = usePlayer((s) => s.reload);
 
+  const notes = useNotes((s) => s.notes);
+  const notesBookId = useNotes((s) => s.bookId);
+  const characters = useNotes((s) => s.characters);
+  const loadNotes = useNotes((s) => s.load);
+  const addBookmark = useNotes((s) => s.addBookmark);
+  const setNoteText = useNotes((s) => s.setNoteText);
+  const flushNotes = useNotes((s) => s.flush);
+  const deleteNote = useNotes((s) => s.deleteNote);
+  const addCharacter = useNotes((s) => s.addCharacter);
+
   useEffect(() => {
     if (id) void open(id);
   }, [id, open]);
+
+  useEffect(() => {
+    if (id) void loadNotes(id);
+  }, [id, loadNotes]);
 
   // Deliberately no teardown here. Playback belongs to the app, not to this
   // screen: leaving it should not stop the audio, and coming back should not
@@ -99,6 +119,35 @@ export default function PlayerScreen() {
   const position = activeBookId === book.id ? positionSec : book.progressSec;
   const { chapter, index, lengthSec } = chapterAt(book, position);
   const inChapter = Math.max(0, position - chapter.startSec);
+
+  /*
+   * The notes in this chapter, as seconds from its start — the scrubber knows
+   * nothing about the book, only the chapter it is showing.
+   */
+  const mine = notesBookId === book.id ? notes : [];
+  const chapterEnd = chapter.startSec + lengthSec;
+  const marks = mine
+    .filter((n) => n.positionSec >= chapter.startSec && n.positionSec < chapterEnd)
+    .map((n) => n.positionSec - chapter.startSec);
+
+  const editingNote = editing ? (mine.find((n) => n.id === editing.noteId) ?? null) : null;
+
+  /*
+   * The pencil saves first and asks later. The bookmark exists before the
+   * sheet opens, so a tap while walking has already done its job whatever
+   * happens next — including the sheet being swiped away unread.
+   */
+  const writeNote = async () => {
+    const made = await addBookmark(book.id, position, book.chapters);
+    if (made) setEditing({ noteId: made.id, justSaved: true });
+  };
+
+  const closeSheet = () => {
+    setEditing(null);
+    // Everything half-typed goes to the database now, not after a pause: this
+    // is one of the two moments the autosave exists to survive.
+    void flushNotes();
+  };
 
   const speed = SPEEDS[speedIndex];
   const sleep = SLEEP_OPTIONS[sleepIndex];
@@ -202,6 +251,7 @@ export default function PlayerScreen() {
         <ChapterScrubber
           positionSec={inChapter}
           lengthSec={lengthSec}
+          marks={marks}
           onSeek={(value) => seekTo(chapter.startSec + value)}
         />
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -425,6 +475,12 @@ export default function PlayerScreen() {
         }}
       >
         <TrayButton
+          label="note"
+          onPress={() => void writeNote()}
+          accessibilityLabel="Save a bookmark here and write a note"
+          icon={<PencilIcon />}
+        />
+        <TrayButton
           label="contents"
           onPress={() => setContentsOpen(true)}
           accessibilityLabel={`Contents, chapter ${index + 1} of ${book.chapters.length}`}
@@ -457,6 +513,28 @@ export default function PlayerScreen() {
         />
       </View>
 
+
+      <NoteSheet
+        /*
+         * Keyed on the note so each one opens fresh — no confirmation line or
+         * half-finished character form carried over from the last.
+         */
+        key={editing?.noteId ?? 'none'}
+        visible={editingNote !== null}
+        note={editingNote}
+        characters={characters}
+        canTag={isPro()}
+        justSaved={editing?.justSaved ?? false}
+        onChangeText={(text) => {
+          if (editingNote) setNoteText(editingNote.id, text);
+        }}
+        onAddCharacter={(name, bio) => addCharacter(book.id, name, bio)}
+        onUndo={() => {
+          if (editingNote) void deleteNote(editingNote.id);
+          setEditing(null);
+        }}
+        onClose={closeSheet}
+      />
 
       <ContentsSheet
         visible={contentsOpen}

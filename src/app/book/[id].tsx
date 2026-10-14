@@ -3,10 +3,10 @@
  * checkout history, and the two moves available: keep listening, or return it.
  */
 
-import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, Share, Text, View, useWindowDimensions } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { fractionAt, isCheckedOut } from '@/data/types';
 import { selectBook, useLibrary } from '@/store/library';
 import { usePlayer } from '@/store/player';
@@ -18,6 +18,18 @@ import { LibraryCard } from '@/components/LibraryCard';
 import { StatusTag } from '@/components/CoverBadges';
 import { NoteCard, NoteText } from '@/components/NoteCard';
 import { ChevronLeft } from '@/components/icons';
+import {
+  ChaptersPanel,
+  MarginsPanel,
+  TabBar,
+  type BookTab,
+} from '@/components/BookTabs';
+import { CharacterSheet, WhosWhoPanel } from '@/components/WhosWho';
+import { NoteSheet } from '@/components/NoteSheet';
+import { useNotes } from '@/store/notes';
+import { exportNotes } from '@/lib/notes/export';
+import { isPro } from '@/lib/pro';
+import type { Character, Note } from '@/data/notes';
 
 export default function BookScreen() {
   const insets = useSafeAreaInsets();
@@ -51,6 +63,38 @@ export default function BookScreen() {
    * being where the listener actually is.
    */
   const livePosition = usePlayer((s) => (book && s.bookId === book.id ? s.positionSec : null));
+
+  const [tab, setTab] = useState<BookTab>('margins');
+  const [editing, setEditing] = useState<string | null>(null);
+  const [openCharacter, setOpenCharacter] = useState<Character | null>(null);
+
+  const notes = useNotes((s) => s.notes);
+  const notesBookId = useNotes((s) => s.bookId);
+  const characters = useNotes((s) => s.characters);
+  const loadNotes = useNotes((s) => s.load);
+  const setNoteText = useNotes((s) => s.setNoteText);
+  const flushNotes = useNotes((s) => s.flush);
+  const deleteNote = useNotes((s) => s.deleteNote);
+  const undoDelete = useNotes((s) => s.undoDelete);
+  const undoable = useNotes((s) => s.undoable);
+  const addCharacter = useNotes((s) => s.addCharacter);
+  const updateCharacter = useNotes((s) => s.updateCharacter);
+  const deleteCharacter = useNotes((s) => s.deleteCharacter);
+  const addToBio = useNotes((s) => s.addToBio);
+  const showSlip = useLibrary((s) => s.showSlip);
+
+  useEffect(() => {
+    if (id) void loadNotes(id);
+  }, [id, loadNotes]);
+
+  // The offer to undo a deletion does not sit there for the rest of the
+  // session; long enough to change your mind, not long enough to be furniture.
+  const clearUndo = useNotes((s) => s.clearUndo);
+  useEffect(() => {
+    if (!undoable) return;
+    const timer = setTimeout(clearUndo, 12000);
+    return () => clearTimeout(timer);
+  }, [undoable, clearUndo]);
 
   if (!book) {
     return (
@@ -105,6 +149,50 @@ export default function BookScreen() {
    * files went bad — and both offered Play on a book with no parts at all.
    */
   const playable = book.files.length > 0 && book.durationSec > 0;
+
+  /** Only this book's margins; the store holds one book at a time. */
+  const mine = notesBookId === book.id ? notes : [];
+  const editingNote: Note | null = editing
+    ? (mine.find((n) => n.id === editing) ?? null)
+    : null;
+
+  const tabs: { key: BookTab; label: string }[] = [
+    { key: 'chapters', label: 'Chapters' },
+    { key: 'margins', label: 'Margins' },
+    ...(isPro() ? [{ key: 'whoswho' as const, label: "Who's who" }] : []),
+  ];
+
+  /** Opens the player and lands on a second — a note's time chip. */
+  const playFrom = (sec: number) => {
+    router.push(`/player/${book.id}`);
+    void usePlayer.getState().openAt(book.id, sec);
+  };
+
+  const addBlankCharacter = async () => {
+    const made = await addCharacter(book.id, 'New character');
+    if (made) setOpenCharacter(made);
+  };
+
+  /*
+   * Always free, and always the whole of it. This is the listener's own
+   * writing; an app that holds it hostage is not one worth trusting with it.
+   */
+  const shareMargins = async () => {
+    await flushNotes();
+    const page = exportNotes({
+      title: book.title,
+      author: book.author,
+      chapters: book.chapters,
+      notes: useNotes.getState().notes,
+      characters,
+      includeCharacters: isPro(),
+    });
+    try {
+      await Share.share({ message: page, title: `${book.title} — notes` });
+    } catch {
+      showSlip({ kind: 'note', text: 'The notes could not be shared.' });
+    }
+  };
 
   const primary = book.drmProtected
     ? {
@@ -330,6 +418,77 @@ export default function BookScreen() {
           </NoteCard>
         ) : null}
 
+        <View style={{ marginTop: space.xxl }}>
+          <TabBar tab={tab} onChange={setTab} tabs={tabs} />
+
+          {/*
+            Undo lives here rather than in a slip: the slip has no button, and
+            a deletion is the one thing worth offering back for longer than a
+            message stays on screen.
+          */}
+          {tab === 'margins' && undoable ? (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginHorizontal: space.xxl,
+                marginTop: space.md,
+                paddingHorizontal: space.md,
+                paddingVertical: space.sm,
+                borderWidth: 1,
+                borderColor: color.border,
+                borderRadius: radius.button,
+              }}
+            >
+              <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>
+                Note deleted
+              </Text>
+              <Pressable onPress={() => void undoDelete()} accessibilityRole="button" hitSlop={10}>
+                <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.ribbon }}>
+                  Undo
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {tab === 'chapters' ? <ChaptersPanel book={book} onPlayFrom={playFrom} /> : null}
+          {tab === 'margins' ? (
+            <MarginsPanel
+              book={book}
+              notes={mine}
+              characters={characters}
+              onPlayFrom={playFrom}
+              onEdit={(note) => setEditing(note.id)}
+              onDelete={(note) => void deleteNote(note.id)}
+            />
+          ) : null}
+          {tab === 'whoswho' ? (
+            <WhosWhoPanel
+              characters={characters}
+              notes={mine}
+              onOpen={setOpenCharacter}
+              onAdd={() => void addBlankCharacter()}
+            />
+          ) : null}
+
+          <Pressable
+            onPress={() => void shareMargins()}
+            accessibilityRole="button"
+            style={({ pressed }) => ({
+              alignSelf: 'center',
+              marginTop: space.xl,
+              minHeight: TOUCH,
+              justifyContent: 'center',
+              opacity: pressed ? 0.6 : 1,
+            })}
+          >
+            <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>
+              share these notes
+            </Text>
+          </Pressable>
+        </View>
+
         <View style={{ marginTop: space.xl, marginHorizontal: space.xxl }}>
           <LibraryCard checkouts={book.checkouts} />
         </View>
@@ -422,7 +581,44 @@ export default function BookScreen() {
         </Text>
       </View>
 
+      <NoteSheet
+        key={editing ?? 'none'}
+        visible={editingNote !== null}
+        note={editingNote}
+        characters={characters}
+        canTag={isPro()}
+        justSaved={false}
+        onChangeText={(text) => {
+          if (editingNote) setNoteText(editingNote.id, text);
+        }}
+        onAddCharacter={(name, bio) => addCharacter(book.id, name, bio)}
+        onUndo={() => setEditing(null)}
+        onClose={() => {
+          setEditing(null);
+          void flushNotes();
+        }}
+      />
 
+      <CharacterSheet
+        key={openCharacter?.id ?? 'none'}
+        character={openCharacter}
+        notes={mine}
+        onSave={(fields) => {
+          if (openCharacter) void updateCharacter(openCharacter.id, fields);
+        }}
+        onDelete={() => {
+          if (openCharacter) void deleteCharacter(openCharacter.id);
+          setOpenCharacter(null);
+        }}
+        onPlayFrom={(sec) => {
+          setOpenCharacter(null);
+          playFrom(sec);
+        }}
+        onAddToBio={(text) => {
+          if (openCharacter) void addToBio(openCharacter.id, text);
+        }}
+        onClose={() => setOpenCharacter(null)}
+      />
     </View>
   );
 }

@@ -186,3 +186,18 @@ export function HoldIcon({ size = 14, stroke = color.ground }: IconProps) {
     </Svg>
   );
 }
+
+/** A pencil, for writing in the margin. */
+export function PencilIcon({ size = 20, stroke = color.muted }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 20 20" fill="none">
+      <Path
+        d="M13.5 3.5l3 3L7 16H4v-3z"
+        stroke={stroke}
+        strokeWidth={1.5}
+        strokeLinejoin="round"
+      />
+      <Path d="M12 5l3 3" stroke={stroke} strokeWidth={1.5} strokeLinecap="round" />
+    </Svg>
+  );
+}

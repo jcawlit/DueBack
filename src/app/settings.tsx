@@ -9,12 +9,19 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLibrary } from '@/store/library';
 import { forgetMissingBooks } from '@/db/books';
+import { countMarginsFor } from '@/db/notes';
+import { useUi } from '@/store/ui';
 import { removeCover } from '@/lib/files/covers';
 import { useScan } from '@/store/scan';
 import { bytes as formatBytes, relativeTime } from '@/lib/format';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 import { ChevronLeft } from '@/components/icons';
 import { ScanProgressBar } from '@/components/FirstRun';
+
+/** "3 notes", "1 character" — the plural done once. */
+function countLabel(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
 
 function Row({
   label,
@@ -67,6 +74,8 @@ function Row({
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
+  const handwritten = useUi((s) => s.handwritten);
+  const setHandwritten = useUi((s) => s.setHandwritten);
   const libraryRoot = useLibrary((s) => s.libraryRoot);
   const driveConnected = useLibrary((s) => s.driveConnected);
   const driveLastSeenAt = useLibrary((s) => s.driveLastSeenAt);
@@ -123,28 +132,55 @@ export default function SettingsScreen() {
 
   /**
    * Dropping missing books also drops their progress and library-card history,
-   * so it always asks first.
+   * so it always asks first — and asks differently when there is writing at
+   * stake.
+   *
+   * Notes and characters are the only things in this database the listener
+   * authored. Everything else a rescan can rebuild; these it cannot. So the
+   * count is read before the question is asked, and the question names it.
    */
   const confirmForgetMissing = () => {
-    Alert.alert(
-      `Forget ${missing} missing ${missing === 1 ? 'book' : 'books'}?`,
-      'These are no longer on the drive. Their listening progress and checkout ' +
-        'history go with them. Books still on the drive are untouched.',
-      [
-        { text: 'Keep them', style: 'cancel' },
-        {
-          text: 'Forget them',
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              const ids = await forgetMissingBooks();
-              ids.forEach(removeCover);
-              await refresh();
-            })();
+    void (async () => {
+      const ids = books.filter((b) => b.missingFromDrive).map((b) => b.id);
+      let margins = { notes: 0, characters: 0 };
+      try {
+        margins = await countMarginsFor(ids);
+      } catch {
+        // Unknown is not "none": warn as though there were something.
+        margins = { notes: -1, characters: 0 };
+      }
+      /** A blank line before the part about the listener's own writing. */
+      const BREAK = '\n\n';
+      const wrote =
+        margins.notes === 0 && margins.characters === 0
+          ? ''
+          : margins.notes < 0
+            ? `${BREAK}Some of these may have notes you wrote. Those cannot be rebuilt by a rescan.`
+            : `${BREAK}This also deletes ${countLabel(margins.notes, 'note')}` +
+              `${margins.characters > 0 ? ` and ${countLabel(margins.characters, 'character')}` : ''}` +
+              ' that you wrote. A rescan cannot bring them back.';
+
+      Alert.alert(
+        `Forget ${missing} missing ${missing === 1 ? 'book' : 'books'}?`,
+        'These are no longer on the drive. Their listening progress and checkout ' +
+          'history go with them. Books still on the drive are untouched.' +
+          wrote,
+        [
+          { text: 'Keep them', style: 'cancel' },
+          {
+            text: wrote ? 'Delete my notes too' : 'Forget them',
+            style: 'destructive',
+            onPress: () => {
+              void (async () => {
+                const forgotten = await forgetMissingBooks();
+                forgotten.forEach(removeCover);
+                await refresh();
+              })();
+            },
           },
-        },
-      ],
-    );
+        ],
+      );
+    })();
   };
 
   return (
@@ -328,6 +364,21 @@ export default function SettingsScreen() {
             ) : null}
           </View>
         ) : null}
+
+        <View style={{ gap: space.sm }}>
+          <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}>
+            MARGINS
+          </Text>
+          <Row
+            label="Handwritten notes"
+            detail={
+              handwritten
+                ? 'On — your notes are shown in a handwriting face'
+                : 'Off — your notes are shown in the reading face'
+            }
+            onPress={() => setHandwritten(!handwritten)}
+          />
+        </View>
 
         <View style={{ gap: space.sm }}>
           <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}>

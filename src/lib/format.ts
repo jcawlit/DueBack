@@ -33,6 +33,21 @@ export function clock(seconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/**
+ * "1:42:07", or "7:12" under an hour — a position in the whole book.
+ *
+ * `clock` counts minutes without limit, which is right inside a chapter and
+ * absurd for a note taken thirty hours into a book.
+ */
+export function timestamp(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const rest = String(s % 60).padStart(2, '0');
+  if (h === 0) return `${m}:${rest}`;
+  return `${h}:${String(m).padStart(2, '0')}:${rest}`;
+}
+
 /** "3h 04m" — whole-book remaining time. */
 export function hoursLeft(seconds: number): string {
   const s = Math.max(0, seconds);

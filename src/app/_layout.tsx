@@ -17,6 +17,7 @@ import { YoungSerif_400Regular } from '@expo-google-fonts/young-serif/400Regular
 import { IBMPlexMono_400Regular } from '@expo-google-fonts/ibm-plex-mono/400Regular';
 import { IBMPlexMono_500Medium } from '@expo-google-fonts/ibm-plex-mono/500Medium';
 import { InstrumentSans_400Regular } from '@expo-google-fonts/instrument-sans/400Regular';
+import { Caveat_400Regular } from '@expo-google-fonts/caveat/400Regular';
 import { color } from '@/theme/tokens';
 import { GlobalConfirm } from '@/components/GlobalConfirm';
 import { GlobalSlip } from '@/components/GlobalSlip';
@@ -24,6 +25,8 @@ import { MiniPlayer } from '@/components/MiniPlayer';
 import { usePlayer } from '@/store/player';
 import { useLibrary } from '@/store/library';
 import { useScan } from '@/store/scan';
+import { useNotes } from '@/store/notes';
+import { useUi } from '@/store/ui';
 
 /**
  * How often the drive is looked for while the app is in the foreground.
@@ -57,6 +60,7 @@ function LibraryBootstrap() {
 
   useEffect(() => {
     void hydrate();
+    void useUi.getState().loadPreferences();
   }, [hydrate]);
 
   useEffect(() => {
@@ -71,9 +75,13 @@ function LibraryBootstrap() {
         void checkDrive();
         return;
       }
-      // Going to the background is the last reliable moment before the system
-      // may kill the process, so flush the playback position now.
+      /*
+       * Going to the background is the last reliable moment before the system
+       * may kill the process, so everything half-held goes to the database
+       * now: the playback position, and any note still being typed.
+       */
       usePlayer.getState().savePosition();
+      void useNotes.getState().flush();
     });
     return () => sub.remove();
   }, [checkDrive]);
@@ -150,6 +158,7 @@ export default function RootLayout() {
     IBMPlexMono_400Regular,
     IBMPlexMono_500Medium,
     InstrumentSans_400Regular,
+    Caveat_400Regular,
   });
 
   /**

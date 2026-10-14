@@ -8,7 +8,7 @@
  */
 
 import { useState } from 'react';
-import { PanResponder, View } from 'react-native';
+import { PanResponder, Pressable, View } from 'react-native';
 import { color, shadow } from '@/theme/tokens';
 import { clock } from '@/lib/format';
 import { Ribbon } from './Ribbon';
@@ -18,6 +18,9 @@ const ROW_HEIGHT = 22;
 const RIBBON_WIDTH = 10;
 /** Vertical slop, so the thin track is comfortably grabbable. */
 const HIT_SLOP = { top: 12, bottom: 12, left: 0, right: 0 };
+const MARK_WIDTH = 3;
+/** Generous, because a 3px mark is not a target anyone can hit on a walk. */
+const MARK_HIT_SLOP = { top: 10, bottom: 10, left: 8, right: 8 };
 
 type Props = {
   /** Seconds into the current chapter. */
@@ -25,9 +28,11 @@ type Props = {
   /** Length of the current chapter, in seconds. */
   lengthSec: number;
   onSeek: (positionSec: number) => void;
+  /** Notes in this chapter, as seconds from its start. Tappable. */
+  marks?: number[];
 };
 
-export function ChapterScrubber({ positionSec, lengthSec, onSeek }: Props) {
+export function ChapterScrubber({ positionSec, lengthSec, onSeek, marks = [] }: Props) {
   const [width, setWidth] = useState(0);
   /** Non-null while a drag is in flight; it overrides the playing position. */
   const [dragSec, setDragSec] = useState<number | null>(null);
@@ -128,6 +133,35 @@ export function ChapterScrubber({ positionSec, lengthSec, onSeek }: Props) {
           ))}
         </View>
       </View>
+
+      {/*
+        Where notes were taken. Deliberately above the trough and *not*
+        `pointerEvents: none`, so a tap lands on the mark rather than seeking:
+        the pan responder above claims a touch only if no child wants it.
+      */}
+      {width > 0 && lengthSec > 0
+        ? marks.map((at, i) => {
+            const x = (Math.min(lengthSec, Math.max(0, at)) / lengthSec) * width;
+            return (
+              <Pressable
+                key={`${at}-${i}`}
+                onPress={() => onSeek(at)}
+                accessibilityRole="button"
+                accessibilityLabel={`Note at ${clock(at)}`}
+                hitSlop={MARK_HIT_SLOP}
+                style={{
+                  position: 'absolute',
+                  left: x - MARK_WIDTH / 2,
+                  top: 2,
+                  width: MARK_WIDTH,
+                  height: 6,
+                  borderRadius: 1,
+                  backgroundColor: color.ribbon,
+                }}
+              />
+            );
+          })
+        : null}
 
       {width > 0 ? (
         <View

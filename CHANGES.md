@@ -1333,3 +1333,151 @@ a rename SAF does not have.
 
 *`src/lib/files/copy.ts`, `src/lib/files/access.ts`, `src/lib/files/covers.ts`,
 `src/dev/harness.ts`, `src/dev/suites.ts`, `src/store/library.ts`*
+
+---
+
+# Margins pass — notes, bookmarks and a character index
+
+JS and SQLite only. No native work, and nothing here needs a rebuild beyond
+shipping the new JavaScript.
+
+## What a note is
+
+A row in `notes` with a position, a chapter, some text and a soft delete. A
+note with empty text **is** a bookmark — there is no second type and no flag,
+so a bookmark typed into becomes a note and a note emptied back out becomes a
+bookmark, with no state to migrate across the line and one set of code paths
+rather than two.
+
+`characters` and `note_characters` sit beside it, also soft-deleted. These
+three tables are the only part of the database a listener authored: every
+other table is rebuildable by rescanning the drive, and these are not. That is
+why `deleted_at` is everywhere — a later sync has to tell a row that was
+deleted from one that never existed — and why deleting a character tombstones
+its tags and never its notes.
+
+## The pencil saves before it asks
+
+The player's bottom row gains a pencil. Tapping it writes a bookmark at the
+current position **minus ten seconds**, clamped at zero, with the chapter
+derived from where it lands rather than where the tap happened. By the time
+someone reaches for the button the thing worth marking has been said; near a
+chapter boundary, deriving from the tap would file the note under the wrong
+chapter.
+
+The bookmark exists before the sheet opens. Swiping the sheet away, being
+interrupted, or the app being killed all leave the mark in place.
+
+**The keyboard does not come up with it.** Most taps are "mark this spot", not
+"write an essay", and half a screen of keyboard for a finished gesture is in
+the way. Tapping the field asks for it. Dictation is the keyboard's own, so
+speaking a note needs no microphone permission — and the app asks for none.
+
+"Bookmark saved · Undo" sits at the top of the sheet for a few seconds.
+
+## Typing is saved on a pause, and on every way out
+
+The debounce decides *when* a note is written, never *whether*. Closing the
+sheet flushes; the app going to the background flushes, beside the playback
+position that already did. A write that fails puts its text back rather than
+dropping it.
+
+The debounce is `createAutosave`, deliberately outside the store so it can be
+tested without a database — which is where five of the new tests live.
+
+## @ to tag someone
+
+The typed text is the only record of who a note is about: `note_characters` is
+rewritten from it on every save, which is what makes "delete the @mention and
+the tag goes" true with no second gesture to learn.
+
+Names contain spaces, so a mention cannot be read as "@ up to the next space".
+Matching is against the names this book already knows, longest first, so
+`@Logen Ninefingers` beats `@Logen` when both exist, and aliases count as
+names. An `@` inside a word is not a mention, so an email address in a note is
+left alone.
+
+The suggestion row offers matching characters and **+ New** with the name
+already filled in, plus an optional one-line bio.
+
+## The Book screen has tabs
+
+**Chapters · Margins · Who's who.** Who's who is behind `isPro()`, which
+returns true for everyone today and exists so there is one place to change
+when it does not.
+
+**Margins** groups notes by chapter. A note is a card: a time chip that plays
+from there, the text, character chips, edit and delete. A bookmark is a
+compact ribbon row, because it has nothing to read. Deleting offers Undo for
+twelve seconds — in its own bar rather than a slip, since the slip has no
+button and this is worth offering back for longer than a message stays up.
+
+**Who's who** is index cards ordered by first heard, with the unheard last.
+Turning one over gives the name, aliases, an editable bio, the first-heard
+chip, and every tagged note in story order with "+ add to bio".
+
+The bio is its own field and never the first note. A note is what someone
+wrote at a moment in the story; a bio is what they know now, and conflating
+them makes the first thing you ever wrote about a character their description
+for ever.
+
+## Ticks on the scrubber
+
+Notes in the current chapter show as marks on the player's scrubber, and
+tapping one seeks to it. They are the only children of that view that are not
+`pointerEvents: none` — the pan responder claims a touch only if no child
+wants it, which is what lets a tap land on the mark rather than scrubbing.
+
+## Handwriting, and only for handwriting
+
+Caveat, via `@expo-google-fonts/caveat`, in `NoteText` and the bio field and
+nowhere else. Names, times, tags and controls keep the existing faces: the
+point of the handwriting is that it marks what the app did not write, which
+stops being true the moment the app writes in it too.
+
+Settings → **Handwritten notes**, on by default. Off is a real preference, not
+a cosmetic one.
+
+## Export, always free
+
+"share these notes" on the Book screen hands the system share sheet a
+markdown page: title, author, notes by chapter with times and tags, then the
+characters with their bios and first-heard. Built with React Native's own
+`Share`, so no new dependency.
+
+This is the listener's own writing. Notes, bookmarks, export and getting the
+data back are free and stay free; only the character index sits behind the
+flag.
+
+## Forgetting a book now says what it would take
+
+"Forget missing books" counts the notes and characters on those books first
+and names them in the warning, and the destructive button reads "Delete my
+notes too". If the count cannot be read it warns anyway — unknown is not the
+same as none.
+
+## The backup rules were already right
+
+`plugins/withBackupExclusion.js` is an exclude list: `books/`, `books-tmp/`,
+`covers/`, plus `imported/` from cloud backup only. expo-sqlite puts the
+database at `filesDir/SQLite/dueback.db`, which nothing excludes, so notes and
+characters are carried by both cloud backup and device transfer already.
+**No change needed, and no native rebuild for it.**
+
+## Tests
+
+44 new unit tests in `tests/notes.test.ts`: the ten-second clamp, chapter
+derivation at a boundary, bookmark-is-empty-note, mention parsing and
+suggestion, tagging and untagging, first heard and its ordering, bio
+appending, autosave and flush including a failed write, and the exported page.
+
+Seven on-device cases in `src/dev/marginsSuite.ts` (A12) for what only a real
+database can answer: the round trip, soft deletes staying deleted, undo
+restoring a row, tags rewritten from text, a character deleted without its
+notes, and the count behind the forget warning.
+
+*`src/data/notes.ts`, `src/db/notes.ts`, `src/db/schema.ts`, `src/store/notes.ts`,
+`src/store/ui.ts`, `src/lib/notes/*`, `src/lib/pro.ts`, `src/components/NoteSheet.tsx`,
+`src/components/NoteText.tsx`, `src/components/BookTabs.tsx`, `src/components/WhosWho.tsx`,
+`src/components/ChapterScrubber.tsx`, `src/app/player/[id].tsx`, `src/app/book/[id].tsx`,
+`src/app/settings.tsx`, `src/app/_layout.tsx`, `src/dev/marginsSuite.ts`*

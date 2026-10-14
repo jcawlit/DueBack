@@ -160,6 +160,55 @@ const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
     // that the folder it has found is already a book it knows.
     await db.execAsync(`ALTER TABLE books ADD COLUMN drive_rel_path TEXT`);
   },
+  async (db) => {
+    /*
+     * The margins: what the listener writes down, and who they write about.
+     *
+     * Soft deletes throughout. These rows are the only thing in the database
+     * the user authored — everything else can be rebuilt by a rescan — so a
+     * later sync needs to know that a row was removed rather than never
+     * existing, and `deleted_at` is what tells it apart.
+     *
+     * A note with empty text is a bookmark. There is no second concept and no
+     * flag: a bookmark the listener types into becomes a note, and a note they
+     * empty becomes a bookmark again.
+     */
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS notes (
+        id            TEXT PRIMARY KEY NOT NULL,
+        book_id       TEXT NOT NULL,
+        position_sec  REAL NOT NULL,
+        chapter_index INTEGER NOT NULL DEFAULT 0,
+        text          TEXT NOT NULL DEFAULT '',
+        created_at    TEXT NOT NULL,
+        updated_at    TEXT NOT NULL,
+        deleted_at    TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_notes_book ON notes(book_id, position_sec);
+
+      CREATE TABLE IF NOT EXISTS characters (
+        id         TEXT PRIMARY KEY NOT NULL,
+        book_id    TEXT NOT NULL,
+        name       TEXT NOT NULL,
+        aliases    TEXT NOT NULL DEFAULT '',
+        bio        TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_characters_book ON characters(book_id, name);
+
+      CREATE TABLE IF NOT EXISTS note_characters (
+        note_id      TEXT NOT NULL,
+        character_id TEXT NOT NULL,
+        updated_at   TEXT NOT NULL,
+        deleted_at   TEXT,
+        PRIMARY KEY (note_id, character_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_note_characters_character
+        ON note_characters(character_id);
+    `);
+  },
 ];
 
 async function migrate(db: SQLite.SQLiteDatabase) {
@@ -199,4 +248,6 @@ export const SETTING_KEYS = {
   budgetBytes: 'bag.budgetBytes',
   /** The book to reopen on launch, so the app comes back where it was left. */
   lastBookId: 'player.lastBookId',
+  /** Whether notes and bios are shown in the handwriting face. */
+  handwrittenNotes: 'notes.handwritten',
 } as const;

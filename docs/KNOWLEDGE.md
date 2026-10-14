@@ -482,6 +482,99 @@ a slow `open` cannot overwrite a newer one.
 
 ---
 
+## The margins
+
+### A bookmark is a note with nothing in it
+
+There is no second type and no flag. A bookmark typed into becomes a note; a
+note emptied back out becomes a bookmark. Anything else means a state machine
+between the two, a migration when someone crosses the line, and two places to
+fix every bug.
+
+*`src/data/notes.ts` (`isBookmark`)*
+
+### The pencil saves before it asks
+
+Tapping it writes the bookmark, *then* opens the sheet. The gesture is already
+finished by the time anything is on screen, so swiping the sheet away, being
+interrupted, or the app being killed all leave the mark in place. The sheet is
+an offer to say more, never the thing that commits.
+
+Ten seconds are subtracted first, and the chapter is derived from where it
+lands rather than where the tap happened — by the time someone reaches for the
+button the thing worth marking has been said, and near a chapter boundary that
+difference files the note under the wrong chapter.
+
+*`src/app/player/[id].tsx`, `src/data/notes.ts`*
+
+### The keyboard does not come up with the sheet
+
+`autoFocus` is deliberately off. Most taps are "mark this spot", not "write an
+essay", and half a screen of keyboard for a gesture that is already complete
+is in the way. Tapping the field is what asks for it.
+
+Dictation is the keyboard's own, so speaking a note needs no microphone
+permission and the app asks for none.
+
+*`src/components/NoteSheet.tsx`*
+
+### The text is the only record of who a note is about
+
+`note_characters` rows are rewritten from the typed text on every save, which
+is what makes "delete the @mention and the tag goes" true without a second
+gesture to learn. Names contain spaces, so a mention cannot be read as "@ up
+to the next space": matching is against the names this book already knows,
+longest first, so `@Logen Ninefingers` beats `@Logen` when both exist.
+
+*`src/lib/notes/mentions.ts`*
+
+### Autosave decides when, never whether
+
+The debounce exists so a sentence is one write rather than one per keystroke.
+Every exit flushes — closing the sheet, and the app going to the background —
+and a write that fails puts its text back rather than dropping it. Losing what
+someone wrote is the one outcome worth extra code to avoid.
+
+The debounce lives in `createAutosave`, apart from the store, so it can be
+tested without a database.
+
+*`src/lib/notes/autosave.ts`, `src/store/notes.ts`*
+
+### Soft deletes, because this is the only authored data
+
+Every other table can be rebuilt by rescanning the drive. Notes and characters
+cannot. They carry `deleted_at` so a later sync can tell a row that was removed
+from a row that never existed — and so undo has something to restore.
+
+Deleting a character tombstones its tags and never its notes: the note is what
+someone wrote, the tag is only an index into it.
+
+*`src/db/notes.ts`*
+
+### The handwriting face is only for handwriting
+
+`font.hand` (Caveat) is allowed in `NoteText` and the bio field, and nowhere
+else. Names, times, tags and controls keep the app's own faces, because the
+point of the handwriting is that it marks what the app did not write — which
+stops being true the moment the app writes in it too. Caveat sits small for its
+point size, so `NoteText` scales it up against the same nominal size.
+
+Switchable in Settings, and the preference is a real one rather than a
+decoration: handwriting is harder to read for some people.
+
+*`src/components/NoteText.tsx`, `src/store/ui.ts`*
+
+### The database is backed up; the audio is not
+
+`plugins/withBackupExclusion.js` is an *exclude* list — `books/`, `books-tmp/`
+and `covers/`, plus `imported/` from cloud backup only. Everything else under
+the app's files directory is included, and expo-sqlite puts the database at
+`filesDir/SQLite/dueback.db`, so notes and characters are already carried by
+both cloud backup and device transfer. Nothing needed changing when the
+margins were added, and no native rebuild was required for them.
+
+*`plugins/withBackupExclusion.js`, `src/db/schema.ts`*
+
 ## Screens
 
 ### Only one slip, mounted at the root

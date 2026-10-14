@@ -53,6 +53,14 @@ export const font = {
   monoMedium: 'IBMPlexMono_500Medium',
   /** Body copy. */
   sans: 'InstrumentSans_400Regular',
+  /**
+   * The listener's own hand: notes and character bios, and nothing else.
+   *
+   * Names, times, tags and controls stay in the existing faces — the point is
+   * that what someone wrote looks different from what the app wrote, which
+   * only works if the app resists writing in it too.
+   */
+  hand: 'Caveat_400Regular',
 } as const;
 
 export const space = {
