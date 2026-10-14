@@ -12,7 +12,7 @@ import type { Book, SortMode } from '@/data/types';
 import { occupiesBudget } from '@/data/types';
 import { bytes as formatBytes, gigabytes } from '@/lib/format';
 import {
-  addCheckout,
+  recordCheckoutComplete,
   checkedOutLocalParts,
   clearPartLocalPaths,
   deleteBook,
@@ -23,7 +23,6 @@ import {
   loadBooks,
   loadParts,
   setLocalState,
-  setPartLocalPaths,
   updateProgress,
 } from '@/db/books';
 import {
@@ -338,10 +337,20 @@ export const useLibrary = create<LibraryState>((set, get) => {
       return;
     }
 
+    /** The last whole percent shown, so the shelves are not rebuilt for noise. */
+    let lastPercent = -1;
     const outcome = await copyBookToDevice(book.id, parts, {
       shouldCancel: () => cancelledCopies.has(book.id),
       onProgress: ({ bytesCopied, totalBytes }) => {
         const progress = totalBytes > 0 ? bytesCopied / totalBytes : 0;
+        /*
+         * Only when the number on screen would change. Every patch rebuilds
+         * the books array and re-renders the shelves, and the poll behind this
+         * fires several times a second whatever the file size.
+         */
+        const percent = Math.round(progress * 100);
+        if (percent === lastPercent) return;
+        lastPercent = percent;
         patch(book.id, (b) =>
           b.local.status === 'copying' ? { ...b, local: { status: 'copying', progress } } : b,
         );
@@ -400,15 +409,19 @@ export const useLibrary = create<LibraryState>((set, get) => {
       return;
     }
 
-    await setPartLocalPaths(book.id, outcome.localRelPaths);
+    /*
+     * The bytes are on the phone and verified. Recording that is one
+     * transaction, retried on a lock, because this used to be three separate
+     * writes and losing the second or third threw the whole copy away — the
+     * book reached 100% and disappeared. `npm run kb database locked`.
+     */
     const localPath = `books/${book.id}`;
+    await recordCheckoutComplete(book.id, localPath, outcome.localRelPaths, started);
     patch(book.id, (b) => ({
       ...b,
       local: { status: 'checked-out', localPath },
       checkouts: [...b.checkouts, { out: started }],
     }));
-    await setLocalState(book.id, { status: 'checked-out', localPath });
-    await addCheckout(book.id, started);
     flashSlip({
       kind: 'note',
       stamp: 'CHECKED OUT',

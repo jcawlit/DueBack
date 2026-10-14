@@ -335,6 +335,42 @@ orphan sweep must not delete the folder of a copy that is running.
 
 ---
 
+### "Database is locked" comes from our own transactions
+
+`withExclusiveTransactionAsync` does not take a lock on the connection it is
+called on — it opens one of its own, through `Transaction.createAsync`. The
+expo-sqlite documentation is explicit about what that costs: "As long as the
+transaction is converted into a write transaction, **the other async write
+queries will abort with `database is locked` error**."
+
+So `PRAGMA busy_timeout = 8000`, set on the main connection in `getDb`, does
+not help: the pragma is per connection, and the transaction's is not ours to
+set. A scan indexing books while a check-out recorded where it put its files
+was enough to lose one of them.
+
+Two rules follow:
+
+- **Group writes that belong together into one transaction**, on the main
+  connection, so there is no window to lose. Checking a book out writes the
+  parts' local paths, the book's state and the checkout row — three awaits
+  that were three chances to fail, and failing on the second or third threw
+  away a copy that was already on the phone.
+- **Retry a lock, and only a lock.** `withLockRetry` backs off to about six
+  seconds. A constraint failure would fail the same way for ever, so it is
+  rethrown at once.
+
+*`src/db/books.ts`, `src/db/schema.ts`*
+
+### Copy progress is patched per whole percent
+
+Every `patch` rebuilds the books array, and the poll behind the copy's
+progress fires several times a second whatever the size of the file. Patching
+each tick re-rendered the shelves two or three times a second for the length
+of a copy. The progress reported is the same; the number on screen only
+changes a hundred times.
+
+*`src/store/library.ts`*
+
 ## Audio
 
 ### One player for the whole book, never a playlist

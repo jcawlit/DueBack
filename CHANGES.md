@@ -1206,3 +1206,44 @@ shelf as it is skipped — leaving it on hold would have `nextQueued` hand it
 straight back, and the drain would spin on it.
 
 *`src/store/library.ts`, `src/app/book/[id].tsx`*
+
+## "Database is locked", and the book that reached 100% and vanished
+
+Reported with the error: `call to function 'NativeStatement.finalizeAsync'
+has been rejected — database is locked`.
+
+The lock is our own. `withExclusiveTransactionAsync` does not lock the
+connection it is called on; it opens one of its own through
+`Transaction.createAsync`, and the expo-sqlite documentation says plainly what
+that means — "As long as the transaction is converted into a write
+transaction, the other async write queries will abort with `database is
+locked` error."
+
+`PRAGMA busy_timeout = 8000` is set in `getDb`, and a pragma is per
+connection, so it was never covering the transaction's. The note in `getDb`
+claiming the timeout handles two overlapping writers was wrong about the half
+it could not reach.
+
+Finishing a check-out was three separate writes — the parts' local paths, the
+book's state, the checkout row — so three chances to lose the race. Losing on
+the second or third threw an error that `startCopy` treats as a failed copy:
+back on the shelf, part paths cleared, **local files deleted**. The audio was
+on the phone and correct, and the app threw it away. That is the book that
+reaches 100% and disappears.
+
+Now one `recordCheckoutComplete` transaction on the main connection, retried
+as a whole by `withLockRetry` — backing off to about six seconds, and only for
+a lock, since a constraint failure would fail the same way for ever. By that
+point the bytes are already on the phone, so giving up means copying them
+again.
+
+`setPartLocalPaths` is gone; it had no other callers.
+
+## Progress is patched once per whole percent
+
+Every `patch` rebuilds the books array and re-renders the shelves, and the
+poll behind the copy's progress fires several times a second however large the
+file. The reported progress is unchanged; the number on screen just stops
+being rewritten when it has not moved.
+
+*`src/db/books.ts`, `src/store/library.ts`, `src/db/schema.ts`*

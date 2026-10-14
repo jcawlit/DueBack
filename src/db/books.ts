@@ -466,16 +466,70 @@ export async function updateProgress(id: string, positionSec: number, finishedAt
 }
 
 /** Records where each part's local copy landed after a successful copy. */
-export async function setPartLocalPaths(bookId: string, uris: (string | null)[]) {
-  const db = await getDb();
-  await db.withExclusiveTransactionAsync(async (txn) => {
-    for (let i = 0; i < uris.length; i += 1) {
-      await txn.runAsync(
-        'UPDATE parts SET local_rel_path = ? WHERE book_id = ? AND idx = ?',
-        uris[i], bookId, i,
-      );
+/**
+ * Retries a write that lost a race for the database.
+ *
+ * `withExclusiveTransactionAsync` runs on a connection of its own — the
+ * expo-sqlite docs say outright that while one is open, "the other async write
+ * queries will abort with `database is locked`". `PRAGMA busy_timeout` is set
+ * per connection, so the one on ours does not cover the transaction's.
+ *
+ * Everything here is short, so waiting and trying again is the whole answer.
+ * Only a lock is retried: a constraint failure would fail the same way for
+ * ever.
+ */
+const LOCK_BACKOFF_MS = [80, 200, 400, 800, 1600, 3000];
+
+function isLockedError(err: unknown): boolean {
+  return /database is locked|SQLITE_BUSY/i.test((err as Error)?.message ?? '');
+}
+
+export async function withLockRetry<T>(run: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (err) {
+      if (!isLockedError(err) || attempt >= LOCK_BACKOFF_MS.length) throw err;
+      await new Promise((resolve) => setTimeout(resolve, LOCK_BACKOFF_MS[attempt]));
     }
-  });
+  }
+}
+
+/**
+ * Everything that turns a finished copy into a checked-out book, in one go.
+ *
+ * These were three separate awaits — the parts' local paths, the book's state,
+ * the checkout row — and the window between them was long enough to lose. A
+ * lock on the second or third left a book whose audio was on the phone and
+ * whose database said otherwise, and the failure was handled by deleting the
+ * copy: the book reached 100% and vanished.
+ *
+ * One transaction on the main connection, so it cannot collide with itself,
+ * and retried as a whole, because by this point the bytes are already on the
+ * phone and giving up means copying them again.
+ */
+export async function recordCheckoutComplete(
+  bookId: string,
+  localPath: string,
+  localRelPaths: (string | null)[],
+  outAt: string,
+) {
+  const db = await getDb();
+  await withLockRetry(() =>
+    db.withTransactionAsync(async () => {
+      for (let i = 0; i < localRelPaths.length; i += 1) {
+        await db.runAsync(
+          'UPDATE parts SET local_rel_path = ? WHERE book_id = ? AND idx = ?',
+          localRelPaths[i], bookId, i,
+        );
+      }
+      await db.runAsync(
+        'UPDATE books SET local_status = ?, local_path = ?, hold_since = NULL WHERE id = ?',
+        'checked-out', localPath, bookId,
+      );
+      await db.runAsync('INSERT INTO checkouts (book_id, out_at) VALUES (?, ?)', bookId, outAt);
+    }),
+  );
 }
 
 export async function clearPartLocalPaths(bookId: string) {
