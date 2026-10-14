@@ -549,6 +549,112 @@ proved — so a checked-out book's local part paths move across by index.
 
 *`src/db/identity.ts` (`reconnectBook`)*
 
+## Drive backup
+
+### Generations, because SAF cannot rename
+
+A write is usually made atomic by writing a temporary file and renaming it
+into place. SAF has no rename, so the guarantee has to come from somewhere
+else — and it comes from never modifying anything already on the drive.
+
+Generation N is a complete set in `.dueback/gen-N/`: a manifest plus one file
+per record type, each carrying the library id, the generation number, a schema
+version and a checksum of its own contents. A backup writes a **new** folder,
+reads the whole of it back off the drive, and validates it. Only then is
+anything older pruned.
+
+The manifest is written **last**. Until it is there the generation cannot
+validate, so a folder whose data files are still arriving is indistinguishable
+from one that never began — which is exactly what should happen to a write
+interrupted by a pulled cable.
+
+Nothing older is ever removed until there are two generations known to be
+good. Pruning to a single copy would leave nothing to fall back to, which is
+what generations exist to prevent.
+
+*`src/lib/sync/generations.ts`, `src/lib/sync/driveSync.ts`*
+
+### Read and merge first, then write
+
+A phone that has been away writes what it learned **on top of** what it
+brought, never instead of it. Plugging a drive in can only ever add to what is
+on it.
+
+What came back is applied even when the write then fails. The read happened
+and the merge is correct; throwing away another phone's work because this
+drive would not take our half helps nobody.
+
+*`src/lib/sync/driveSync.ts`, `src/store/backup.ts`*
+
+### Last write wins, with the tie broken the same way on both phones
+
+`updatedAt` decides. When two devices write in the same millisecond the clock
+has nothing more to say, so the tie goes to the higher `writerDevice` and then
+the higher `mutationId` — arbitrary, but arbitrary in a way both sides compute
+identically, which is the whole requirement. Merging A into B gives the same
+answer as merging B into A.
+
+Progress is the **latest** position, not the furthest. Rewinding to hear
+something again is a decision, and a sync that restored the furthest point
+would undo it every time the drive was plugged in.
+
+An undo is an ordinary write with a newer stamp, which is how it beats the
+deletion it reverses.
+
+*`src/lib/sync/records.ts`*
+
+### A note edited on both sides keeps the loser
+
+Last-write-wins is right for everything except a sentence someone wrote. When
+both copies have moved on from the last state they agreed on — which is what
+`base_updated_at` records — the losing text is kept as its own note, marked as
+a conflicted copy, at the same position in the same book.
+
+Its id is derived from the original note and the losing mutation, so syncing
+the same pair of edits again finds the copy already there instead of making
+another one every time the drive is plugged in.
+
+Without a recorded agreement there is no conflict: a missing
+`base_updated_at` means one side is simply behind, and treating that as a
+conflict would litter the margins with copies.
+
+*`src/lib/sync/records.ts` (`mergeNote`, `conflictedCopyId`)*
+
+### The identity manifest is what makes a restore possible
+
+A phone that has never seen a library mints a fresh uuid for every folder it
+scans, so notes keyed to the old uuids would have nothing to belong to. The
+backup therefore carries who the books are — uuid, path key, shape and sample
+— and a scan seeds its identity index from the drive before minting anything.
+
+The phone's own record wins where both have one: it has been scanning this
+drive, and the manifest may predate a book moving.
+
+*`src/lib/sync/records.ts`, `src/lib/scan/scanner.ts` (`seedIdentity`)*
+
+### A newer schema is read as far as possible and never written over
+
+A generation whose schema version is higher than this app's is not damage —
+it is this app being behind. It is left exactly where it is, the user is told
+to update, and the next generation number is counted from **every** folder
+present rather than from the newest that validated, so a newer app's work can
+never have its number reused.
+
+*`src/lib/sync/generations.ts`, `src/lib/sync/driveSync.ts`*
+
+### Only authored data is backed up
+
+Titles, durations, covers and part lists are all rebuildable by rescanning the
+drive the backup sits on, so carrying them would be carrying a worse copy of
+something already there. What travels is what cannot be rebuilt: notes,
+characters, tags, progress and library-card history — and the identity
+manifest that lets them find their books again.
+
+Records whose books this phone does not know are left on the drive rather than
+written in. They arrive if the book ever does.
+
+*`src/db/sync.ts`*
+
 ## The margins
 
 ### A bookmark is a note with nothing in it

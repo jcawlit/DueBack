@@ -6,6 +6,7 @@
 
 import * as SQLite from 'expo-sqlite';
 import { rewriteBookIdsToUuids } from './identityMigration';
+import { newUuid } from '@/lib/library/ids';
 
 export const DB_NAME = 'dueback.db';
 
@@ -233,6 +234,54 @@ const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
     `);
     await rewriteBookIdsToUuids(db);
   },
+  async (db) => {
+    /*
+     * What a record needs to be merged with another copy of itself.
+     *
+     * `updated_at` decides; `writer_device` and `mutation_id` break a tie the
+     * clock cannot, so two phones reach the same answer without negotiating.
+     * `base_updated_at` is the last state both sides agreed on, which is the
+     * only way to tell a two-sided edit from one side being behind.
+     *
+     * Checkouts get a uuid of their own. They were keyed by an autoincrement
+     * rowid, which two phones would assign to different events — so every
+     * existing row is given one here, and a book's whole history survives a
+     * merge instead of collapsing to whichever side had more.
+     */
+    await db.execAsync(`
+      ALTER TABLE notes ADD COLUMN mutation_id TEXT;
+      ALTER TABLE notes ADD COLUMN writer_device TEXT;
+      ALTER TABLE notes ADD COLUMN base_updated_at TEXT;
+      ALTER TABLE notes ADD COLUMN conflict_of TEXT;
+
+      ALTER TABLE characters ADD COLUMN mutation_id TEXT;
+      ALTER TABLE characters ADD COLUMN writer_device TEXT;
+      ALTER TABLE characters ADD COLUMN base_updated_at TEXT;
+
+      ALTER TABLE note_characters ADD COLUMN mutation_id TEXT;
+      ALTER TABLE note_characters ADD COLUMN writer_device TEXT;
+
+      ALTER TABLE books ADD COLUMN progress_updated_at TEXT;
+      ALTER TABLE books ADD COLUMN progress_mutation_id TEXT;
+      ALTER TABLE books ADD COLUMN progress_writer_device TEXT;
+
+      ALTER TABLE checkouts ADD COLUMN uuid TEXT;
+      ALTER TABLE checkouts ADD COLUMN updated_at TEXT;
+      ALTER TABLE checkouts ADD COLUMN deleted_at TEXT;
+      ALTER TABLE checkouts ADD COLUMN mutation_id TEXT;
+      ALTER TABLE checkouts ADD COLUMN writer_device TEXT;
+    `);
+
+    const checkouts = await db.getAllAsync<{ id: number }>(
+      'SELECT id FROM checkouts WHERE uuid IS NULL',
+    );
+    for (const row of checkouts) {
+      await db.runAsync('UPDATE checkouts SET uuid = ? WHERE id = ?', newUuid(), row.id);
+    }
+    await db.execAsync(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_checkouts_uuid ON checkouts(uuid)',
+    );
+  },
 ];
 
 async function migrate(db: SQLite.SQLiteDatabase) {
@@ -243,6 +292,39 @@ async function migrate(db: SQLite.SQLiteDatabase) {
     version = i + 1;
   }
   await db.execAsync(`PRAGMA user_version = ${version}`);
+}
+
+/**
+ * This library's identity, minted on first use.
+ *
+ * Kept in settings rather than derived from the root's URI, because the URI
+ * is exactly the thing that changes when a drive is remounted or re-picked.
+ */
+export async function ensureLibraryId(): Promise<string> {
+  const existing = await getSetting(SETTING_KEYS.libraryId);
+  if (existing) return existing;
+  const id = newUuid();
+  await setSetting(SETTING_KEYS.libraryId, id);
+  return id;
+}
+
+/** Adopts a library id found on a drive, so both sides agree who it is. */
+export async function adoptLibraryId(id: string): Promise<void> {
+  await setSetting(SETTING_KEYS.libraryId, id);
+}
+
+/**
+ * This phone, for settling which of two writers was later.
+ *
+ * Lives here, with the other settings, so that neither `books.ts` nor
+ * `identity.ts` has to import the other to stamp a record.
+ */
+export async function ensureDeviceId(): Promise<string> {
+  const existing = await getSetting(SETTING_KEYS.deviceId);
+  if (existing) return existing;
+  const id = newUuid();
+  await setSetting(SETTING_KEYS.deviceId, id);
+  return id;
 }
 
 /** Simple key/value settings: library root, budget, last scan time. */
@@ -278,4 +360,8 @@ export const SETTING_KEYS = {
   libraryId: 'library.id',
   /** This phone, for deciding who wrote a record when two devices disagree. */
   deviceId: 'device.id',
+  /** Whether reading data is copied to the drive. */
+  backupEnabled: 'backup.enabled',
+  /** When the drive last took a complete copy. */
+  backupAt: 'backup.at',
 } as const;

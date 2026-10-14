@@ -11,6 +11,7 @@ import { useLibrary } from '@/store/library';
 import { forgetMissingBooks } from '@/db/books';
 import { countMarginsFor } from '@/db/notes';
 import { useUi } from '@/store/ui';
+import { useBackup } from '@/store/backup';
 import { removeCover } from '@/lib/files/covers';
 import { useScan } from '@/store/scan';
 import { bytes as formatBytes, relativeTime } from '@/lib/format';
@@ -76,6 +77,11 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const handwritten = useUi((s) => s.handwritten);
   const setHandwritten = useUi((s) => s.setHandwritten);
+  const backupEnabled = useBackup((s) => s.enabled);
+  const setBackupEnabled = useBackup((s) => s.setEnabled);
+  const backupPending = useBackup((s) => s.pending);
+  const backupAt = useBackup((s) => s.lastAt);
+  const backupStatus = useBackup((s) => s.status);
   const libraryRoot = useLibrary((s) => s.libraryRoot);
   const driveConnected = useLibrary((s) => s.driveConnected);
   const driveLastSeenAt = useLibrary((s) => s.driveLastSeenAt);
@@ -377,6 +383,20 @@ export default function SettingsScreen() {
                 : 'Off — your notes are shown in the reading face'
             }
             onPress={() => setHandwritten(!handwritten)}
+          />
+          <Row
+            label="Back up reading data to the drive"
+            detail={
+              !backupEnabled
+                ? 'Off — notes, places and history stay on this phone'
+                : backupStatus ??
+                  (backupPending
+                    ? 'Pending — the drive will take a copy on the next scan'
+                    : backupAt
+                      ? `Last copied ${relativeTime(backupAt)}`
+                      : 'On — notes, places and history are copied to the drive')
+            }
+            onPress={() => setBackupEnabled(!backupEnabled)}
           />
         </View>
 

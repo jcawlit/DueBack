@@ -46,6 +46,35 @@ import {
 } from '@/db/identity';
 import { planReconnection, shapeOf } from '@/lib/library/identity';
 import { readDriveLibrary, writeDriveLibrary } from '@/lib/sync/driveFolder';
+import { readDrive } from '@/lib/sync/driveSync';
+
+/**
+ * Where every book this library knows about was last found.
+ *
+ * The phone's own record first, then the drive's. The drive's identity
+ * manifest is what makes a restore possible at all: a phone that has never
+ * seen this library would otherwise mint a fresh uuid for every folder, and
+ * the notes in the backup — keyed to the old uuids — would have nothing to
+ * belong to. Taking the drive's word for who a book is means the writing
+ * lands back on it.
+ *
+ * The phone wins where both have an answer. It has been scanning this drive
+ * and the manifest may be from before a book moved.
+ */
+async function seedIdentity(rootUri: string, libraryId: string): Promise<Map<string, string>> {
+  const local = await loadPathKeyIndex(libraryId);
+  try {
+    const drive = readDrive(rootUri, libraryId);
+    for (const book of drive.payload?.identity ?? []) {
+      if (!book.pathKey || local.has(book.pathKey)) continue;
+      local.set(book.pathKey, book.id);
+    }
+  } catch {
+    // No backup on this drive, or one we cannot read. The scan carries on
+    // and simply mints new identities, which is the old behaviour.
+  }
+  return local;
+}
 
 /**
  * Which library this root is.
@@ -492,7 +521,7 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
   const libraryId = await resolveLibraryId(options.rootUri);
   const identity: IdentityContext = {
     libraryId,
-    byPathKey: await loadPathKeyIndex(libraryId),
+    byPathKey: await seedIdentity(options.rootUri, libraryId),
   };
   /** Books with no prior row: the only things a vanished book could become. */
   const freshlyFound: { id: string; title: string; folderRelPath: string }[] = [];

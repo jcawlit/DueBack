@@ -10,6 +10,7 @@
 import type { Character, Note } from '@/data/notes';
 import { withLockRetry } from './books';
 import { getDb } from './schema';
+import { ensureDeviceId } from './identity';
 
 /** A note's tags are rewritten from its text on every save; see `mentions.ts`. */
 type NoteRow = {
@@ -43,6 +44,23 @@ export function newId(): string {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+/**
+ * Who wrote this, and which write it was.
+ *
+ * Every authored row carries it so two copies of the same record can be
+ * reconciled without negotiating: the clock decides, and when two devices
+ * write in the same millisecond the writer and the mutation break the tie
+ * the same way on both sides. `npm run kb merge`.
+ *
+ * The device id is read once and kept — it never changes, and a settings
+ * read per keystroke would be absurd.
+ */
+let cachedDevice: string | null = null;
+async function stamp(): Promise<{ at: string; mutationId: string; device: string }> {
+  if (!cachedDevice) cachedDevice = await ensureDeviceId();
+  return { at: nowIso(), mutationId: newId(), device: cachedDevice };
 }
 
 /** Every note on a book, in story order, with the characters each one tags. */
@@ -106,12 +124,14 @@ export async function insertNote(note: {
   text: string;
 }): Promise<Note> {
   const db = await getDb();
-  const at = nowIso();
+  const { at, mutationId, device } = await stamp();
   await withLockRetry(() =>
     db.runAsync(
-      `INSERT INTO notes (id, book_id, position_sec, chapter_index, text, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO notes (id, book_id, position_sec, chapter_index, text, created_at,
+                          updated_at, mutation_id, writer_device)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       note.id, note.bookId, note.positionSec, note.chapterIndex, note.text, at, at,
+      mutationId, device,
     ),
   );
   return { ...note, createdAt: at, updatedAt: at, characterIds: [] };
@@ -130,21 +150,31 @@ export async function saveNoteText(
   characterIds: string[],
 ): Promise<string> {
   const db = await getDb();
-  const at = nowIso();
+  const { at, mutationId, device } = await stamp();
   await withLockRetry(() =>
     db.withTransactionAsync(async () => {
-      await db.runAsync('UPDATE notes SET text = ?, updated_at = ? WHERE id = ?', text, at, noteId);
       await db.runAsync(
-        'UPDATE note_characters SET deleted_at = ?, updated_at = ? WHERE note_id = ? AND deleted_at IS NULL',
-        at, at, noteId,
+        `UPDATE notes SET text = ?, updated_at = ?, mutation_id = ?, writer_device = ?
+           WHERE id = ?`,
+        text, at, mutationId, device, noteId,
+      );
+      await db.runAsync(
+        `UPDATE note_characters
+            SET deleted_at = ?, updated_at = ?, mutation_id = ?, writer_device = ?
+          WHERE note_id = ? AND deleted_at IS NULL`,
+        at, at, mutationId, device, noteId,
       );
       for (const characterId of characterIds) {
         await db.runAsync(
-          `INSERT INTO note_characters (note_id, character_id, updated_at, deleted_at)
-           VALUES (?, ?, ?, NULL)
+          `INSERT INTO note_characters (note_id, character_id, updated_at, deleted_at,
+                                        mutation_id, writer_device)
+           VALUES (?, ?, ?, NULL, ?, ?)
            ON CONFLICT(note_id, character_id)
-             DO UPDATE SET deleted_at = NULL, updated_at = excluded.updated_at`,
-          noteId, characterId, at,
+             DO UPDATE SET deleted_at = NULL,
+                           updated_at = excluded.updated_at,
+                           mutation_id = excluded.mutation_id,
+                           writer_device = excluded.writer_device`,
+          noteId, characterId, at, mutationId, device,
         );
       }
     }),
@@ -154,18 +184,28 @@ export async function saveNoteText(
 
 export async function softDeleteNote(noteId: string): Promise<void> {
   const db = await getDb();
-  const at = nowIso();
+  const { at, mutationId, device } = await stamp();
   await withLockRetry(() =>
-    db.runAsync('UPDATE notes SET deleted_at = ?, updated_at = ? WHERE id = ?', at, at, noteId),
+    db.runAsync(
+      `UPDATE notes SET deleted_at = ?, updated_at = ?, mutation_id = ?, writer_device = ?
+         WHERE id = ?`,
+      at, at, mutationId, device, noteId,
+    ),
   );
 }
 
 /** Brings a note back exactly as it was; its tags were never touched. */
 export async function restoreNote(noteId: string): Promise<void> {
   const db = await getDb();
-  const at = nowIso();
+  // An undo is a write of its own, with a newer stamp — which is exactly how
+  // it beats the deletion when two copies of this note are brought together.
+  const { at, mutationId, device } = await stamp();
   await withLockRetry(() =>
-    db.runAsync('UPDATE notes SET deleted_at = NULL, updated_at = ? WHERE id = ?', at, noteId),
+    db.runAsync(
+      `UPDATE notes SET deleted_at = NULL, updated_at = ?, mutation_id = ?, writer_device = ?
+         WHERE id = ?`,
+      at, mutationId, device, noteId,
+    ),
   );
 }
 
@@ -177,16 +217,18 @@ export async function insertCharacter(character: {
   bio?: string;
 }): Promise<Character> {
   const db = await getDb();
-  const at = nowIso();
+  const { at, mutationId, device } = await stamp();
   const row = {
     aliases: character.aliases ?? '',
     bio: character.bio ?? '',
   };
   await withLockRetry(() =>
     db.runAsync(
-      `INSERT INTO characters (id, book_id, name, aliases, bio, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO characters (id, book_id, name, aliases, bio, created_at, updated_at,
+                               mutation_id, writer_device)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       character.id, character.bookId, character.name, row.aliases, row.bio, at, at,
+      mutationId, device,
     ),
   );
   return { ...character, ...row, createdAt: at, updatedAt: at };
@@ -197,11 +239,13 @@ export async function saveCharacter(
   fields: { name: string; aliases: string; bio: string },
 ): Promise<void> {
   const db = await getDb();
-  const at = nowIso();
+  const { at, mutationId, device } = await stamp();
   await withLockRetry(() =>
     db.runAsync(
-      'UPDATE characters SET name = ?, aliases = ?, bio = ?, updated_at = ? WHERE id = ?',
-      fields.name, fields.aliases, fields.bio, at, characterId,
+      `UPDATE characters SET name = ?, aliases = ?, bio = ?, updated_at = ?,
+                             mutation_id = ?, writer_device = ?
+         WHERE id = ?`,
+      fields.name, fields.aliases, fields.bio, at, mutationId, device, characterId,
     ),
   );
 }
@@ -214,16 +258,20 @@ export async function saveCharacter(
  */
 export async function softDeleteCharacter(characterId: string): Promise<void> {
   const db = await getDb();
-  const at = nowIso();
+  const { at, mutationId, device } = await stamp();
   await withLockRetry(() =>
     db.withTransactionAsync(async () => {
       await db.runAsync(
-        'UPDATE characters SET deleted_at = ?, updated_at = ? WHERE id = ?',
-        at, at, characterId,
+        `UPDATE characters SET deleted_at = ?, updated_at = ?, mutation_id = ?,
+                               writer_device = ?
+           WHERE id = ?`,
+        at, at, mutationId, device, characterId,
       );
       await db.runAsync(
-        'UPDATE note_characters SET deleted_at = ?, updated_at = ? WHERE character_id = ? AND deleted_at IS NULL',
-        at, at, characterId,
+        `UPDATE note_characters
+            SET deleted_at = ?, updated_at = ?, mutation_id = ?, writer_device = ?
+          WHERE character_id = ? AND deleted_at IS NULL`,
+        at, at, mutationId, device, characterId,
       );
     }),
   );

@@ -1566,3 +1566,118 @@ keeping everything written.
 `src/db/identityMigration.ts`, `src/db/schema.ts`, `src/db/books.ts`,
 `src/store/library.ts`, `src/store/scan.ts`, `src/components/ReconnectSheet.tsx`,
 `src/components/GlobalReconnect.tsx`, `src/dev/identitySuite.ts`*
+
+---
+
+# Drive backup pass — reading data that outlives the phone
+
+## Generations, because SAF cannot rename
+
+A write is usually made atomic by writing a temporary file and renaming it
+into place. SAF has no rename, so the guarantee comes from never modifying
+anything already on the drive.
+
+Generation N is a complete set in `.dueback/gen-N/`: a manifest plus one file
+per record type, each carrying the library id, the generation number, a schema
+version and a checksum of its own contents. A backup writes a **new** folder,
+reads the whole of it back off the drive, validates it, and only then prunes
+anything older — and never prunes below two generations known to be good.
+
+The manifest is written **last**, so a generation whose data files are still
+arriving cannot validate. An interrupted write is indistinguishable from one
+that never began, which is exactly right.
+
+## Read and merge first, then write
+
+A phone that has been away writes what it learned on top of what it brought.
+Plugging in a drive can only add to it. What came back is applied even when
+the write then fails: the read happened and the merge is correct, and throwing
+away another phone's work because this drive would not take our half helps
+nobody.
+
+Returning a book never waits on any of this.
+
+## How two copies are reconciled
+
+`updated_at` decides. On an exact tie it goes to the higher writer device,
+then the higher mutation id — arbitrary, but arbitrary in a way both phones
+compute identically, so merging A into B gives the same answer as B into A.
+
+- **Notes and characters** by uuid, **tags** by the pair they join, **history**
+  by event uuid — which is why checkouts gained one, having been keyed by an
+  autoincrement rowid that two phones would assign differently.
+- **Progress** by book uuid, and the **latest** position wins rather than the
+  furthest. Rewinding to hear something again is a decision; a sync that
+  restored the furthest point would undo it every time.
+- **Undo** is an ordinary write with a newer stamp, which is how it beats the
+  deletion it reverses.
+- **Tombstones** for every record type, and a deleted note or character
+  suppresses its tags.
+
+## A note edited on both sides keeps the loser
+
+Last-write-wins is right for everything except a sentence somebody wrote. When
+both copies have moved on from the state they last agreed on — which is what
+`base_updated_at` records — the losing text becomes its own note, marked as a
+conflicted copy, at the same position in the same book.
+
+Its id is derived from the original note plus the losing mutation, so syncing
+the same pair of edits again finds the copy already there. Tested by merging
+three times over and asserting there are still two notes.
+
+With no recorded agreement there is no conflict: that means one side is simply
+behind, and treating it as a conflict would litter the margins with copies.
+
+## The identity manifest, which is what makes restore true
+
+A phone that has never seen a library mints a fresh uuid for every folder it
+scans, so notes keyed to the old uuids would have nothing to belong to. The
+backup therefore carries who the books are — uuid, path key, shape, sample —
+and a scan seeds its identity index from the drive before minting anything.
+The phone's own record wins where both have one.
+
+Without this the restore promise could not be kept, and it is the one piece of
+Part B that had to reach back into Part A.
+
+## A newer schema is left alone
+
+A generation whose schema version is higher than this app's is not damage; it
+is this app being behind. It is never written over, the user is told to
+update, and the next generation number is counted from **every** folder
+present rather than the newest that validated — so a newer app's number can
+never be reused.
+
+## What travels
+
+Identity, notes, characters, tags, progress and library-card history. Nothing
+else: titles, durations, covers and part lists are rebuildable by rescanning
+the drive the backup sits on, so carrying them would be carrying a worse copy
+of something already there. Records whose books this phone does not know stay
+on the drive and arrive if the book ever does.
+
+Settings → **Back up reading data to the drive**, on by default. A library
+that lives on the phone skips it — the books and the writing are already in
+one place, and the Android backup rules carry both. The Book screen says where
+this book's writing is: "Saved on phone · drive backup pending" until the
+drive has a current copy.
+
+## Tests
+
+37 new unit tests in `tests/sync.test.ts`: tie-breaking in both directions,
+every record type's tombstone, undo beating a delete, a rewind beating a
+further position, all of one book's checkouts surviving, tags suppressed by a
+deleted note or character, the conflicted copy created once across repeated
+syncs, validation refusing a missing part, a changed part, a self-inconsistent
+manifest, a stale part from an older generation, another library's backup and
+a newer schema, and pruning that never touches anything newer than the newest
+good generation.
+
+Five on-device cases in `src/dev/syncSuite.ts` (A14): a backup lands and reads
+back, wiped notes come home, a truncated newest manifest falls back to the
+previous generation, a newer-schema generation is left byte-for-byte alone,
+and repeated syncs do not pile up folders.
+
+*`src/lib/sync/records.ts`, `src/lib/sync/generations.ts`, `src/lib/sync/driveSync.ts`,
+`src/lib/sync/driveFolder.ts`, `src/db/sync.ts`, `src/db/schema.ts`, `src/db/books.ts`,
+`src/db/notes.ts`, `src/store/backup.ts`, `src/store/scan.ts`, `src/app/settings.tsx`,
+`src/app/book/[id].tsx`, `src/app/_layout.tsx`, `src/dev/syncSuite.ts`*

@@ -29,6 +29,7 @@ import { NoteSheet } from '@/components/NoteSheet';
 import { useNotes } from '@/store/notes';
 import { exportNotes } from '@/lib/notes/export';
 import { isPro } from '@/lib/pro';
+import { useBackup } from '@/store/backup';
 import type { Character, Note } from '@/data/notes';
 
 export default function BookScreen() {
@@ -82,6 +83,8 @@ export default function BookScreen() {
   const deleteCharacter = useNotes((s) => s.deleteCharacter);
   const addToBio = useNotes((s) => s.addToBio);
   const showSlip = useLibrary((s) => s.showSlip);
+  const backupEnabled = useBackup((s) => s.enabled);
+  const backupPending = useBackup((s) => s.pending);
 
   useEffect(() => {
     if (id) void loadNotes(id);
@@ -149,6 +152,14 @@ export default function BookScreen() {
    * files went bad — and both offered Play on a book with no parts at all.
    */
   const playable = book.files.length > 0 && book.durationSec > 0;
+
+  const backupLine = libraryOnDevice
+    ? 'Saved on phone'
+    : !backupEnabled
+      ? 'Saved on phone · drive backup off'
+      : backupPending
+        ? 'Saved on phone · drive backup pending'
+        : 'Saved on phone and on the drive';
 
   /** Only this book's margins; the store holds one book at a time. */
   const mine = notesBookId === book.id ? notes : [];
@@ -471,6 +482,23 @@ export default function BookScreen() {
               onAdd={() => void addBlankCharacter()}
             />
           ) : null}
+
+          {/*
+            Where this book's writing is. Said plainly rather than with an
+            icon: "pending" here means the phone has it and the drive does
+            not yet, which is a fact worth being able to read.
+          */}
+          <Text
+            style={{
+              fontFamily: font.mono,
+              fontSize: 10,
+              color: color.faint,
+              textAlign: 'center',
+              paddingTop: space.lg,
+            }}
+          >
+            {backupLine}
+          </Text>
 
           <Pressable
             onPress={() => void shareMargins()}

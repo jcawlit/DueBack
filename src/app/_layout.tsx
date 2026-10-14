@@ -27,6 +27,7 @@ import { usePlayer } from '@/store/player';
 import { useLibrary } from '@/store/library';
 import { useScan } from '@/store/scan';
 import { useNotes } from '@/store/notes';
+import { useBackup } from '@/store/backup';
 import { useUi } from '@/store/ui';
 
 /**
@@ -62,6 +63,7 @@ function LibraryBootstrap() {
   useEffect(() => {
     void hydrate();
     void useUi.getState().loadPreferences();
+    void useBackup.getState().load();
   }, [hydrate]);
 
   useEffect(() => {

@@ -8,7 +8,8 @@ import type { Book, Chapter, Checkout, LocalState } from '@/data/types';
 import { coverUri } from '@/lib/files/access';
 import { fallbackPalette } from '@/lib/library/palette';
 import { fingerprintKey } from '@/lib/library/grouping';
-import { getDb } from './schema';
+import { newUuid } from '@/lib/library/ids';
+import { ensureDeviceId, getDb } from './schema';
 
 export type BookRow = {
   id: string;
@@ -482,9 +483,21 @@ export async function loadParts(
 
 export async function updateProgress(id: string, positionSec: number, finishedAt?: string) {
   const db = await getDb();
+  /*
+   * Stamped like any other authored record, because that is what it is.
+   * The stamp is what lets two phones agree on a position: the latest write
+   * wins, not the furthest through the book, so a deliberate rewind is not
+   * undone by a sync. `npm run kb merge`.
+   */
+  const writer = await syncStamp();
   await db.runAsync(
-    'UPDATE books SET progress_sec = ?, last_played_at = ?, finished_at = COALESCE(?, finished_at) WHERE id = ?',
-    positionSec, new Date().toISOString(), finishedAt ?? null, id,
+    `UPDATE books SET progress_sec = ?, last_played_at = ?,
+                      finished_at = COALESCE(?, finished_at),
+                      progress_updated_at = ?, progress_mutation_id = ?,
+                      progress_writer_device = ?
+       WHERE id = ?`,
+    positionSec, writer.at, finishedAt ?? null,
+    writer.at, writer.mutationId, writer.device, id,
   );
 }
 
@@ -550,7 +563,12 @@ export async function recordCheckoutComplete(
         'UPDATE books SET local_status = ?, local_path = ?, hold_since = NULL WHERE id = ?',
         'checked-out', localPath, bookId,
       );
-      await db.runAsync('INSERT INTO checkouts (book_id, out_at) VALUES (?, ?)', bookId, outAt);
+      const writer = await syncStamp();
+      await db.runAsync(
+        `INSERT INTO checkouts (uuid, book_id, out_at, updated_at, mutation_id, writer_device)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        newUuid(), bookId, outAt, writer.at, writer.mutationId, writer.device,
+      );
     }),
   );
 }
@@ -571,18 +589,38 @@ export async function setLocalState(id: string, state: LocalState) {
   );
 }
 
+/**
+ * Who wrote this, and which write it was.
+ *
+ * A library-card event is authored data: it is backed up to the drive and
+ * merged with whatever another phone recorded, so it needs the same stamp as
+ * a note. Kept local to this module and lazy, because `books.ts` is imported
+ * long before any device id is wanted.
+ */
+let cachedDevice: string | null = null;
+async function syncStamp(): Promise<{ at: string; mutationId: string; device: string }> {
+  if (!cachedDevice) cachedDevice = await ensureDeviceId();
+  return { at: new Date().toISOString(), mutationId: newUuid(), device: cachedDevice };
+}
+
 export async function addCheckout(id: string, outAt: string) {
   const db = await getDb();
-  await db.runAsync('INSERT INTO checkouts (book_id, out_at) VALUES (?, ?)', id, outAt);
+  const writer = await syncStamp();
+  await db.runAsync(
+    `INSERT INTO checkouts (uuid, book_id, out_at, updated_at, mutation_id, writer_device)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    newUuid(), id, outAt, writer.at, writer.mutationId, writer.device,
+  );
 }
 
 export async function closeCheckout(id: string, backAt: string) {
   const db = await getDb();
+  const writer = await syncStamp();
   await db.runAsync(
-    `UPDATE checkouts SET back_at = ?
+    `UPDATE checkouts SET back_at = ?, updated_at = ?, mutation_id = ?, writer_device = ?
      WHERE id = (SELECT id FROM checkouts WHERE book_id = ? AND back_at IS NULL
                  ORDER BY out_at DESC LIMIT 1)`,
-    backAt, id,
+    backAt, writer.at, writer.mutationId, writer.device, id,
   );
 }
 

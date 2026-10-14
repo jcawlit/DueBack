@@ -8,37 +8,12 @@
  */
 
 import type { BookShape } from '@/lib/library/identity';
-import { newUuid } from '@/lib/library/ids';
-import { SETTING_KEYS, getDb, getSetting, setSetting } from './schema';
+import { adoptLibraryId, ensureDeviceId, ensureLibraryId, getDb } from './schema';
 import { withLockRetry } from './books';
 
-/**
- * This library's identity, minted on first use.
- *
- * Kept in settings rather than derived from the root's URI, because the URI
- * is exactly the thing that changes when a drive is remounted or re-picked.
- */
-export async function ensureLibraryId(): Promise<string> {
-  const existing = await getSetting(SETTING_KEYS.libraryId);
-  if (existing) return existing;
-  const id = newUuid();
-  await setSetting(SETTING_KEYS.libraryId, id);
-  return id;
-}
-
-/** Adopts a library id found on a drive, so both sides agree who it is. */
-export async function adoptLibraryId(id: string): Promise<void> {
-  await setSetting(SETTING_KEYS.libraryId, id);
-}
-
-/** This phone, for settling which of two writers was later. */
-export async function ensureDeviceId(): Promise<string> {
-  const existing = await getSetting(SETTING_KEYS.deviceId);
-  if (existing) return existing;
-  const id = newUuid();
-  await setSetting(SETTING_KEYS.deviceId, id);
-  return id;
-}
+// Re-exported so the rest of the app can ask one module about identity, even
+// though these three are only settings and live where settings live.
+export { adoptLibraryId, ensureDeviceId, ensureLibraryId };
 
 /**
  * Where each known book was last found, to its uuid.

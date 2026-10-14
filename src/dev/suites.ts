@@ -38,6 +38,7 @@ import {
 import { Directory, File } from 'expo-file-system';
 import { a12Margins } from './marginsSuite';
 import { a13Identity } from './identitySuite';
+import { a14Backup } from './syncSuite';
 import {
   deleteBook,
   forgetMissingBooks,
@@ -2217,6 +2218,7 @@ export const SUITES: Suite[] = [
   a0Extras,
   a12Margins,
   a13Identity,
+  a14Backup,
 ];
 
 export function suitesFor(selector: string | undefined): Suite[] {

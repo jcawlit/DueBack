@@ -8,6 +8,7 @@ import { isReachable, pickLibraryRoot } from '@/lib/files/access';
 import { scanLibrary, type ScanProgress, type ScanResult } from '@/lib/scan/scanner';
 import { setScanning } from '@/lib/scanBusy';
 import { useLibrary } from './library';
+import { useBackup } from './backup';
 
 type ScanState = {
   running: boolean;
@@ -151,6 +152,16 @@ export const useScan = create<ScanState>((set, get) => ({
       // ones on screen behind it.
       if (result.reconnectQuestions.length > 0) {
         useLibrary.getState().askReconnect(result.reconnectQuestions);
+      }
+
+      /*
+       * The drive is present and has just been proved readable, which is the
+       * one moment a backup is certain to be worth attempting. Not awaited:
+       * nothing about the scan's result depends on it, and a slow drive must
+       * not hold the library screen.
+       */
+      if (result.completed && result.rootReadable) {
+        void useBackup.getState().run();
       }
     } catch (err) {
       set({ error: (err as Error)?.message ?? 'The scan failed.' });
