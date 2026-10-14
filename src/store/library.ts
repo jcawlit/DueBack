@@ -39,6 +39,7 @@ import {
   deleteLocalCopy,
   listLocalBookIds,
   localUriFor,
+  recoverInterruptedSwaps,
   sweepTempCopies,
   type CopyPart,
 } from '@/lib/files/copy';
@@ -671,6 +672,13 @@ export const useLibrary = create<LibraryState>((set, get) => {
           getSetting(SETTING_KEYS.budgetBytes),
           loadBooks(),
         ]);
+        /*
+         * Finish or undo a swap the app did not live through, before anything
+         * asks what audio is on the phone. A copy being replaced is moved
+         * aside rather than deleted, so there is always one whole version to
+         * come back to. `npm run kb swap`.
+         */
+        await recoverInterruptedSwaps();
         /*
          * Tidy the staging folder now the books are known. What an interrupted
          * copy left is kept only for a book that still exists, so checking it

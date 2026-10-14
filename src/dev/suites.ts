@@ -905,7 +905,7 @@ const a3Missing: Suite = {
       async run(ctx) {
         const book = await oneBookIn('No Art');
         const noArt = parkFolder(ctx.rootPath, 'No Art');
-        check(noArt.park(), 'could not park the book folder');
+        check(await noArt.park(), 'could not park the book folder');
         try {
           await ensureScan();
           const after = bookById(book.id);
@@ -913,7 +913,7 @@ const a3Missing: Suite = {
           check(!!after!.missingFromDrive, 'the book was not marked missing');
           return 'flagged, still listed';
         } finally {
-          noArt.restore();
+          await noArt.restore();
         }
       },
     },
@@ -1016,7 +1016,7 @@ const a3Missing: Suite = {
         const book = await oneBookIn('No Art');
         library().recordProgress(book.id, 42);
         const noArt = parkFolder(ctx.rootPath, 'No Art');
-        check(noArt.park(), 'could not park the book folder');
+        check(await noArt.park(), 'could not park the book folder');
         try {
           await ensureScan();
           check(!!bookById(book.id)?.missingFromDrive, 'setup: the book should be missing');
@@ -1026,7 +1026,7 @@ const a3Missing: Suite = {
           check(!bookById(book.id), 'the row survived being forgotten');
           return `${forgotten.length} forgotten`;
         } finally {
-          noArt.restore();
+          await noArt.restore();
           await ensureScan();
         }
       },

@@ -304,13 +304,15 @@ function removeIfEmpty(dir: Directory) {
  * percent-encodes them. A raw space in a `file://` URI is rejected outright by
  * the strict parser underneath `expo-file-system`.
  */
-function moveFolder(parent: Directory, from: string, to: string): boolean {
+async function moveFolder(parent: Directory, from: string, to: string): Promise<boolean> {
   const source = new Directory(parent, from);
   const target = new Directory(parent, to);
   removeIfEmpty(target);
   try {
     if (source.exists && !target.exists) {
-      source.move(target);
+      // Awaited: `move` returns a promise, so the check below used to run
+      // before the folder had gone anywhere.
+      await source.move(target);
       removeIfEmpty(source);
     }
   } catch {
@@ -340,14 +342,14 @@ export function parkFolder(rootPath: string, folderName: string) {
   const root = new Directory(`file://${rootPath.replace(/\/$/, '')}/`);
   const parkedName = `parked-${folderName}`;
   return {
-    park(): boolean {
+    async park(): Promise<boolean> {
       // Out of the library root and into its parent, so a scan cannot see it.
       const source = new Directory(root, folderName);
       const target = new Directory(libraryParent, parkedName);
       removeIfEmpty(target);
       try {
         if (source.exists && !target.exists) {
-          source.move(target);
+          await source.move(target);
           removeIfEmpty(source);
         }
       } catch {
@@ -355,13 +357,13 @@ export function parkFolder(rootPath: string, folderName: string) {
       }
       return !new Directory(root, folderName).exists;
     },
-    restore(): boolean {
+    async restore(): Promise<boolean> {
       const source = new Directory(libraryParent, parkedName);
       const target = new Directory(root, folderName);
       removeIfEmpty(target);
       try {
         if (source.exists && !target.exists) {
-          source.move(target);
+          await source.move(target);
           removeIfEmpty(source);
         }
       } catch {

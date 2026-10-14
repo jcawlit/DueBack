@@ -176,6 +176,16 @@ export function deleteLocalCopy(bookId: string) {
   removeQuietly(new Directory(booksDir(), bookId));
 }
 
+/**
+ * The copy being replaced, kept under this name until the new one is in place.
+ *
+ * SAF cannot rename, but app storage can, and a swap is the only way to make
+ * replacing a book's audio recoverable: there must be no moment when neither
+ * the old copy nor the new one is on disk. It costs two directory entries, not
+ * a second copy of the audio.
+ */
+const PREVIOUS_SUFFIX = '.previous';
+
 /** The book ids that currently have a folder of copied audio on the phone. */
 export function listLocalBookIds(): string[] {
   try {
@@ -184,9 +194,41 @@ export function listLocalBookIds(): string[] {
     return dir
       .list()
       .filter((e): e is Directory => e instanceof Directory)
-      .map((d) => d.name);
+      .map((d) => d.name)
+      .filter((name) => !name.endsWith(PREVIOUS_SUFFIX));
   } catch {
     return [];
+  }
+}
+
+/**
+ * Finishes or undoes a swap the app did not live to complete.
+ *
+ * Run at launch, before anything asks what is on the phone. A `.previous`
+ * folder means a replacement was in flight: if the book's own folder arrived,
+ * the old one is simply rubbish now; if it did not, the old copy is put back,
+ * which is the whole reason it was kept rather than deleted.
+ */
+export async function recoverInterruptedSwaps() {
+  try {
+    const dir = booksDir();
+    if (!dir.exists) return;
+    for (const entry of dir.list()) {
+      if (!(entry instanceof Directory) || !entry.name.endsWith(PREVIOUS_SUFFIX)) continue;
+      const bookId = entry.name.slice(0, -PREVIOUS_SUFFIX.length);
+      const target = new Directory(booksDir(), bookId);
+      if (target.exists) {
+        removeQuietly(entry);
+        continue;
+      }
+      try {
+        await entry.move(target);
+      } catch {
+        // Nothing else to try: leaving it where it is keeps the audio.
+      }
+    }
+  } catch {
+    // No books folder yet, or it cannot be listed.
   }
 }
 
@@ -432,10 +474,25 @@ export async function copyBookToDevice(
     if (__DEV__ && resumedParts > 0) {
       console.log(`[dueback] resumed ${resumedParts}/${parts.length} staged parts for ${bookId}`);
     }
+    /*
+     * The swap into place, and the two things that were wrong with it.
+     *
+     * `move` is asynchronous and was not awaited, so this function reported
+     * success while the audio was still in flight — `local_rel_path` was
+     * written for files that might not have arrived, and a move that failed
+     * failed silently, as an unhandled rejection.
+     *
+     * And it deleted the old copy before moving the new one in, leaving a
+     * window with neither on disk. The old copy is moved aside instead, and
+     * `recoverInterruptedSwaps` puts it back if the app does not get this far.
+     */
     const finalDir = new Directory(booksDir(), bookId);
     ensure(booksDir());
-    removeQuietly(finalDir);
-    staging.move(finalDir);
+    const previous = new Directory(booksDir(), `${bookId}${PREVIOUS_SUFFIX}`);
+    removeQuietly(previous);
+    if (finalDir.exists) await finalDir.move(previous);
+    await staging.move(finalDir);
+    removeQuietly(previous);
 
     return {
       ok: true,

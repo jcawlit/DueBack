@@ -355,13 +355,28 @@ export function deleteCover(fileName: string) {
  * Writes raw image bytes into the covers directory and returns the file's URI.
  * Downscaling happens in `covers.ts`, which needs a URI to work from.
  */
-export function writeCoverBytes(fileName: string, bytes: Uint8Array): string | null {
+export async function writeCoverBytes(
+  fileName: string,
+  bytes: Uint8Array,
+): Promise<string | null> {
   try {
-    const file = new File(coversDirectory(), fileName);
-    if (file.exists) file.delete();
-    file.create();
-    file.write(bytes);
-    return file.uri;
+    const target = new File(coversDirectory(), fileName);
+    /*
+     * Written beside the real name and swapped in, because the old file was
+     * deleted before the new one was created: a write interrupted between the
+     * two left the database pointing at a cover that no longer existed.
+     * Nothing is destroyed until the replacement is whole and the right size.
+     */
+    const scratch = new File(coversDirectory(), `${fileName}.part`);
+    if (scratch.exists) scratch.delete();
+    scratch.create();
+    scratch.write(bytes);
+    if ((scratch.size ?? 0) !== bytes.length) {
+      scratch.delete();
+      return null;
+    }
+    await scratch.move(target, { overwrite: true });
+    return target.uri;
   } catch {
     return null;
   }

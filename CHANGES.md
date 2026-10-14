@@ -1247,3 +1247,89 @@ file. The reported progress is unchanged; the number on screen just stops
 being rewritten when it has not moved.
 
 *`src/db/books.ts`, `src/store/library.ts`, `src/db/schema.ts`*
+
+---
+
+# Atomic-write pass — what the audit asked for, and what it found
+
+The brief: SAF cannot do temp-file-and-rename, so write versioned snapshots,
+validate them, keep a previous valid copy, and never let an interrupted write
+leave nothing recoverable.
+
+Half of that was already true, for a different reason. The other half found
+two places on *phone* storage — where rename does work — that were deleting
+the old thing before writing the new one. And looking at them turned up
+something worse than non-atomicity.
+
+## The commit step was never awaited
+
+`move` and `copy` are `AsyncFunction Coroutine` in the native module and
+return promises. `create`, `delete`, `write`, `list` and `size` are plain
+synchronous functions. The copy's commit mixed them:
+
+```ts
+removeQuietly(finalDir);
+staging.move(finalDir);     // a promise, dropped on the floor
+return { ok: true, localRelPaths: [...] };
+```
+
+So `copyBookToDevice` reported success while the audio was still in flight.
+`recordCheckoutComplete` then wrote `local_rel_path` for files that might not
+have arrived, and a move that failed did so as an unhandled rejection — no
+error, no slip, just a book the database believed in. This is a second and
+entirely sufficient cause of a book reaching 100% and disappearing, alongside
+the locked-database one fixed in the pass above.
+
+`covers.ts` had the same mistake: the finished thumbnail was moved into place
+unawaited and `target.size` read immediately after, which records a cover of
+no bytes.
+
+Lint cannot see this. `no-floating-promises` needs type-aware linting, which
+this config does not run.
+
+## Replacing audio is now a swap
+
+```ts
+const previous = new Directory(booksDir(), `${bookId}.previous`);
+removeQuietly(previous);
+if (finalDir.exists) await finalDir.move(previous);
+await staging.move(finalDir);
+removeQuietly(previous);
+```
+
+There is no longer a moment when neither copy is on disk, and
+`recoverInterruptedSwaps` runs at launch, before anything asks what audio is
+on the phone: if `books/<id>` is missing and `books/<id>.previous` is there,
+the old copy goes back. Two directory entries, not a second copy of the audio.
+
+## Covers are written beside their name and moved over it
+
+`writeCoverBytes` deleted the existing file, created an empty one, and then
+wrote the bytes — three steps with the old cover already gone. It now writes
+`<name>.part`, checks the size matches what it was given, and moves that over
+the target. Nothing is destroyed until the replacement is whole.
+
+## What was already right, and why snapshots do not fit the drive
+
+Pushing a book to the drive does not overwrite anything valid, so there is no
+previous version to keep:
+
+- a folder whose name is taken gets a numbered suffix, so an existing book is
+  never written over;
+- the only folder ever deleted is one already carrying the incomplete marker,
+  which is by definition not a valid copy;
+- the source stays on the phone, whole, until the push commits.
+
+An interrupted push therefore already leaves two recoverable things: the
+complete original in app storage, and a marked partial folder that every scan
+skips and the next attempt reclaims. A versioned snapshot would mean a second
+copy of a multi-gigabyte book on a drive the user chose for its capacity, to
+protect a write that cannot destroy anything.
+
+The gap that remains is the one named when the marker was built: dying between
+the last verified byte and the marker's deletion leaves a complete book that
+scans ignore until a retry reclaims it. Nothing is lost, and closing it needs
+a rename SAF does not have.
+
+*`src/lib/files/copy.ts`, `src/lib/files/access.ts`, `src/lib/files/covers.ts`,
+`src/dev/harness.ts`, `src/dev/suites.ts`, `src/store/library.ts`*

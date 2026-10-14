@@ -82,7 +82,7 @@ export async function storeCover(
   const scratchName = `scratch-${bookId}.${extensionFor(raw)}`;
   const finalName = `${bookId}.${coverToken(raw)}.jpg`;
 
-  const scratchUri = writeCoverBytes(scratchName, raw);
+  const scratchUri = await writeCoverBytes(scratchName, raw);
   if (!scratchUri) return null;
 
   try {
@@ -94,11 +94,14 @@ export async function storeCover(
       compress: 0.8,
     });
 
-    // Move the result to a stable name inside the covers directory.
+    /*
+     * Move the result to a stable name inside the covers directory. Awaited:
+     * `move` returns a promise, and reading `target.size` before it resolved
+     * recorded a cover of nothing.
+     */
     const target = new File(coverUri(finalName));
-    if (target.exists) target.delete();
     const produced = new File(saved.uri);
-    produced.move(target);
+    await produced.move(target, { overwrite: true });
     // Anything this book used to look like is now dead weight.
     deleteCoversFor(bookId, finalName);
 
@@ -113,7 +116,7 @@ export async function storeCover(
     // full-size cover in the cache is wasteful but far better than a book with
     // no picture, and real covers top out around 2 MB.
     if (raw.length <= 3 * 1024 * 1024) {
-      const kept = writeCoverBytes(finalName, raw);
+      const kept = await writeCoverBytes(finalName, raw);
       if (kept) {
         deleteCoversFor(bookId, finalName);
         return { fileName: finalName, uri: kept, source, bytes: raw.length };

@@ -115,6 +115,49 @@ prefix — `isIncompleteMarker` — not by equality.
 
 *`src/lib/library/grouping.ts`, `src/lib/files/import.ts`*
 
+### move() and copy() are asynchronous; delete() and write() are not
+
+`File`/`Directory` `move` and `copy` are `AsyncFunction Coroutine` in the
+native module and return promises. `create`, `delete`, `write`, `list`, `size`
+and `modificationTime` are plain `Function`s and run on the JS thread.
+
+Mixing the two silently is easy and was done in three places. The commit step
+of a check-out called `staging.move(finalDir)` without awaiting it, then
+returned success — so the database recorded `local_rel_path` for files that
+might not have arrived, and a move that failed did so as an unhandled
+rejection. Cover storage moved the finished thumbnail into place unawaited and
+then read `target.size`, which is why covers were recorded with a size of
+nothing.
+
+Lint will not catch this: `no-floating-promises` needs type-aware linting,
+which this config does not run.
+
+*`src/lib/files/copy.ts`, `src/lib/files/covers.ts`, `src/dev/harness.ts`*
+
+### Replacing files on the phone is a swap, never a clear-and-refill
+
+SAF cannot rename, so a book written to the drive goes straight into its final
+folder and is protected by a marker. App storage *can* rename, so nothing
+there has that excuse, and two places were deleting the old thing before
+writing the new one:
+
+- a check-out's commit deleted `books/<id>` and then moved the staging folder
+  in — a window with neither on disk;
+- `writeCoverBytes` deleted the cover, created an empty file, and then wrote
+  the bytes.
+
+Both now build the replacement in full, under another name, and swap. The
+check-out moves the old copy to `books/<id>.previous` and deletes it only once
+the new one has landed; `recoverInterruptedSwaps` runs at launch and puts it
+back if the app died in between. Covers are written to `<name>.part`,
+size-checked, and moved over the top.
+
+The cost is two directory entries, not a second copy of the audio — which is
+why this is worth doing here and a versioned snapshot of a multi-gigabyte book
+would not be.
+
+*`src/lib/files/copy.ts`, `src/lib/files/access.ts`*
+
 ### A file handle on a content:// URI goes dead on its own
 
 `FileSystemFileHandle.forContentURI` opens a `ParcelFileDescriptor`, wraps its
