@@ -157,6 +157,9 @@ export async function buildImportedBook(
     authorSource: name.authorSource,
     durationSec: cursor,
     sizeBytes: parts.reduce((n, p) => n + p.sizeBytes, 0),
+    // Shape, so an import pushed to the drive is recognisable as the same
+    // book when it is read back from there.
+    partSizes: parts.map((p) => p.sizeBytes),
     coverFile,
     coverSource,
     chaptersFromParts,

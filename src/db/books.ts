@@ -60,7 +60,17 @@ export type PartRow = {
 
 /** Everything the scanner knows about one book after reading its files. */
 export type ScannedBook = {
+  /** The book's identity. A uuid, minted once and kept for ever. */
   id: string;
+  /** Where it was found, which is how a scan finds this row again. */
+  pathKey?: string;
+  /** The library it belongs to, so a drive at a new path keeps its books. */
+  libraryId?: string | null;
+  /** Part sizes in playback order, for recognising a book that has moved. */
+  partSizes?: number[];
+  /** Proof that a candidate is the same audio. Null until sampled. */
+  sampleHash?: string | null;
+  sampleVersion?: number;
   folderRelPath: string;
   rawFolderName: string;
   title: string;
@@ -135,8 +145,9 @@ export async function upsertBook(book: ScannedBook, options: UpsertOptions = {})
          title_source, author_source, duration_sec, size_bytes,
          cover_file, cover_source, dominant_color,
          missing, drm, warnings, skipped_files, last_scanned_at,
-         scan_ms, bytes_read, read_count, chapters_from_parts
-       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?)
+         scan_ms, bytes_read, read_count, chapters_from_parts,
+         path_key, library_id, part_sizes, sample_hash, sample_version
+       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET
          folder_rel_path = excluded.folder_rel_path,
          raw_folder_name = excluded.raw_folder_name,
@@ -158,7 +169,14 @@ export async function upsertBook(book: ScannedBook, options: UpsertOptions = {})
          scan_ms         = excluded.scan_ms,
          bytes_read      = excluded.bytes_read,
          read_count      = excluded.read_count,
-         chapters_from_parts = excluded.chapters_from_parts`,
+         chapters_from_parts = excluded.chapters_from_parts,
+         path_key        = COALESCE(excluded.path_key, books.path_key),
+         library_id      = COALESCE(excluded.library_id, books.library_id),
+         part_sizes      = COALESCE(excluded.part_sizes, books.part_sizes),
+         -- A scan that did not sample keeps the sample it has: the hash is
+         -- what proves a moved book, and dropping it would cost a prompt.
+         sample_hash     = COALESCE(excluded.sample_hash, books.sample_hash),
+         sample_version  = MAX(excluded.sample_version, books.sample_version)`,
       book.id,
       book.folderRelPath,
       book.rawFolderName,
@@ -180,6 +198,11 @@ export async function upsertBook(book: ScannedBook, options: UpsertOptions = {})
       book.bytesRead,
       book.readCount,
       book.chaptersFromParts ? 1 : 0,
+      book.pathKey ?? null,
+      book.libraryId ?? null,
+      book.partSizes ? JSON.stringify(book.partSizes) : null,
+      book.sampleHash ?? null,
+      book.sampleVersion ?? 0,
     );
 
     /*

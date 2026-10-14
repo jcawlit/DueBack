@@ -147,6 +147,11 @@ export const useScan = create<ScanState>((set, get) => ({
       else syncedRoot = null;
 
       await useLibrary.getState().refresh();
+      // Asked after the refresh, so the books named in the question are the
+      // ones on screen behind it.
+      if (result.reconnectQuestions.length > 0) {
+        useLibrary.getState().askReconnect(result.reconnectQuestions);
+      }
     } catch (err) {
       set({ error: (err as Error)?.message ?? 'The scan failed.' });
     } finally {

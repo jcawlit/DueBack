@@ -5,6 +5,7 @@
  */
 
 import * as SQLite from 'expo-sqlite';
+import { rewriteBookIdsToUuids } from './identityMigration';
 
 export const DB_NAME = 'dueback.db';
 
@@ -209,6 +210,29 @@ const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
         ON note_characters(character_id);
     `);
   },
+  async (db) => {
+    /*
+     * Books stop being their path.
+     *
+     * `path_key` is where a book was found — the old id, which was a hash of
+     * exactly that — and `id` becomes a uuid that survives the folder being
+     * renamed, moved, or reached through a different mount.
+     *
+     * The shape columns are what narrows a vanished book to candidates
+     * without reading any audio; `sample_hash` is what proves one of them.
+     * `library_id` keeps books attached to the library they came from, so a
+     * drive recognised at a new path brings its books with it.
+     */
+    await db.execAsync(`
+      ALTER TABLE books ADD COLUMN path_key TEXT;
+      ALTER TABLE books ADD COLUMN library_id TEXT;
+      ALTER TABLE books ADD COLUMN part_sizes TEXT;
+      ALTER TABLE books ADD COLUMN sample_hash TEXT;
+      ALTER TABLE books ADD COLUMN sample_version INTEGER NOT NULL DEFAULT 0;
+      CREATE INDEX IF NOT EXISTS idx_books_path_key ON books(library_id, path_key);
+    `);
+    await rewriteBookIdsToUuids(db);
+  },
 ];
 
 async function migrate(db: SQLite.SQLiteDatabase) {
@@ -250,4 +274,8 @@ export const SETTING_KEYS = {
   lastBookId: 'player.lastBookId',
   /** Whether notes and bios are shown in the handwriting face. */
   handwrittenNotes: 'notes.handwritten',
+  /** This library's identity, which outlives the path it is reached through. */
+  libraryId: 'library.id',
+  /** This phone, for deciding who wrote a record when two devices disagree. */
+  deviceId: 'device.id',
 } as const;

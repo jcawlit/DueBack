@@ -25,6 +25,7 @@ import {
   setLocalState,
   updateProgress,
 } from '@/db/books';
+import { reconnectBook, type ReconnectQuestion } from '@/db/identity';
 import {
   copyImportToDrive,
   deleteImport,
@@ -131,6 +132,19 @@ type LibraryState = {
   /** Copies the pending imports onto the library drive. */
   pushImportsToDrive: () => Promise<void>;
   dismissDriveImportOffer: () => void;
+
+  /**
+   * Books that have gone, and the folders that might be them.
+   *
+   * Raised by a scan that found something resembling a book it could not
+   * account for, but could not prove. Answering is the user's: reconnecting
+   * the wrong one moves their place, their history and their notes onto a
+   * book that is not theirs.
+   */
+  reconnectQuestions: ReconnectQuestion[];
+  /** `candidateId` null keeps them separate. */
+  answerReconnect: (missingId: string, candidateId: string | null) => Promise<void>;
+  askReconnect: (questions: ReconnectQuestion[]) => void;
 
   showSlip: (slip: Slip) => void;
   dismissSlip: () => void;
@@ -654,6 +668,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     libraryOnDevice: false,
     driveLastSeenAt: new Date().toISOString(),
     slip: null,
+    reconnectQuestions: [],
     confirm: null,
     importing: null,
     pendingDriveImports: [],
@@ -1126,6 +1141,25 @@ export const useLibrary = create<LibraryState>((set, get) => {
           ? `${book.title} taken out of the queue.`
           : `${book.title} taken off hold.`,
       });
+    },
+
+    askReconnect: (questions) => set({ reconnectQuestions: questions }),
+
+    answerReconnect: async (missingId, candidateId) => {
+      set((s) => ({
+        reconnectQuestions: s.reconnectQuestions.filter((q) => q.missingId !== missingId),
+      }));
+      if (!candidateId) return;
+      try {
+        await reconnectBook(candidateId, missingId);
+        await get().refresh();
+        flashSlip({ kind: 'note', stamp: 'REJOINED', text: 'Your place and notes are back.' });
+      } catch (err) {
+        flashSlip({
+          kind: 'wont-fit',
+          text: `Those two books could not be joined: ${(err as Error)?.message ?? 'unknown error'}`,
+        });
+      }
     },
 
     showSlip: flashSlip,

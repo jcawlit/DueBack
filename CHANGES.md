@@ -1481,3 +1481,88 @@ notes, and the count behind the forget warning.
 `src/components/NoteText.tsx`, `src/components/BookTabs.tsx`, `src/components/WhosWho.tsx`,
 `src/components/ChapterScrubber.tsx`, `src/app/player/[id].tsx`, `src/app/book/[id].tsx`,
 `src/app/settings.tsx`, `src/app/_layout.tsx`, `src/dev/marginsSuite.ts`*
+
+---
+
+# Identity pass — a book stops being its path
+
+## The problem, stated plainly
+
+A book's id was a hash of its folder path. Rename the folder, move it into a
+series folder, or reach the same drive through a different mount, and the app
+made a stranger of a book someone was halfway through — their place, their
+library-card history and everything they wrote in the margins stayed attached
+to an id nothing pointed at any more.
+
+## Identity is a uuid; the path is a lookup
+
+Migration 7 rewrites every book id to a uuid in one transaction, moving
+`parts`, `chapters`, `checkouts`, `notes` and `characters` with it, and keeps
+the old hash as `path_key` — which is exactly what it was, a record of where
+the book was found. A folder with no matching key is a new book; whether it is
+*really* a book that moved is decided separately.
+
+Each library has an id too, kept in `.dueback/library.json` at the root. The
+drive's answer always wins, and is never overwritten: two phones that each
+minted an id for one drive would otherwise take turns renaming it, and every
+book would change libraries on every scan. Path keys are matched within one
+library, because a path key is only a path and two libraries can both hold
+`A Book/01.mp3`.
+
+## Shape finds candidates; only content reconnects
+
+Books now record their part count, the size of each part, and a content sample
+— 64 KB from each end of up to four parts, chosen deterministically, with the
+part sizes folded in. Four parts rather than all of them because a 148-part
+book would otherwise mean 19 MB of USB reading on every first index, to guard
+against a case the part-size list already all but rules out.
+
+The rule the feature turns on: **reconnect without asking only when there is
+exactly one candidate and its content sample matches.** Everything else asks.
+
+## Where the app asks instead of deciding
+
+- **One candidate, content unproven** — the shapes match exactly but the
+  sample does not, or either side was never sampled. "I couldn't read enough
+  of it to be sure."
+- **Two or more candidates of the same shape** — even if exactly one matches
+  by content. The usual cause is the same rip in two folders, and which one
+  someone meant is not something a hash can answer.
+
+Both arrive as `ReconnectSheet`, one at a time, with "Keep them separate"
+always available and nothing lost by choosing it — the question is asked again
+on the next scan.
+
+Questions are only raised by a scan that **completed** and could **read the
+root**. A cancelled scan or an unplugged drive has not shown that anything is
+missing, and offering to merge books on that evidence would be inviting
+someone to join two because a cable was loose.
+
+## Reconnecting
+
+The old identity keeps everything a scan cannot rebuild — progress, finished,
+where the local copy is, checkout history, notes and characters — and takes on
+everything the scan just learned. Local part paths move across **by index**:
+the paths changed, the audio and its order did not, and that is what the
+sample proved.
+
+## Tests
+
+28 new unit tests in `tests/identity.test.ts`: path keys for renames, splits
+and loose root files; sample ranges, bounded part selection and hash
+sensitivity; candidate matching including the two-second duration slack; every
+branch of the reconnect decision; and the id migration against a recording
+stand-in for the database, checking that every referencing table is renamed to
+the same uuid and the old id survives as the path key.
+
+Five on-device cases in `src/dev/identitySuite.ts` (A13) for what needs a real
+database and a real folder: every book has a uuid distinct from its path key,
+a scan records shape and sample, a rescan keeps the uuid, a renamed folder
+keeps its place and its notes, and a reconnection moves the audio while
+keeping everything written.
+
+*`src/lib/library/identity.ts`, `src/lib/library/ids.ts`, `src/lib/scan/sample.ts`,
+`src/lib/scan/scanner.ts`, `src/lib/sync/driveFolder.ts`, `src/db/identity.ts`,
+`src/db/identityMigration.ts`, `src/db/schema.ts`, `src/db/books.ts`,
+`src/store/library.ts`, `src/store/scan.ts`, `src/components/ReconnectSheet.tsx`,
+`src/components/GlobalReconnect.tsx`, `src/dev/identitySuite.ts`*

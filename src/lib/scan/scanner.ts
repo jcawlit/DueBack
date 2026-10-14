@@ -26,7 +26,8 @@ import {
 } from '@/lib/library/grouping';
 import { resolveName } from '@/lib/library/names';
 import { sanitiseChapters } from '@/lib/library/chapters';
-import { bookIdFor } from '@/lib/library/ids';
+import { newUuid, pathKeyFor } from '@/lib/library/ids';
+import { sampleBook } from './sample';
 import {
   claimedDriveFolders,
   existingFingerprints,
@@ -35,6 +36,36 @@ import {
   type ScannedBook,
 } from '@/db/books';
 import { SETTING_KEYS, setSetting } from '@/db/schema';
+import {
+  adoptLibraryId,
+  ensureLibraryId,
+  loadPathKeyIndex,
+  loadVanishedBooks,
+  reconnectBook,
+  type ReconnectQuestion,
+} from '@/db/identity';
+import { planReconnection, shapeOf } from '@/lib/library/identity';
+import { readDriveLibrary, writeDriveLibrary } from '@/lib/sync/driveFolder';
+
+/**
+ * Which library this root is.
+ *
+ * The drive's own answer wins. A drive carries its identity in `.dueback`, so
+ * the same stick reached through a different mount — or picked again after
+ * the app forgot it — is still the same library, and its books keep their
+ * uuids. A drive that has never been asked is told, once; a drive that cannot
+ * be written to simply keeps whatever this phone already had.
+ */
+async function resolveLibraryId(rootUri: string): Promise<string> {
+  const mine = await ensureLibraryId();
+  const onDrive = readDriveLibrary(rootUri);
+  if (onDrive) {
+    if (onDrive.libraryId !== mine) await adoptLibraryId(onDrive.libraryId);
+    return onDrive.libraryId;
+  }
+  const written = writeDriveLibrary(rootUri, mine);
+  return written?.libraryId ?? mine;
+}
 
 export type ScanPhase = 'listing' | 'grouping' | 'reading' | 'saving' | 'done' | 'failed';
 
@@ -66,6 +97,17 @@ export type ScanResult = {
   unreadableFiles: string[];
   /** False when the user stopped the scan partway through. */
   completed: boolean;
+  /** Books recognised as a folder that had moved, and reconnected silently. */
+  reconnected: number;
+  /**
+   * Books that may have moved, where the scan declined to decide.
+   *
+   * Reconnecting the wrong book moves someone's place, their history and
+   * everything they wrote onto a book that is not theirs, and there is no undo
+   * for that worth the name. So anything short of one candidate proved by its
+   * content comes back here for the user to answer.
+   */
+  reconnectQuestions: ReconnectQuestion[];
   /**
    * False when the root itself could not be listed — an unplugged drive, a
    * revoked permission, a folder deleted on a computer. Distinct from an empty
@@ -131,11 +173,20 @@ function partitionByAlbum(reads: GroupRead[]): GroupRead[][] {
 /**
  * Reads one folder and returns every book it contains — usually one.
  */
+/** What a scan needs to know about books it has already seen before. */
+export type IdentityContext = {
+  /** This library, so books stay attached to it across a change of path. */
+  libraryId: string | null;
+  /** Where a book was last found, to its uuid. */
+  byPathKey: Map<string, string>;
+};
+
 async function readGroup(
   group: FileGroup,
   allFiles: ScannedFile[],
   /** Folders an existing book already claims; see `claimedDriveFolders`. */
   claimed: Map<string, string>,
+  identity: IdentityContext,
 ): Promise<ScannedBook[]> {
   // An image beside the audio beats embedded artwork, and knowing that up front
   // means the embedded cover can be skipped entirely.
@@ -154,12 +205,17 @@ async function readGroup(
 
   const units = partitionByAlbum(reads);
   if (units.length === 1) {
-    // A folder this app put on the drive itself keeps the id of the book it
-    // was copied from, rather than being read back as a new one.
+    const pathKey = pathKeyFor(group.folderRelPath, group.files, { split: group.split });
+    /*
+     * Three ways to be a book that already exists, in order of how sure we
+     * are: a folder this app wrote to the drive itself (it carries the id of
+     * the book it was copied from), a folder we have walked before, and
+     * otherwise a brand-new identity that reconciliation may later recognise
+     * as a book that has moved.
+     */
     const id =
-      claimed.get(group.folderRelPath) ??
-      bookIdFor(group.folderRelPath, group.files, { split: group.split });
-    return [await buildBook(group, units[0], allFiles, id, coverImage)];
+      claimed.get(group.folderRelPath) ?? identity.byPathKey.get(pathKey) ?? newUuid();
+    return [await buildBook(group, units[0], allFiles, id, coverImage, pathKey, identity)];
   }
 
   // The folder turned out to be a shelf. Each book past the first needs its own
@@ -173,7 +229,10 @@ async function readGroup(
       unit[0] = { file: first.file, read: reread };
     }
     const files = unit.map((u) => u.file);
-    const id = bookIdFor(group.folderRelPath, files, { split: true });
+    // One folder, several books: the first file's name tells them apart, and
+    // each keeps its own identity across a rename of the folder around them.
+    const pathKey = pathKeyFor(group.folderRelPath, files, { split: true });
+    const id = identity.byPathKey.get(pathKey) ?? newUuid();
     books.push(
       await buildBook(
         {
@@ -190,6 +249,8 @@ async function readGroup(
         allFiles,
         id,
         coverImage,
+        pathKey,
+        identity,
       ),
     );
   }
@@ -202,6 +263,8 @@ async function buildBook(
   allFiles: ScannedFile[],
   bookId: string,
   coverImage: ScannedFile | null,
+  pathKey: string,
+  identity: IdentityContext,
 ): Promise<ScannedBook> {
   const started = Date.now();
   const warnings: string[] = [];
@@ -352,8 +415,24 @@ async function buildBook(
   const drm = group.drmFiles > 0 || !!meta?.drm;
   if (drm) warnings.push("Can't play: protected by DRM");
 
+  /*
+   * The content sample, taken here because this is the only moment the book is
+   * known to be readable. It is what lets a folder renamed tomorrow be
+   * recognised as this book rather than a stranger. `npm run kb identity`.
+   */
+  const sampled = await sampleBook(parts);
+  if (sampled) {
+    bytesRead += sampled.bytesRead;
+    readCount += sampled.readCount;
+  }
+
   return {
     id: bookId,
+    pathKey,
+    libraryId: identity.libraryId,
+    partSizes: parts.map((p) => p.sizeBytes),
+    sampleHash: sampled?.hash ?? null,
+    sampleVersion: sampled?.version ?? 0,
     folderRelPath: group.folderRelPath,
     rawFolderName: group.folderName,
     title: name.title,
@@ -404,6 +483,21 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
   });
 
   const groups = groupIntoBooks(listing.files);
+  /*
+   * Identity is settled before anything is read, so that a folder walked
+   * before keeps its uuid and a folder that is new gets one of its own — and
+   * the two can be told apart afterwards, which is what makes recognising a
+   * renamed folder possible at all.
+   */
+  const libraryId = await resolveLibraryId(options.rootUri);
+  const identity: IdentityContext = {
+    libraryId,
+    byPathKey: await loadPathKeyIndex(libraryId),
+  };
+  /** Books with no prior row: the only things a vanished book could become. */
+  const freshlyFound: { id: string; title: string; folderRelPath: string }[] = [];
+  /** Their shapes, so a vanished book can be matched without re-reading. */
+  const scannedShapes = new Map<string, { shape: ReturnType<typeof shapeOf>; sampleHash: string | null }>();
   const fingerprints = await existingFingerprints();
   const claimed = await claimedDriveFolders();
   if (__DEV__) {
@@ -459,9 +553,25 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
     }
 
     try {
-      const books = await readGroup(group, listing.files, claimed);
+      const books = await readGroup(group, listing.files, claimed, identity);
       for (const book of books) {
+        const isNew = !identity.byPathKey.has(book.pathKey ?? '');
         await upsertBook(book);
+        if (isNew) {
+          freshlyFound.push({
+            id: book.id,
+            title: book.title,
+            folderRelPath: book.folderRelPath,
+          });
+          scannedShapes.set(book.id, {
+            shape: shapeOf({
+              sizeBytes: book.sizeBytes,
+              durationSec: book.durationSec,
+              partSizes: book.partSizes ?? [],
+            }),
+            sampleHash: book.sampleHash ?? null,
+          });
+        }
         seenIds.push(book.id);
         bytesRead += book.bytesRead;
         readCount += book.readCount;
@@ -491,6 +601,52 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
   const rootReadable = listing.rootReadable;
   const completed = !cancelled;
   // The evidence travels with the call; `markMissingExcept` declines without it.
+  /*
+   * Books that did not turn up, against folders that were not there before.
+   *
+   * Only worth asking when the scan actually walked the whole of a readable
+   * root: a cancelled scan or an unplugged drive has not shown that anything
+   * is missing, and offering to reconnect on that evidence would be inviting
+   * someone to merge two books because the cable was loose.
+   */
+  let reconnected = 0;
+  const reconnectQuestions: ReconnectQuestion[] = [];
+  if (completed && rootReadable && freshlyFound.length > 0) {
+    const vanished = await loadVanishedBooks(seenIds);
+    const unclaimed = new Set(freshlyFound.map((b) => b.id));
+
+    for (const gone of vanished) {
+      const candidates = freshlyFound
+        .filter((found) => unclaimed.has(found.id))
+        .map((found) => {
+          const row = scannedShapes.get(found.id);
+          return {
+            book: found,
+            shape: row?.shape ?? { sizeBytes: -1, durationSec: -1, partCount: -1, partSizes: [] },
+            sampleHash: row?.sampleHash ?? null,
+          };
+        });
+
+      const plan = planReconnection(gone, candidates);
+      if (plan.kind === 'reconnect') {
+        await reconnectBook(plan.to.id, gone.id);
+        unclaimed.delete(plan.to.id);
+        // The found row is gone; the identity that kept its place is seen.
+        const at = seenIds.indexOf(plan.to.id);
+        if (at >= 0) seenIds[at] = gone.id;
+        reconnected += 1;
+      } else if (plan.kind === 'ask') {
+        reconnectQuestions.push({
+          missingId: gone.id,
+          missingTitle: gone.title,
+          missingFolder: gone.folderRelPath,
+          candidates: plan.candidates,
+          reason: plan.reason,
+        });
+      }
+    }
+  }
+
   await markMissingExcept(seenIds, { completed, rootReadable });
 
   const now = new Date().toISOString();
@@ -503,6 +659,8 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
   const result: ScanResult = {
     completed,
     rootReadable,
+    reconnected,
+    reconnectQuestions,
     books: groups.length,
     updated,
     unchanged,

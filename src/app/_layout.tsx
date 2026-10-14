@@ -20,6 +20,7 @@ import { InstrumentSans_400Regular } from '@expo-google-fonts/instrument-sans/40
 import { Caveat_400Regular } from '@expo-google-fonts/caveat/400Regular';
 import { color } from '@/theme/tokens';
 import { GlobalConfirm } from '@/components/GlobalConfirm';
+import { GlobalReconnect } from '@/components/GlobalReconnect';
 import { GlobalSlip } from '@/components/GlobalSlip';
 import { MiniPlayer } from '@/components/MiniPlayer';
 import { usePlayer } from '@/store/player';
@@ -215,6 +216,7 @@ export default function RootLayout() {
       <MiniPlayer />
       <GlobalSlip />
       <GlobalConfirm />
+      <GlobalReconnect />
     </SafeAreaProvider>
   );
 }

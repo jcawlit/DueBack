@@ -37,6 +37,7 @@ import {
 } from './harness';
 import { Directory, File } from 'expo-file-system';
 import { a12Margins } from './marginsSuite';
+import { a13Identity } from './identitySuite';
 import {
   deleteBook,
   forgetMissingBooks,
@@ -2215,6 +2216,7 @@ export const SUITES: Suite[] = [
   a11Ui,
   a0Extras,
   a12Margins,
+  a13Identity,
 ];
 
 export function suitesFor(selector: string | undefined): Suite[] {

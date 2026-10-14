@@ -482,6 +482,73 @@ a slow `open` cannot overwrite a newer one.
 
 ---
 
+## Identity
+
+### A path locates a book; it does not identify one
+
+A book's id used to be a hash of its folder path, so renaming the folder made
+a stranger of a book someone was halfway through — taking their place, their
+library-card history and everything they wrote in the margins with it.
+
+Identity is now a uuid, minted once. The old hash survives as `path_key`,
+which is how a scan finds the row for a folder it has just walked. A folder
+with no matching key is a new book; whether it is *really* a book that moved
+is `planReconnection`.
+
+*`src/lib/library/ids.ts`, `src/lib/library/identity.ts`*
+
+### Shape finds candidates; only content reconnects
+
+Size, duration, part count and the list of part sizes narrow a vanished book
+to candidates. That is all they do. Two files of the same length are the same
+length, and nothing more follows from it.
+
+The app reconnects on its own only when **there is exactly one candidate and
+its content sample matches**. One candidate that cannot be proved asks. Two
+candidates ask even if one matches, because the usual cause is the same rip in
+two folders and which one was meant is not something a hash can answer.
+
+Durations are compared with two seconds of slack — a duration is whatever the
+tags claimed, and tools round it differently — while byte counts are compared
+exactly.
+
+*`src/lib/library/identity.ts` (`planReconnection`)*
+
+### The content sample is bounded on purpose
+
+Four parts at most, 64 KB from each end. Every part would mean 19 MB of USB
+reading for a 148-part book on every first index, to guard against a case the
+part-size list already all but rules out. Which four is deterministic, so the
+same book always samples the same way, and the part sizes are folded into the
+hash so parts that were never read still count.
+
+Paid once: an incremental scan skips unchanged folders, and `upsertBook` keeps
+an existing hash when a scan did not take one.
+
+*`src/lib/scan/sample.ts`, `src/lib/library/identity.ts`*
+
+### A drive knows which library it is
+
+`.dueback/library.json` at the library root holds the library id, and the
+drive's answer always wins — the same stick through a different mount is the
+same library, and its books keep their uuids. It is never overwritten: two
+phones that each minted an id for one drive would otherwise take turns
+renaming it, and every book on it would change libraries on every scan.
+
+Path keys are looked up **within one library**, because a path key is only a
+path and two libraries can both hold `A Book/01.mp3`. Books recorded with no
+library are included, since that is every book indexed before this existed.
+
+*`src/lib/sync/driveFolder.ts`, `src/db/identity.ts`*
+
+### Reconnecting carries local paths by index, not by path
+
+The whole reason a reconnection is happening is that the paths changed. The
+audio did not, and nor did its order — which is what the content sample
+proved — so a checked-out book's local part paths move across by index.
+
+*`src/db/identity.ts` (`reconnectBook`)*
+
 ## The margins
 
 ### A bookmark is a note with nothing in it
