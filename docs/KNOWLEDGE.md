@@ -952,6 +952,22 @@ one careful path.
 
 ## Build and dependencies
 
+### A local native module is not linked until you say where it lives
+
+`modules/` is not scanned by default. Without
+`expo.autolinking.nativeModulesDir` in `package.json`, autolinking never looks
+there — and nothing fails: the Gradle build succeeds, no warning appears, and
+the only symptom is `requireOptionalNativeModule` returning null at runtime
+with every control reporting "not supported on this device".
+
+Check it with `npx expo-modules-autolinking search --platform android` and
+look for the module by name, or watch for `:dueback-audio:` tasks in the
+Gradle log. A merged permission is not proof — `MODIFY_AUDIO_SETTINGS` comes
+from expo-audio as well.
+
+*`package.json`, `modules/dueback-audio/`*
+
+
 ### Do not run `expo install --fix` on this project
 
 `expo-doctor` reports a missing `expo-asset` peer and four patch bumps.
