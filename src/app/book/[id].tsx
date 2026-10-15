@@ -17,7 +17,7 @@ import { BookCover } from '@/components/BookCover';
 import { COMPACT_CARD_ESTIMATE, LibraryCard, LibraryCardSheet } from '@/components/LibraryCard';
 import { StatusTag } from '@/components/CoverBadges';
 import { NoteCard, NoteText } from '@/components/NoteCard';
-import { ChevronLeft } from '@/components/icons';
+import { ChevronLeft, PlayIcon } from '@/components/icons';
 import { CardStack, type BookTab, type StackTab } from '@/components/CardStack';
 import { NotesCard } from '@/components/NotesCard';
 import { CharacterSheet, CharactersCard } from '@/components/CharactersCard';
@@ -31,28 +31,123 @@ import type { Character, Note } from '@/data/notes';
 /** The cover's own pixel size at scale 1, from `CoverFace`'s "book" spec. */
 const COVER_BOOK_WIDTH = 168;
 const COVER_BOOK_HEIGHT = 248;
-/** The cover is scaled down to leave the card somewhere to sit. */
-const HERO_COVER_SCALE = 0.88;
-/** How far the card is sunk over the cover, and how far past its right edge. */
-const CARD_SINK = 40;
-const CARD_OVERHANG = 24;
 /**
  * The page edge drawn beside the cover, passed to `BookCover` as `edgeWidth`.
  *
- * It is a sibling of the cover in a row, not part of it, so the book's right
- * edge — the thing the card is positioned against — is the cover plus this.
- * Fixed rather than scaled: `PageEdge` takes the number as given.
+ * A sibling of the cover in a row, not part of it, so the book's outer right
+ * edge is the cover plus this. Fixed rather than scaled: `PageEdge` takes the
+ * number as given.
  */
 const EDGE_WIDTH = 13;
 /**
- * Title, meta, progress and the two actions: what the cover cannot have.
+ * How far the card crosses the hero's centre line onto the cover.
  *
- * Down from 560, which was the figure when the library card sat in the stack
- * below. It does not any more — it is part of the hero, and `cardDrop` now
- * accounts for it. Leaving 560 in place charged the cover for the card twice
- * and shrank it to 0.71 on a Pixel, well under the 0.88 it is meant to be.
+ * Small on purpose. The card is laid down *beside* the book and catches its
+ * lower corner; the first version draped it across the artwork, which left
+ * the whole right half of the screen empty.
  */
-const HERO_CHROME = 430;
+const CARD_OVERLAP = 18;
+/** The two compact actions stacked in the top-right, and the air below them. */
+const ACTION_HEIGHT = 46;
+const ACTION_GAP = 10;
+const ACTION_STACK = ACTION_HEIGHT * 2 + ACTION_GAP;
+const CARD_CLEARANCE = 12;
+/** Under this, the right column cannot hold a button label worth reading. */
+const MIN_ACTION_COLUMN = 130;
+/**
+ * What sits below the hero: the title block, the progress block and its
+ * footnote, and enough of the card stack to show it is there.
+ *
+ * Down from 430, and from 560 before that. The full-width action slabs are
+ * gone from the bottom of the screen — the actions are in the hero now — so
+ * the cover is no longer charged for them.
+ */
+const HERO_CHROME = 300;
+
+type Action = {
+  /** The whole sentence, for a screen reader. */
+  label: string;
+  /** What fits in a button half the screen wide. */
+  short: string;
+  onPress?: () => void;
+  tone: 'accent' | 'muted';
+  /** Whether pressing this starts audio, and so earns the play glyph. */
+  plays?: boolean;
+};
+
+type Secondary = { label: string; short: string; onPress: () => void };
+
+/** The amber action. Compact: one line, and the glyph only when it plays. */
+function PrimaryButton({ action }: { action: Action }) {
+  const accent = action.tone === 'accent';
+  return (
+    <Pressable
+      onPress={action.onPress}
+      disabled={!action.onPress}
+      accessibilityRole="button"
+      accessibilityLabel={action.label}
+      accessibilityState={{ disabled: !action.onPress }}
+      style={({ pressed }) => [
+        {
+          flex: 1,
+          minHeight: ACTION_HEIGHT,
+          borderRadius: radius.button,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 6,
+          paddingHorizontal: space.sm,
+          backgroundColor: accent ? color.accent : color.panel,
+          borderWidth: accent ? 0 : 1,
+          borderColor: color.border,
+          opacity: pressed ? 0.85 : 1,
+        },
+        accent ? shadow(8, 0.3) : null,
+      ]}
+    >
+      {action.plays && action.onPress ? <PlayIcon size={13} fill={color.ground} /> : null}
+      <Text
+        numberOfLines={1}
+        style={{
+          fontFamily: font.serif,
+          fontSize: 15,
+          color: accent ? color.ground : color.muted,
+        }}
+      >
+        {action.short}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** The outline action. Deliberately not a slab: returning is not an accident. */
+function SecondaryButton({ action, finished }: { action: Secondary; finished: boolean }) {
+  return (
+    <Pressable
+      onPress={action.onPress}
+      accessibilityRole="button"
+      accessibilityLabel={action.label}
+      style={({ pressed }) => ({
+        flex: 1,
+        minHeight: ACTION_HEIGHT,
+        borderRadius: radius.button,
+        borderWidth: 1,
+        borderColor: finished ? color.accent : color.border,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: space.sm,
+        opacity: pressed ? 0.7 : 1,
+      })}
+    >
+      <Text
+        numberOfLines={1}
+        style={{ fontFamily: font.mono, fontSize: 12, color: finished ? color.accent : color.paper }}
+      >
+        {action.short}
+      </Text>
+    </Pressable>
+  );
+}
 
 export default function BookScreen() {
   const insets = useSafeAreaInsets();
@@ -60,43 +155,58 @@ export default function BookScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
   /*
-   * The hero is a cover with the library card laid over its lower corner.
+   * The hero is four quadrants, not an overlay.
    *
-   * Two things changed the old sum. The cover is deliberately smaller — the
-   * card beside it is the other half of the composition, and a full-size
-   * cover leaves it nowhere to sit — and the card hangs below the cover by
-   * its own height less the overlap, which is vertical space the cover can
-   * no longer have. So the fit is measured against what is left after that
-   * drop, and then capped at HERO_COVER_SCALE rather than at 1.
+   * The cover fills the left half top to bottom. The two actions sit in the
+   * top-right, the library card in the bottom-right, and the card crosses
+   * the centre line by just enough to catch the book's lower corner — laid
+   * down beside it, not pasted over it.
    *
-   * The floor stays at 0.6: below that the title on the artwork stops being
-   * legible, and a short screen is better served by scrolling.
+   * The cover is sized by *width* first, so that the book and its page edge
+   * come to the centre line. Sizing it by height alone is what left it at
+   * 40% of the screen with the right half empty.
    */
   const [cardHeight, setCardHeight] = useState(COMPACT_CARD_ESTIMATE);
-  const cardDrop = Math.max(0, cardHeight - CARD_SINK);
-  const coverScale = Math.max(
-    0.6,
-    Math.min(
-      HERO_COVER_SCALE,
-      (windowHeight - insets.top - insets.bottom - HERO_CHROME - cardDrop) / COVER_BOOK_HEIGHT,
-    ),
-  );
-  const coverWidth = COVER_BOOK_WIDTH * coverScale;
+
+  const heroWidth = windowWidth - space.xxl * 2;
+  const centreX = heroWidth / 2;
+  const widthScale = (centreX - EDGE_WIDTH) / COVER_BOOK_WIDTH;
+  const heightScale =
+    (windowHeight - insets.top - insets.bottom - HERO_CHROME) / COVER_BOOK_HEIGHT;
+  // Never past full size, never below 0.6: under that the artwork's own
+  // title stops being readable and a short screen is better off scrolling.
+  const coverScale = Math.max(0.6, Math.min(1, widthScale, heightScale));
   const coverHeight = COVER_BOOK_HEIGHT * coverScale;
 
   /*
-   * The card is as wide as a card, not as wide as the cover: it reaches past
-   * the cover's right edge and bleeds left over the artwork, which is what
-   * makes it read as laid on top rather than tucked beside. Clamped so it
-   * can never run off either side of the screen.
+   * The right column. On a screen too narrow to hold a readable button
+   * beside the cover, the actions drop to a row under the progress bar —
+   * still two compact buttons, never the full-width slabs they replaced.
    */
-  const heroWidth = windowWidth - space.xxl * 2;
-  const cardWidth = Math.round(
-    Math.min(windowWidth * 0.52, Math.max(windowWidth * 0.48, 150)),
-  );
-  const bookWidth = coverWidth + EDGE_WIDTH;
-  const cardRight = Math.min(bookWidth + CARD_OVERHANG, heroWidth);
-  const cardLeft = Math.max(cardRight - cardWidth, -(space.xxl - 4));
+  const actionLeft = centreX + 4;
+  const actionWidth = heroWidth - actionLeft;
+
+  /*
+   * The card's bottom sits on the cover's, always. That alignment is what
+   * makes the two read as one object, so it is the thing that does not bend:
+   * everything else gives way to it.
+   */
+  const cardLeft = centreX - CARD_OVERLAP;
+  const cardWidth = heroWidth - cardLeft;
+  const cardTop = Math.max(0, coverHeight - cardHeight);
+  const heroHeight = Math.max(coverHeight, cardTop + cardHeight);
+
+  /*
+   * Which means the actions only stay in the top-right if they genuinely
+   * fit above the card. Two conditions, and the second is the one that
+   * bites: a narrow screen shrinks the cover by width, but the button
+   * stack is a fixed 102px, so on a 360dp phone there is no room for both
+   * above a card whose bottom is pinned to the cover. Forcing it anyway
+   * pushed the card 25px below the book, which is the composition coming
+   * apart. They drop to a row under the progress bar instead.
+   */
+  const actionsInHero =
+    actionWidth >= MIN_ACTION_COLUMN && cardTop >= ACTION_STACK + CARD_CLEARANCE;
 
   const book = useLibrary(selectBook(id));
   const books = useLibrary((s) => s.books);
@@ -284,37 +394,50 @@ export default function BookScreen() {
     }
   };
 
-  const primary = book.drmProtected
+  /*
+   * Two labels for every action: the whole sentence for a screen reader, and
+   * a short form for a button half the screen wide. The size that used to
+   * ride along in the label ("· 1.2 GB") is not lost — it is in the meta
+   * line under the title, where it was already.
+   */
+  const primary: Action = book.drmProtected
     ? {
         label: "Can't play — protected by DRM",
+        short: "Can't play",
         onPress: undefined,
-        tone: 'muted' as const,
+        tone: 'muted',
       }
     : !playable
       ? {
           label: 'No audio that can be read',
+          short: 'No audio',
           onPress: undefined,
-          tone: 'muted' as const,
+          tone: 'muted',
         }
     : copying
       ? {
           label: `Checking out… ${Math.round((book.local.status === 'copying' ? book.local.progress : 0) * 100)}%`,
+          short: `Checking out ${Math.round((book.local.status === 'copying' ? book.local.progress : 0) * 100)}%`,
           onPress: undefined,
-          tone: 'muted' as const,
+          tone: 'muted',
         }
       : out
         ? {
             label: finished ? 'Listen again' : started ? 'Keep listening' : 'Start listening',
+            short: finished ? 'Listen again' : started ? 'Keep listening' : 'Start listening',
             onPress: () => openPlayer(book.id),
-            tone: 'accent' as const,
+            tone: 'accent',
+            plays: true,
           }
         : libraryOnDevice
           ? {
               // The library is already on the phone, so there is nothing to
               // copy and nothing to wait for — just play it.
               label: 'Play',
+              short: 'Play',
               onPress: () => openPlayer(book.id),
-              tone: 'accent' as const,
+              tone: 'accent',
+              plays: true,
             }
           : onHold
             ? {
@@ -323,28 +446,33 @@ export default function BookScreen() {
                 // copy. Saying "waiting for the drive" with the drive plugged
                 // in reads as a bug.
                 label: driveConnected ? 'In the queue' : 'Waiting for the drive',
+                short: driveConnected ? 'In the queue' : 'Waiting',
                 onPress: undefined,
-                tone: 'muted' as const,
+                tone: 'muted',
               }
             : {
                 label: driveConnected
                   ? `Check out and play · ${bytes(book.sizeBytes)}`
                   : `Put on hold · ${bytes(book.sizeBytes)}`,
+                short: driveConnected ? 'Check out' : 'Put on hold',
                 onPress: () =>
                   driveConnected
                     ? checkOutAndPlay(book.id, openPlayer)
                     : checkOut(book.id),
-                tone: 'accent' as const,
+                tone: 'accent',
+                plays: driveConnected,
               };
 
-  const secondary = out
+  const secondary: Secondary | null = out
     ? {
         label: `Return to the shelves · frees ${bytes(book.sizeBytes)}`,
+        short: 'Return to shelves',
         onPress: () => returnBook(book.id),
       }
     : onHold
       ? {
           label: driveConnected ? 'Leave the queue' : 'Cancel the hold',
+          short: driveConnected ? 'Leave the queue' : 'Cancel the hold',
           onPress: () => cancelHold(book.id),
         }
       : null;
@@ -393,7 +521,10 @@ export default function BookScreen() {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: 36 }}
+        // The screen used to end in a fixed action block that owned the
+        // bottom inset. Nothing is pinned down there now, so the scroll has
+        // to clear the gesture bar itself.
+        contentContainerStyle={{ paddingBottom: Math.max(36, insets.bottom + 28) }}
         showsVerticalScrollIndicator={false}
       >
         {/*
@@ -403,7 +534,7 @@ export default function BookScreen() {
           cover here is artwork, not a control.
         */}
         <View style={{ paddingTop: 18, paddingHorizontal: space.xxl }}>
-          <View style={{ height: coverHeight + cardDrop }}>
+          <View style={{ height: heroHeight }}>
             <BookCover
               book={book}
               size="book"
@@ -414,6 +545,21 @@ export default function BookScreen() {
               scale={coverScale}
             />
 
+            {actionsInHero ? (
+              <View
+                style={{
+                  position: 'absolute',
+                  left: actionLeft,
+                  top: 0,
+                  width: actionWidth,
+                  gap: ACTION_GAP,
+                }}
+              >
+                <PrimaryButton action={primary} />
+                {secondary ? <SecondaryButton action={secondary} finished={finished} /> : null}
+              </View>
+            ) : null}
+
             <Pressable
               onPress={() => setShowCard(true)}
               accessibilityRole="button"
@@ -421,7 +567,7 @@ export default function BookScreen() {
               style={({ pressed }) => ({
                 position: 'absolute',
                 left: cardLeft,
-                top: coverHeight - CARD_SINK,
+                top: cardTop,
                 width: cardWidth,
                 minHeight: TOUCH,
                 transform: [{ rotate: '2.5deg' }],
@@ -440,7 +586,7 @@ export default function BookScreen() {
                   {
                     backgroundColor: color.paperCard,
                     borderRadius: 2,
-                    paddingTop: space.md,
+                    paddingTop: 10,
                     paddingHorizontal: 14,
                     overflow: 'hidden',
                   },
@@ -498,6 +644,33 @@ export default function BookScreen() {
           <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>
             {progressLabel}
           </Text>
+
+          {/*
+            No offer to return, deliberately. Finishing a book used to promise
+            one here and never make it; the decision taken was that returning
+            is the listener's call and their timing, and that the tray marking
+            a book DONE is the whole of what the app should say about it.
+          */}
+          <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.faint }}>
+            {finished && out
+              ? 'all done — return it whenever you like'
+              : out
+                ? 'your place is kept, however long it sits here'
+                : driveConnected
+                  ? 'checking out copies it to your phone'
+                  : 'holds check out as soon as the drive is connected'}
+          </Text>
+
+          {/*
+            Too narrow for a button beside the cover, so they come down here —
+            still the same two compact buttons, side by side.
+          */}
+          {actionsInHero ? null : (
+            <View style={{ flexDirection: 'row', gap: ACTION_GAP, paddingTop: space.sm }}>
+              <PrimaryButton action={primary} />
+              {secondary ? <SecondaryButton action={secondary} finished={finished} /> : null}
+            </View>
+          )}
         </View>
 
         {book.drmProtected ? (
@@ -643,93 +816,6 @@ export default function BookScreen() {
           </View>
         </View>
       </ScrollView>
-
-      <View
-        style={{
-          paddingHorizontal: space.xxl,
-          paddingBottom: Math.max(26, insets.bottom + 10),
-          gap: 10,
-        }}
-      >
-        <Pressable
-          onPress={primary.onPress}
-          disabled={!primary.onPress}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !primary.onPress }}
-          style={({ pressed }) => [
-            {
-              minHeight: 52,
-              borderRadius: radius.button,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: primary.tone === 'accent' ? color.accent : color.panel,
-              borderWidth: primary.tone === 'accent' ? 0 : 1,
-              borderColor: color.border,
-              opacity: pressed ? 0.85 : 1,
-            },
-            primary.tone === 'accent' ? shadow(8, 0.3) : null,
-          ]}
-        >
-          <Text
-            style={{
-              fontFamily: font.serif,
-              fontSize: 18,
-              color: primary.tone === 'accent' ? color.ground : color.muted,
-            }}
-          >
-            {primary.label}
-          </Text>
-        </Pressable>
-
-        {secondary ? (
-          <Pressable
-            onPress={secondary.onPress}
-            accessibilityRole="button"
-            style={({ pressed }) => ({
-              minHeight: 48,
-              borderRadius: radius.button,
-              borderWidth: 1,
-              borderColor: finished ? color.accent : color.border,
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: pressed ? 0.7 : 1,
-            })}
-          >
-            <Text
-              style={{
-                fontFamily: font.mono,
-                fontSize: 12,
-                color: finished ? color.accent : color.paper,
-              }}
-            >
-              {secondary.label}
-            </Text>
-          </Pressable>
-        ) : null}
-
-        <Text
-          style={{
-            textAlign: 'center',
-            fontFamily: font.mono,
-            fontSize: 11,
-            color: color.faint,
-          }}
-        >
-          {/*
-            No offer to return, deliberately. Finishing a book used to promise
-            one here and never make it; the decision taken was that returning
-            is the listener's call and their timing, and that the tray marking
-            a book DONE is the whole of what the app should say about it.
-          */}
-          {finished && out
-            ? 'all done — return it whenever you like'
-            : out
-              ? 'your place is kept, however long it sits here'
-              : driveConnected
-                ? 'checking out copies it to your phone'
-                : 'holds check out as soon as the drive is connected'}
-        </Text>
-      </View>
 
       <NoteSheet
         key={editing ?? 'none'}

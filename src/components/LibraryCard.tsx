@@ -18,6 +18,26 @@ const ROW_HEIGHT = 26;
 const HEADER_OFFSET = 38;
 /** The last three stamps are what the compact card can show and still be read. */
 const COMPACT_ROWS = 3;
+/*
+ * The compact card is tighter in every direction. Its rows are shorter, its
+ * header sits closer to them, and its stamps are set a point smaller on one
+ * line — a two-line stamp inside a 20px row loses its year off the bottom,
+ * which is what the first version of this did.
+ */
+const COMPACT_ROW_HEIGHT = 20;
+const COMPACT_HEADER_OFFSET = 32;
+
+/**
+ * "OCT 15 2026" → "OCT 15 '26".
+ *
+ * The compact column is about 85px wide, and the full stamp needs more than
+ * that at this size, so it wrapped and the year fell out of the row. Done
+ * here rather than in `stampDate`, because the full card has the width and
+ * should keep writing the year out.
+ */
+function shortStamp(iso: string): string {
+  return stampDate(iso).replace(/ \d{2}(\d{2})$/, " '$1");
+}
 /**
  * What the compact card is expected to measure, for the first frame only.
  *
@@ -27,7 +47,7 @@ const COMPACT_ROWS = 3;
  * status line and the bottom padding; `onLayout` corrects it, which is what
  * keeps the composition right when the system font scale is turned up.
  */
-export const COMPACT_CARD_ESTIMATE = 148;
+export const COMPACT_CARD_ESTIMATE = 122;
 /** Deliberate wobble, so no two stamps line up perfectly. */
 const OUT_LEANS = [-2, 1, -1.5, 2.5, -1, 1.8];
 const BACK_LEANS = [1.5, -1.2, 2, -2, 1, -1.5];
@@ -63,12 +83,15 @@ export function LibraryCard({ checkouts, minRows, bare = false, compact = false,
   const sorted = [...checkouts].sort((a, b) => a.out.localeCompare(b.out));
   const ordered = compact ? sorted.slice(-COMPACT_ROWS) : sorted;
   const rows = Math.max(floor, ordered.length);
+  const rowHeight = compact ? COMPACT_ROW_HEIGHT : ROW_HEIGHT;
+  const headerOffset = compact ? COMPACT_HEADER_OFFSET : HEADER_OFFSET;
+  const stampSize = compact ? 11 : 12;
 
   return (
     <View
       style={
         bare
-          ? { paddingBottom: 10, overflow: 'hidden' }
+          ? { paddingBottom: compact ? 8 : 10, overflow: 'hidden' }
           : [
               {
                 backgroundColor: color.paperCardAlt,
@@ -95,7 +118,7 @@ export function LibraryCard({ checkouts, minRows, bare = false, compact = false,
               position: 'absolute',
               left: 0,
               right: 0,
-              top: HEADER_OFFSET + (i + 1) * ROW_HEIGHT,
+              top: headerOffset + (i + 1) * rowHeight,
               height: 1,
               backgroundColor: color.paperRule,
             }}
@@ -107,7 +130,7 @@ export function LibraryCard({ checkouts, minRows, bare = false, compact = false,
         style={{
           flexDirection: 'row',
           justifyContent: 'space-between',
-          paddingBottom: 8,
+          paddingBottom: compact ? 6 : 8,
           borderBottomWidth: 1.5,
           borderBottomColor: '#7a6446',
         }}
@@ -125,20 +148,21 @@ export function LibraryCard({ checkouts, minRows, bare = false, compact = false,
           {Array.from({ length: rows }, (_, i) => {
             const entry = ordered[i];
             return (
-              <View key={i} style={{ flexDirection: 'row', height: ROW_HEIGHT }}>
+              <View key={i} style={{ flexDirection: 'row', height: rowHeight }}>
                 <View style={{ flex: 1, justifyContent: 'center' }}>
                   {entry ? (
                     <Text
+                      numberOfLines={1}
                       style={{
                         fontFamily: font.monoMedium,
-                        fontSize: 12,
+                        fontSize: stampSize,
                         letterSpacing: 0.5,
                         color: color.stampOut,
                         transform: [{ rotate: `${OUT_LEANS[i % OUT_LEANS.length]}deg` }],
                         paddingLeft: i % 2 === 0 ? 0 : 6,
                       }}
                     >
-                      {stampDate(entry.out)}
+                      {compact ? shortStamp(entry.out) : stampDate(entry.out)}
                     </Text>
                   ) : null}
                 </View>
@@ -146,22 +170,23 @@ export function LibraryCard({ checkouts, minRows, bare = false, compact = false,
                   {entry ? (
                     entry.back ? (
                       <Text
+                        numberOfLines={1}
                         style={{
                           fontFamily: font.monoMedium,
-                          fontSize: 12,
+                          fontSize: stampSize,
                           letterSpacing: 0.5,
                           color: color.stampBack,
                           transform: [{ rotate: `${BACK_LEANS[i % BACK_LEANS.length]}deg` }],
                         }}
                       >
-                        {stampDate(entry.back)}
+                        {compact ? shortStamp(entry.back) : stampDate(entry.back)}
                       </Text>
                     ) : (
                       <Text
                         accessibilityLabel="Still out"
                         style={{
                           fontFamily: font.monoMedium,
-                          fontSize: 12,
+                          fontSize: stampSize,
                           color: color.stampFaded,
                         }}
                       >
@@ -178,12 +203,14 @@ export function LibraryCard({ checkouts, minRows, bare = false, compact = false,
 
       {statusLine ? (
         <Text
+          numberOfLines={1}
+          ellipsizeMode="tail"
           style={{
             fontFamily: font.mono,
             fontSize: 11,
             letterSpacing: 0.5,
             color: '#5a4a32',
-            paddingTop: 8,
+            paddingTop: 6,
           }}
         >
           {statusLine}
