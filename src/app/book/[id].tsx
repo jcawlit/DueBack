@@ -18,9 +18,9 @@ import { COMPACT_CARD_ESTIMATE, LibraryCard, LibraryCardSheet } from '@/componen
 import { StatusTag } from '@/components/CoverBadges';
 import { NoteCard, NoteText } from '@/components/NoteCard';
 import { ChevronLeft, PlayIcon } from '@/components/icons';
-import { CardStack, type BookTab, type StackTab } from '@/components/CardStack';
-import { NotesCard } from '@/components/NotesCard';
-import { CharacterSheet, CharactersCard } from '@/components/CharactersCard';
+import { CardHeading, PaperCard } from '@/components/PaperCard';
+import { MarginsCard } from '@/components/MarginsCard';
+import { CharacterSheet } from '@/components/CharactersCard';
 import { NoteSheet } from '@/components/NoteSheet';
 import { useNotes } from '@/store/notes';
 import { exportNotes } from '@/lib/notes/export';
@@ -229,7 +229,8 @@ export default function BookScreen() {
    */
   const livePosition = usePlayer((s) => (book && s.bookId === book.id ? s.positionSec : null));
 
-  const [tab, setTab] = useState<BookTab>('notes');
+  /** Whose notes the margins are narrowed to, or null for the whole book. */
+  const [whose, setWhose] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [openCharacter, setOpenCharacter] = useState<Character | null>(null);
   const [showCard, setShowCard] = useState(false);
@@ -349,28 +350,10 @@ export default function BookScreen() {
     ? (mine.find((n) => n.id === editing) ?? null)
     : null;
 
-  /*
-   * Two faces of the same thing: your record of this book. Chapters used to
-   * sit here and was dropped — the player's Contents sheet is the same list.
-   * The library card left the stack when it moved into the hero, where it is
-   * a thing you see rather than a tab you have to think to open.
-   */
-  const tabs: StackTab<BookTab>[] = [
-    { key: 'notes', label: 'Notes', hint: 'What you wrote while listening' },
-    ...(isPro()
-      ? [{ key: 'characters' as const, label: 'Characters', hint: 'Who is in this book' }]
-      : []),
-  ];
-
   /** Opens the player and lands on a second — a note's time chip. */
   const playFrom = (sec: number) => {
     router.push(`/player/${book.id}`);
     void usePlayer.getState().openAt(book.id, sec);
-  };
-
-  const addBlankCharacter = async () => {
-    const made = await addCharacter(book.id, 'New character');
-    if (made) setOpenCharacter(made);
   };
 
   /*
@@ -727,60 +710,51 @@ export default function BookScreen() {
         ) : null}
 
         <View style={{ marginTop: space.xxl }}>
-          <CardStack tabs={tabs} active={tab} onChange={setTab}>
-            {tab === 'notes' ? (
-              <>
-                {/*
-                  Undo lives on the card rather than in a slip: the slip has no
-                  button, and a deletion is the one thing worth offering back
-                  for longer than a message stays on screen.
-                */}
-                {undoable ? (
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      paddingVertical: space.sm,
-                      borderBottomWidth: 1,
-                      borderBottomColor: color.paperRule,
-                    }}
-                  >
-                    <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.stampFaded }}>
-                      Note deleted
-                    </Text>
-                    <Pressable
-                      onPress={() => void undoDelete()}
-                      accessibilityRole="button"
-                      hitSlop={10}
-                    >
-                      <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.stampBack }}>
-                        Undo
-                      </Text>
-                    </Pressable>
-                  </View>
-                ) : null}
+          <PaperCard style={{ marginHorizontal: space.xl, paddingHorizontal: 14, paddingTop: space.md, paddingBottom: space.lg }}>
+            <CardHeading>Margins</CardHeading>
 
-                <NotesCard
-                  book={book}
-                  notes={mine}
-                  characters={characters}
-                  onPlayFrom={playFrom}
-                  onEdit={(note) => setEditing(note.id)}
-                  onDelete={(note) => void deleteNote(note.id)}
-                />
-              </>
+            {/*
+              Undo lives on the card rather than in a slip: the slip has no
+              button, and a deletion is the one thing worth offering back
+              for longer than a message stays on screen.
+            */}
+            {undoable ? (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  paddingVertical: space.sm,
+                  borderBottomWidth: 1,
+                  borderBottomColor: color.paperRule,
+                }}
+              >
+                <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.stampFaded }}>
+                  Note deleted
+                </Text>
+                <Pressable
+                  onPress={() => void undoDelete()}
+                  accessibilityRole="button"
+                  hitSlop={10}
+                >
+                  <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.stampBack }}>
+                    Undo
+                  </Text>
+                </Pressable>
+              </View>
             ) : null}
 
-            {tab === 'characters' ? (
-              <CharactersCard
-                characters={characters}
-                notes={mine}
-                onOpen={setOpenCharacter}
-                onAdd={() => void addBlankCharacter()}
-              />
-            ) : null}
-          </CardStack>
+            <MarginsCard
+              book={book}
+              notes={mine}
+              characters={isPro() ? characters : []}
+              selected={whose}
+              onSelect={setWhose}
+              onPlayFrom={playFrom}
+              onOpenNote={(note) => setEditing(note.id)}
+              onOpenCharacter={setOpenCharacter}
+            />
+          </PaperCard>
 
           {/*
             Where this book's writing is. Said plainly rather than with an
@@ -829,6 +803,7 @@ export default function BookScreen() {
         }}
         onAddCharacter={(name, bio) => addCharacter(book.id, name, bio)}
         onUndo={() => setEditing(null)}
+        onDelete={(note) => void deleteNote(note.id)}
         onClose={() => {
           setEditing(null);
           void flushNotes();

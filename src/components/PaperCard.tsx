@@ -1,15 +1,19 @@
 /**
  * A loose sheet of the same stock the cards are cut from.
  *
- * Used by the two things that are not *in* the stack but have to look as
- * though they came out of it: the note editor and a character's card when
- * you turn it over. Inside the stack the paper comes from `CardStack`, and
- * nothing should put a card on a card.
+ * Every card surface in the app comes from here: the margins section on the
+ * Book screen, the note editor, the library card's sheet, and a character's
+ * card when you turn it over. Nothing should put a card on a card — anything
+ * drawn *inside* one of these takes the paper it is already on.
+ *
+ * The heading and empty-state below used to live in `CardStack`, which was
+ * the tabbed stack the Book screen had before the margins became one
+ * section. The stack is gone; these two outlived it.
  */
 
 import type { ReactNode } from 'react';
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
-import { color, shadow } from '@/theme/tokens';
+import { Text, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { color, font, shadow, space } from '@/theme/tokens';
 
 /** The same stock and squared corners as the library card. */
 export const paperCardStyle = {
@@ -73,5 +77,39 @@ export function PaperRules({ offset = 31, lines = 12 }: { offset?: number; lines
         />
       ))}
     </View>
+  );
+}
+
+/** A heading inside a card: the same stamped look as the library card's. */
+export function CardHeading({ children }: { children: string }) {
+  return (
+    <Text
+      style={{
+        fontFamily: font.mono,
+        fontSize: 11,
+        letterSpacing: 1,
+        color: color.stampFaded,
+        paddingBottom: space.xs,
+      }}
+    >
+      {children.toUpperCase()}
+    </Text>
+  );
+}
+
+/** What a card says when there is nothing on it yet. */
+export function CardEmpty({ children }: { children: string }) {
+  return (
+    <Text
+      style={{
+        fontFamily: font.sans,
+        fontSize: 13,
+        lineHeight: 19,
+        color: color.stampFaded,
+        paddingVertical: space.md,
+      }}
+    >
+      {children}
+    </Text>
   );
 }

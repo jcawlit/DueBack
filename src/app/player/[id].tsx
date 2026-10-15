@@ -555,6 +555,7 @@ export default function PlayerScreen() {
           if (editingNote) void deleteNote(editingNote.id);
           setEditing(null);
         }}
+        onDelete={(note) => void deleteNote(note.id)}
         onClose={closeSheet}
       />
 

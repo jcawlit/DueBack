@@ -17,11 +17,20 @@ type Props = {
   onChangeText: (text: string) => void;
   onAddCharacter: (name: string, bio: string) => Promise<Character | null>;
   onUndo: () => void;
+  /**
+   * Throw this note away.
+   *
+   * It lives in here rather than on the note in the list. A delete sitting
+   * permanently beside every note is a row of loaded buttons under the
+   * thumb; opening the note first means the thing being deleted is on
+   * screen and being read at the moment it goes.
+   */
+  onDelete: (note: Note) => void;
   onClose: () => void;
 };
 
 export function NoteSheet({ visible, note, characters, canTag, justSaved,
-  onChangeText, onAddCharacter, onUndo, onClose }: Props) {
+  onChangeText, onAddCharacter, onUndo, onDelete, onClose }: Props) {
   const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
   const [selection, setSelection] = useState(0);
@@ -82,7 +91,19 @@ export function NoteSheet({ visible, note, characters, canTag, justSaved,
               <Text style={{ fontFamily: font.monoMedium, fontSize: 11, letterSpacing: 1, color: color.stampOut }}>
                 {newName === null ? 'NOTE' : 'NEW CHARACTER'}
               </Text>
-              <SheetButton label="Done" onPress={onClose} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                {note && newName === null ? (
+                  <SheetButton
+                    label="Delete"
+                    tone="warning"
+                    onPress={() => {
+                      onDelete(note);
+                      onClose();
+                    }}
+                  />
+                ) : null}
+                <SheetButton label="Done" onPress={onClose} />
+              </View>
             </View>
             <ScrollView keyboardShouldPersistTaps="handled" style={{ flexShrink: 1 }}
               contentContainerStyle={{ padding: space.lg, gap: space.sm }}>
@@ -157,10 +178,13 @@ const fieldStyle = {
   borderBottomColor: color.paperRule, fontFamily: font.sans, fontSize: 16, color: color.inkOnPaper,
 } as const;
 
-function SheetButton({ label, onPress, disabled = false }: { label: string; onPress: () => void; disabled?: boolean }) {
+function SheetButton({ label, onPress, disabled = false, tone = 'normal' }: {
+  label: string; onPress: () => void; disabled?: boolean; tone?: 'normal' | 'warning';
+}) {
   return <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityState={{ disabled }}
     style={({ pressed }) => ({ minHeight: TOUCH, paddingHorizontal: space.sm, justifyContent: 'center',
       opacity: disabled ? 0.4 : pressed ? 0.6 : 1 })}>
-    <Text style={{ fontFamily: font.monoMedium, fontSize: 11, color: color.stampOut }}>{label}</Text>
+    <Text style={{ fontFamily: font.monoMedium, fontSize: 11,
+      color: tone === 'warning' ? color.warningInk : color.stampOut }}>{label}</Text>
   </Pressable>;
 }

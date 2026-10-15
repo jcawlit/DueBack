@@ -6,9 +6,13 @@
  * the question this answers is "who was that again", and the answer is nearly
  * always someone met recently or met at the very start.
  *
- * The list lives inside `CardStack` and so sets no colour that is not on
- * paper; the editor is a sheet of its own, and carries the same stock with
- * it so that turning a card over does not change what it is made of.
+ * The editor is a sheet of its own, and carries the same stock with it so
+ * that turning a card over does not change what it is made of.
+ *
+ * `CharactersCard` — the list — has no caller since the margins became one
+ * section with a medallion strip. It is left here rather than deleted
+ * because it holds the only "+ Add character" affordance the app ever had;
+ * characters are now made by typing @ in a note.
  */
 
 import { useState } from 'react';
@@ -26,8 +30,7 @@ import {
 import { timestamp } from '@/lib/format';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 import { NoteText, useNoteFont } from './NoteText';
-import { CardEmpty } from './CardStack';
-import { paperCardStyle } from './PaperCard';
+import { CardEmpty, paperCardStyle } from './PaperCard';
 import { RowAction, TimeChip } from './NotesCard';
 
 function heardLabel(sec: number | null): string {

@@ -2,8 +2,8 @@
  * The notes card: everything written while listening to this book, under the
  * chapter it was written in.
  *
- * Lives inside `CardStack`, so the paper, the ink and the rules all come from
- * there and nothing here sets a colour that is not on paper. A bookmark is a
+ * Lives on the margins card, so the paper, the ink and the rules all come
+ * from there and nothing here sets a colour that is not on paper. A bookmark is a
  * single ruled line rather than a card of its own — it has nothing to read,
  * and giving it the same weight as a written note made a list of bookmarks
  * look like a list of empty boxes.
@@ -14,7 +14,7 @@ import type { Book } from '@/data/types';
 import { groupNotesByChapter, isBookmark, type Character, type Note } from '@/data/notes';
 import { timestamp } from '@/lib/format';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
-import { CardEmpty } from './CardStack';
+import { CardEmpty } from './PaperCard';
 import { NoteText } from './NoteText';
 import { Ribbon } from './Ribbon';
 
@@ -80,21 +80,37 @@ export function RowAction({
   );
 }
 
-/** A chip naming someone a note is about. */
-function CharacterChip({ name }: { name: string }) {
+/**
+ * A chip naming someone a note is about, and a way to see only them.
+ *
+ * The name was already the answer to "who is this about"; making it the
+ * control for "show me the rest about them" means the list can be narrowed
+ * from the thing that prompted the question.
+ */
+function CharacterChip({ name, onPress }: { name: string; onPress?: () => void }) {
+  const body = (
+    <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.inkOnPaper }}>{name}</Text>
+  );
+  const skin = {
+    paddingHorizontal: space.sm,
+    paddingVertical: 3,
+    borderRadius: 2,
+    backgroundColor: color.paperCard,
+    borderWidth: 1,
+    borderColor: color.paperRule,
+  } as const;
+
+  if (!onPress) return <View style={skin}>{body}</View>;
   return (
-    <View
-      style={{
-        paddingHorizontal: space.sm,
-        paddingVertical: 1,
-        borderRadius: 2,
-        backgroundColor: color.paperCard,
-        borderWidth: 1,
-        borderColor: color.paperRule,
-      }}
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Show only notes about ${name}`}
+      hitSlop={8}
+      style={({ pressed }) => [skin, { opacity: pressed ? 0.6 : 1 }]}
     >
-      <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.inkOnPaper }}>{name}</Text>
-    </View>
+      {body}
+    </Pressable>
   );
 }
 
@@ -125,14 +141,16 @@ export function NotesCard({
   characters,
   onPlayFrom,
   onEdit,
-  onDelete,
+  onSelectCharacter,
 }: {
   book: Book;
   notes: Note[];
   characters: Character[];
   onPlayFrom: (sec: number) => void;
+  /** Opens the note. Editing and deleting both live in the sheet. */
   onEdit: (note: Note) => void;
-  onDelete: (note: Note) => void;
+  /** Narrows the list to one character. Omitted where there is no strip. */
+  onSelectCharacter?: (id: string) => void;
 }) {
   if (notes.length === 0) {
     return (
@@ -186,33 +204,42 @@ export function NotesCard({
                 </Text>
               </Pressable>
             ) : (
-              <View
+              <Pressable
                 key={note.id}
-                style={{
+                onPress={() => onEdit(note)}
+                accessibilityRole="button"
+                accessibilityHint="Opens the note"
+                style={({ pressed }) => ({
                   paddingVertical: space.sm,
                   gap: 6,
                   borderBottomWidth: 1,
                   borderBottomColor: color.paperRule,
-                }}
+                  opacity: pressed ? 0.65 : 1,
+                })}
               >
                 <NoteText style={{ color: color.inkOnPaper }}>{note.text}</NoteText>
 
-                {note.characterIds.length > 0 ? (
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
-                    {note.characterIds.map((id) => {
-                      const name = nameOf(id);
-                      return name ? <CharacterChip key={id} name={name} /> : null;
-                    })}
-                  </View>
-                ) : null}
-
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    gap: space.sm,
+                  }}
+                >
                   <TimeChip atSec={note.positionSec} onPress={() => onPlayFrom(note.positionSec)} />
-                  <View style={{ flex: 1 }} />
-                  <RowAction label="edit" onPress={() => onEdit(note)} />
-                  <RowAction label="delete" tone="warning" onPress={() => onDelete(note)} />
+                  {note.characterIds.map((id) => {
+                    const name = nameOf(id);
+                    return name ? (
+                      <CharacterChip
+                        key={id}
+                        name={name}
+                        onPress={onSelectCharacter ? () => onSelectCharacter(id) : undefined}
+                      />
+                    ) : null;
+                  })}
                 </View>
-              </View>
+              </Pressable>
             ),
           )}
         </View>
