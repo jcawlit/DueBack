@@ -2,8 +2,10 @@
  * One person, turned over: the card you get when you tap About, or when you
  * have just invented someone and they need a name.
  *
- * It carries the same stock as the margins it came out of, so that turning a
- * card over does not change what it is made of.
+ * On the app's own dark surface, not an index card. It used to carry the
+ * same paper stock as the margins; the margins have since come off the
+ * paper, and a person was never a card in a catalogue anyway — the frame
+ * round them made this read as a form to fill in.
  *
  * The list that used to live here — everyone in the book, with a "+ Add
  * character" at the bottom — is gone. The margins are one section now and
@@ -24,7 +26,6 @@ import {
 import { timestamp } from '@/lib/format';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 import { NoteText, useNoteFont } from './NoteText';
-import { paperCardStyle } from './PaperCard';
 import { RowAction, TimeChip } from './NotesCard';
 
 function heardLabel(sec: number | null): string {
@@ -74,13 +75,38 @@ export function CharacterSheet({
   };
 
   return (
-    <Modal visible animationType="slide" transparent statusBarTranslucent onRequestClose={commit}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, paddingTop: insets.top + space.md, paddingBottom: Math.max(insets.bottom, space.md), paddingHorizontal: space.lg, backgroundColor: 'rgba(10,7,5,0.6)' }}>
+    /*
+     * No `statusBarTranslucent`: it puts the window into layout-no-limits,
+     * and such a window is never resized for the keyboard, which leaves a
+     * JavaScript KeyboardAvoidingView to do it a beat late. See the same
+     * note in `NoteSheet`.
+     */
+    <Modal visible animationType="slide" transparent onRequestClose={commit}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{
+          flex: 1,
+          paddingTop: insets.top + space.md,
+          paddingBottom: Math.max(insets.bottom, space.md),
+          paddingHorizontal: space.lg,
+          backgroundColor: 'rgba(10,7,5,0.6)',
+        }}
+      >
         <Pressable style={{ height: 24 }} onPress={commit} accessibilityLabel="Close" />
+
+        {/*
+          The app's own surface, not an index card. The library card is the
+          one place the paper is the point; a person is not a card in a
+          catalogue, and framing them as one made this read as a form.
+        */}
         <View
           style={{
             flex: 1,
-            ...paperCardStyle,
+            backgroundColor: color.panel,
+            borderWidth: 1,
+            borderColor: color.line,
+            borderRadius: radius.button,
+            overflow: 'hidden',
           }}
         >
           <View
@@ -92,106 +118,87 @@ export function CharacterSheet({
               paddingTop: space.lg,
               paddingBottom: space.sm,
               borderBottomWidth: 1,
-              borderBottomColor: color.paperRule,
+              borderBottomColor: color.line,
             }}
           >
-            <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.wood }}>
+            <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.faint }}>
               {heardLabel(heard)}
             </Text>
-            <Pressable onPress={commit} accessibilityRole="button" hitSlop={8} style={{ minHeight: TOUCH, justifyContent: 'center' }}>
-              <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.stampOut }}>
-                done
-              </Text>
+            <Pressable
+              onPress={commit}
+              accessibilityRole="button"
+              hitSlop={8}
+              style={{ minHeight: TOUCH, justifyContent: 'center' }}
+            >
+              <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.accent }}>done</Text>
             </Pressable>
           </View>
 
           <ScrollView
             keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{
-              padding: space.xl,
-              paddingBottom: space.xl,
-              gap: space.md,
-            }}
+            contentContainerStyle={{ padding: space.xl, gap: space.md }}
           >
+            {/* The name is the heading, so it is not dressed as a field. */}
             <TextInput
               value={name}
               onChangeText={setName}
               placeholder="Name"
-              placeholderTextColor={color.wood}
+              placeholderTextColor={color.faint}
+              selectionColor={color.accent}
+              accessibilityLabel="Name"
               style={{
                 fontFamily: font.serif,
                 fontSize: 22,
-                color: color.inkOnPaper,
-                paddingVertical: space.xs,
-              }}
-            />
-            <TextInput
-              value={aliases}
-              onChangeText={setAliases}
-              placeholder="Also known as (comma separated)"
-              placeholderTextColor={color.wood}
-              style={{
-                fontFamily: font.mono,
-                fontSize: 12,
-                color: color.wood,
+                color: color.paper,
                 paddingVertical: space.xs,
               }}
             />
 
-            <Text style={{ fontFamily: font.mono, fontSize: 11, letterSpacing: 1, color: color.wood }}>
-              WHO THEY ARE
-            </Text>
-            <TextInput
-              value={bio}
-              onChangeText={setBio}
-              multiline
-              placeholder="What you know about them so far"
-              placeholderTextColor={color.wood}
-              style={[
-                bioFont,
-                {
-                  minHeight: 80,
-                  padding: space.md,
-                  borderWidth: 1,
-                  borderColor: color.paperRule,
-                  borderRadius: radius.button,
-                  color: color.inkOnPaper,
-                  textAlignVertical: 'top',
-                },
-              ]}
-            />
+            <View style={{ gap: space.xs }}>
+              <Text style={LABEL}>ALSO KNOWN AS</Text>
+              <TextInput
+                value={aliases}
+                onChangeText={setAliases}
+                placeholder="Comma separated"
+                placeholderTextColor={color.faint}
+                selectionColor={color.accent}
+                accessibilityLabel="Also known as"
+                style={[FIELD, { fontFamily: font.mono, fontSize: 12 }]}
+              />
+            </View>
 
-            <Text
-              style={{
-                fontFamily: font.mono,
-                fontSize: 11,
-                letterSpacing: 1,
-                color: color.wood,
-                paddingTop: space.sm,
-              }}
-            >
+            <View style={{ gap: space.xs }}>
+              <Text style={LABEL}>WHO THEY ARE</Text>
+              <TextInput
+                value={bio}
+                onChangeText={setBio}
+                multiline
+                placeholder="What you know about them so far"
+                placeholderTextColor={color.faint}
+                selectionColor={color.accent}
+                accessibilityLabel="Who they are"
+                style={[bioFont, FIELD, { minHeight: 80, textAlignVertical: 'top' }]}
+              />
+            </View>
+
+            <Text style={[LABEL, { paddingTop: space.md }]}>
               {mine.length} {mine.length === 1 ? 'NOTE' : 'NOTES'}
             </Text>
 
+            {/*
+              The same quiet setting as the margins: no box round a note, no
+              rule under it. Space is what separates them.
+            */}
             {mine.map((note) => (
-              <View
-                key={note.id}
-                style={{
-                  padding: space.md,
-                  borderWidth: 1,
-                  borderColor: color.paperRule,
-                  borderRadius: radius.button,
-                  gap: space.sm,
-                }}
-              >
+              <View key={note.id} style={{ paddingVertical: space.sm, gap: space.sm }}>
                 <TimeChip atSec={note.positionSec} onPress={() => onPlayFrom(note.positionSec)} />
                 {isBookmark(note) ? (
-                  <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.wood }}>
+                  <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.faint }}>
                     bookmark
                   </Text>
                 ) : (
                   <>
-                    <NoteText style={{ color: color.inkOnPaper }}>{note.text}</NoteText>
+                    <NoteText size={15}>{note.text}</NoteText>
                     <RowAction
                       label="+ add to bio"
                       onPress={() => {
@@ -199,7 +206,9 @@ export function CharacterSheet({
                           ? note.text.trim()
                           : bio.includes(note.text.trim())
                             ? bio
-                            : `${bio.trim()}\n\n${note.text.trim()}`;
+                            : `${bio.trim()}
+
+${note.text.trim()}`;
                         setBio(next);
                         onAddToBio(note.text);
                       }}
@@ -212,7 +221,7 @@ export function CharacterSheet({
             <View style={{ paddingTop: space.xl }}>
               {confirmingDelete ? (
                 <View style={{ gap: space.sm }}>
-                  <Text style={{ fontFamily: font.sans, fontSize: 13, color: color.wood }}>
+                  <Text style={{ fontFamily: font.sans, fontSize: 13, lineHeight: 19, color: color.muted }}>
                     Remove {character.name} from this book? Your notes stay exactly as they
                     are — only the tags go.
                   </Text>
@@ -235,3 +244,19 @@ export function CharacterSheet({
     </Modal>
   );
 }
+
+/** A field's name: said once, quietly, above the thing it names. */
+const LABEL = {
+  fontFamily: font.mono,
+  fontSize: 11,
+  letterSpacing: 1,
+  color: color.faint,
+} as const;
+
+/** An input on the dark surface: a line under it, and no box round it. */
+const FIELD = {
+  paddingVertical: space.sm,
+  borderBottomWidth: 1,
+  borderBottomColor: color.line,
+  color: color.paper,
+} as const;

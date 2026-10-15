@@ -77,9 +77,26 @@ export function NoteSheet({ visible, note, characters, canTag, justSaved,
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
-      {/* Avoid the keyboard across the whole modal, so the card can shrink too. */}
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    /*
+     * No `statusBarTranslucent`, deliberately.
+     *
+     * It puts the modal's window into layout-no-limits, and an Android window
+     * laid out past its limits is never resized for the keyboard — which left
+     * the JavaScript `KeyboardAvoidingView` as the only thing able to lift the
+     * sheet. That runs a beat after the keyboard is already up, so the
+     * keyboard arrived first and the note followed about a second later.
+     *
+     * Without the flag the dialog resizes natively and instantly, and because
+     * the sheet is anchored to the bottom it is simply already there. The cost
+     * is that the dim backdrop stops at the status bar on Android.
+     */
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      {/*
+        iOS has no such resize, so it keeps the padding behaviour. On Android
+        this is a plain View: a second, slower adjustment on top of the
+        window's own is what caused the lag, not a missing one.
+      */}
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1, backgroundColor: 'rgba(10,7,5,0.6)' }}>
         <View style={{ flex: 1, justifyContent: 'flex-end', paddingTop: insets.top + space.md,
           paddingBottom: Math.max(insets.bottom, space.md), paddingHorizontal: space.lg }}>
@@ -102,7 +119,22 @@ export function NoteSheet({ visible, note, characters, canTag, justSaved,
                     }}
                   />
                 ) : null}
-                <SheetButton label="Done" onPress={onClose} />
+                {/*
+                  One action, whichever state the sheet is in. The create
+                  form used to carry a header "Done" and a footer "Add
+                  character" at the same time, which are different promises:
+                  one closes the note, the other makes a person. Here the
+                  header action *is* the state's action.
+                */}
+                {newName === null ? (
+                  <SheetButton label="Done" onPress={onClose} />
+                ) : (
+                  <SheetButton
+                    label={creating ? 'Adding…' : 'Add character'}
+                    disabled={creating || !newName.trim()}
+                    onPress={() => void createAndPick()}
+                  />
+                )}
               </View>
             </View>
             <ScrollView keyboardShouldPersistTaps="handled" style={{ flexShrink: 1 }}
@@ -143,9 +175,8 @@ export function NoteSheet({ visible, note, characters, canTag, justSaved,
                   <TextInput value={newBio} onChangeText={setNewBio} accessibilityLabel="Character bio"
                     placeholder="Who are they? (optional)" placeholderTextColor={color.wood} style={[fieldStyle, noteFont]} />
                   {createError ? <Text accessibilityRole="alert" style={{ color: color.warningInk }}>{createError}</Text> : null}
+                  {/* Adding is the header's job now; this is only the way out. */}
                   <View style={{ flexDirection: 'row', gap: space.md }}>
-                    <SheetButton label={creating ? 'Adding…' : 'Add character'} disabled={creating || !newName.trim()}
-                      onPress={() => void createAndPick()} />
                     <SheetButton label="Cancel" disabled={creating} onPress={() => { setNewName(null); refocus(); }} />
                   </View>
                 </>
