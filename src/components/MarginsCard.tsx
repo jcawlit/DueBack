@@ -12,6 +12,11 @@
  * about nobody in particular belongs to the book, not to a person, and
  * filing it under someone would be inventing a connection the listener did
  * not make.
+ *
+ * On the screen's own dark ground. The section used to sit on a cream card,
+ * which made the whole lower half of the Book screen read as a notepad
+ * stuck to the app. The one place the paper is still the point is the
+ * library card in the hero — that one is a library card, and looks it.
  */
 
 import { Pressable, ScrollView, Text, View } from 'react-native';
@@ -27,7 +32,7 @@ import {
 import { timestamp } from '@/lib/format';
 import { fallbackPalette } from '@/lib/library/palette';
 import { color, font, space, TOUCH } from '@/theme/tokens';
-import { CardEmpty } from './PaperCard';
+import { Aside } from './Aside';
 import { NotesCard } from './NotesCard';
 
 /** Big enough to read two letters on, small enough that four fit across. */
@@ -103,8 +108,9 @@ function Medallion({
           alignItems: 'center',
           justifyContent: 'center',
           borderWidth: RING,
-          // Ink, not lamp-light: this whole surface is paper.
-          borderColor: selected ? color.stampOut : 'transparent',
+          // The lamp, the way every other chosen thing on a dark screen
+          // is marked. This surface is no longer paper.
+          borderColor: selected ? color.accent : 'transparent',
         }}
       >
         <View
@@ -117,7 +123,7 @@ function Medallion({
             backgroundColor: palette ? palette.bg : 'transparent',
             borderWidth: palette ? 0 : 1.5,
             borderStyle: dashed ? 'dashed' : 'solid',
-            borderColor: color.paperRule,
+            borderColor: color.border,
           }}
         >
           <Text
@@ -126,7 +132,7 @@ function Medallion({
               fontFamily: font.monoMedium,
               fontSize: palette ? 18 : dashed ? 20 : 14,
               letterSpacing: palette ? 1 : 0.5,
-              color: palette ? palette.ink : color.inkOnPaper,
+              color: palette ? palette.ink : color.muted,
             }}
           >
             {label}
@@ -138,7 +144,7 @@ function Medallion({
         style={{
           fontFamily: selected ? font.monoMedium : font.mono,
           fontSize: 11,
-          color: selected ? color.inkOnPaper : color.stampFaded,
+          color: selected ? color.paper : color.faint,
         }}
       >
         {caption}
@@ -183,7 +189,7 @@ export function MarginsCard({
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ gap: space.xs, paddingBottom: space.sm }}
-          style={{ marginBottom: space.sm, borderBottomWidth: 1, borderBottomColor: color.paperRule }}
+          style={{ marginBottom: space.sm, borderBottomWidth: 1, borderBottomColor: color.line }}
         >
           <Medallion
             label="All"
@@ -241,7 +247,7 @@ export function MarginsCard({
             opacity: pressed ? 0.6 : 1,
           })}
         >
-          <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.stampOut }}>
+          <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>
             + Add character
           </Text>
         </Pressable>
@@ -255,8 +261,8 @@ export function MarginsCard({
             gap: space.md,
             paddingBottom: space.sm,
             marginBottom: space.xs,
-            borderBottomWidth: 1.5,
-            borderBottomColor: '#7a6446',
+            borderBottomWidth: 1,
+            borderBottomColor: color.line,
           }}
         >
           <View
@@ -283,13 +289,13 @@ export function MarginsCard({
           <View style={{ flex: 1, gap: 1 }}>
             <Text
               numberOfLines={1}
-              style={{ fontFamily: font.serif, fontSize: 17, color: color.inkOnPaper }}
+              style={{ fontFamily: font.serif, fontSize: 17, color: color.paper }}
             >
               {person.name}
             </Text>
             <Text
               numberOfLines={1}
-              style={{ fontFamily: font.mono, fontSize: 11, color: color.stampFaded }}
+              style={{ fontFamily: font.mono, fontSize: 11, color: color.faint }}
             >
               {heardLabel(firstHeardSec(person.id, notes))} · {shown.length}{' '}
               {shown.length === 1 ? 'note' : 'notes'}
@@ -307,13 +313,13 @@ export function MarginsCard({
               opacity: pressed ? 0.6 : 1,
             })}
           >
-            <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.stampOut }}>About</Text>
+            <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>About</Text>
           </Pressable>
         </View>
       ) : null}
 
       {person && shown.length === 0 ? (
-        <CardEmpty>{`No notes about ${person.name} yet.`}</CardEmpty>
+        <Aside>{`No notes about ${person.name} yet.`}</Aside>
       ) : (
         <NotesCard
           book={book}

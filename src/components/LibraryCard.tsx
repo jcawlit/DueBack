@@ -208,7 +208,9 @@ export function LibraryCard({ checkouts, minRows, bare = false, compact = false,
           style={{
             fontFamily: font.mono,
             fontSize: 11,
-            letterSpacing: 0.5,
+            // No tracking: this is a sentence, not a stamped heading, and the
+            // half-pixel a character costs the line is the difference
+            // between it fitting and ellipsising.
             color: '#5a4a32',
             paddingTop: 6,
           }}

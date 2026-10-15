@@ -202,6 +202,28 @@ export function PencilIcon({ size = 20, stroke = color.muted }: IconProps) {
   );
 }
 
+/**
+ * A book going back onto a shelf: the shelf line, and an arrow down to it.
+ *
+ * Returning is the one destructive move on the Book screen, so it gets a
+ * glyph that says where the book is going rather than a generic cross.
+ */
+export function ReturnIcon({ size = 20, stroke = color.paper }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 20 20" fill="none">
+      <Path d="M10 3v8" stroke={stroke} strokeWidth={1.5} strokeLinecap="round" />
+      <Path
+        d="M6.5 8L10 11.5 13.5 8"
+        stroke={stroke}
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path d="M3.5 15.5h13" stroke={stroke} strokeWidth={1.5} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 /** Three sliders on an amp, for the Sound panel. */
 export function SoundIcon({ size = 20, stroke = color.muted }: IconProps) {
   return (

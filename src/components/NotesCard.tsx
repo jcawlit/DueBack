@@ -1,47 +1,46 @@
 /**
- * The notes card: everything written while listening to this book, under the
+ * The notes list: everything written while listening to this book, under the
  * chapter it was written in.
  *
- * Lives on the margins card, so the paper, the ink and the rules all come
- * from there and nothing here sets a colour that is not on paper. A bookmark is a
- * single ruled line rather than a card of its own — it has nothing to read,
- * and giving it the same weight as a written note made a list of bookmarks
- * look like a list of empty boxes.
+ * On the screen's own dark ground, not on paper. It used to be a page in a
+ * card — ruled lines, boxes round the timestamps, a separator under every
+ * note — and it read as a notepad pasted into the app rather than as the
+ * listener's own writing. What is left is the writing itself, with space
+ * doing the work the rules were doing.
  */
 
 import { Pressable, Text, View } from 'react-native';
 import type { Book } from '@/data/types';
 import { groupNotesByChapter, isBookmark, type Character, type Note } from '@/data/notes';
 import { timestamp } from '@/lib/format';
-import { color, font, radius, space, TOUCH } from '@/theme/tokens';
-import { CardEmpty } from './PaperCard';
+import { color, font, space, TOUCH } from '@/theme/tokens';
+import { Aside } from './Aside';
 import { NoteText } from './NoteText';
 import { Ribbon } from './Ribbon';
 
-/** A time that plays the book from there. */
+/**
+ * A time that plays the book from there.
+ *
+ * Plain text, not a chip. The box round it made every note look like a form
+ * with a field in it; the lamp colour is enough to say it can be pressed,
+ * and the tap target is kept honest with hitSlop rather than with padding
+ * that has to be drawn.
+ */
 export function TimeChip({ atSec, onPress }: { atSec: number; onPress: () => void }) {
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`Play from ${timestamp(atSec)}`}
-      hitSlop={10}
-      style={({ pressed }) => ({
-        alignSelf: 'flex-start',
-        paddingHorizontal: space.sm,
-        paddingVertical: 2,
-        borderRadius: radius.tag,
-        borderWidth: 1,
-        borderColor: color.paperRule,
-        opacity: pressed ? 0.6 : 1,
-      })}
+      hitSlop={12}
+      style={({ pressed }) => ({ alignSelf: 'flex-start', opacity: pressed ? 0.6 : 1 })}
     >
       <Text
         style={{
           fontFamily: font.monoMedium,
           fontSize: 11,
           letterSpacing: 0.5,
-          color: color.stampOut,
+          color: color.accent,
         }}
       >
         {timestamp(atSec)}
@@ -71,7 +70,7 @@ export function RowAction({
         style={{
           fontFamily: font.mono,
           fontSize: 11,
-          color: tone === 'warning' ? color.warningInk : color.stampOut,
+          color: tone === 'warning' ? color.warning : color.accent,
         }}
       >
         {label}
@@ -89,49 +88,39 @@ export function RowAction({
  */
 function CharacterChip({ name, onPress }: { name: string; onPress?: () => void }) {
   const body = (
-    <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.inkOnPaper }}>{name}</Text>
+    <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>{name}</Text>
   );
-  const skin = {
-    paddingHorizontal: space.sm,
-    paddingVertical: 3,
-    borderRadius: 2,
-    backgroundColor: color.paperCard,
-    borderWidth: 1,
-    borderColor: color.paperRule,
-  } as const;
 
-  if (!onPress) return <View style={skin}>{body}</View>;
+  if (!onPress) return body;
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`Show only notes about ${name}`}
-      hitSlop={8}
-      style={({ pressed }) => [skin, { opacity: pressed ? 0.6 : 1 }]}
+      hitSlop={12}
+      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
     >
       {body}
     </Pressable>
   );
 }
 
-/** The chapter a run of notes belongs to, ruled off like a column heading. */
+/** The chapter a run of notes belongs to. A label, with no rule under it. */
 function ChapterRule({ title }: { title: string }) {
   return (
-    <View
+    <Text
+      numberOfLines={1}
       style={{
-        paddingBottom: 6,
-        marginTop: space.md,
-        borderBottomWidth: 1.5,
-        borderBottomColor: '#7a6446',
+        fontFamily: font.mono,
+        fontSize: 11,
+        letterSpacing: 1,
+        color: color.faint,
+        marginTop: space.lg,
+        marginBottom: space.xs,
       }}
     >
-      <Text
-        numberOfLines={1}
-        style={{ fontFamily: font.mono, fontSize: 11, letterSpacing: 1, color: '#5a4a32' }}
-      >
-        {title.toUpperCase()}
-      </Text>
-    </View>
+      {title.toUpperCase()}
+    </Text>
   );
 }
 
@@ -154,10 +143,10 @@ export function NotesCard({
 }) {
   if (notes.length === 0) {
     return (
-      <CardEmpty>
+      <Aside>
         Nothing written yet. The pencil in the player marks where you are, and anything you
         type lands here.
-      </CardEmpty>
+      </Aside>
     );
   }
 
@@ -181,15 +170,11 @@ export function NotesCard({
                   flexDirection: 'row',
                   alignItems: 'center',
                   gap: space.md,
-                  minHeight: 34,
-                  borderBottomWidth: 1,
-                  borderBottomColor: color.paperRule,
+                  minHeight: TOUCH,
                 }}
               >
                 <Ribbon width={7} height={16} notch={0.25} />
-                <Text
-                  style={{ flex: 1, fontFamily: font.mono, fontSize: 11, color: color.stampFaded }}
-                >
+                <Text style={{ flex: 1, fontFamily: font.mono, fontSize: 11, color: color.faint }}>
                   bookmark
                 </Text>
                 <Text
@@ -197,7 +182,7 @@ export function NotesCard({
                     fontFamily: font.monoMedium,
                     fontSize: 11,
                     letterSpacing: 0.5,
-                    color: color.stampOut,
+                    color: color.accent,
                   }}
                 >
                   {timestamp(note.positionSec)}
@@ -210,14 +195,12 @@ export function NotesCard({
                 accessibilityRole="button"
                 accessibilityHint="Opens the note"
                 style={({ pressed }) => ({
-                  paddingVertical: space.sm,
-                  gap: 6,
-                  borderBottomWidth: 1,
-                  borderBottomColor: color.paperRule,
+                  paddingVertical: space.md,
+                  gap: space.sm,
                   opacity: pressed ? 0.65 : 1,
                 })}
               >
-                <NoteText style={{ color: color.inkOnPaper }}>{note.text}</NoteText>
+                <NoteText size={15}>{note.text}</NoteText>
 
                 <View
                   style={{

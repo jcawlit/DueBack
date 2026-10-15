@@ -6,14 +6,15 @@
  * card when you turn it over. Nothing should put a card on a card — anything
  * drawn *inside* one of these takes the paper it is already on.
  *
- * The heading and empty-state below used to live in `CardStack`, which was
- * the tabbed stack the Book screen had before the margins became one
- * section. The stack is gone; these two outlived it.
+ * It used to carry a heading and an empty-state too, inherited from the
+ * tabbed `CardStack`. Both went when the margins came off the paper: the
+ * heading is a plain label on the dark ground now, and the empty state is
+ * `Aside`.
  */
 
 import type { ReactNode } from 'react';
-import { Text, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
-import { color, font, shadow, space } from '@/theme/tokens';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { color, shadow } from '@/theme/tokens';
 
 /** The same stock and squared corners as the library card. */
 export const paperCardStyle = {
@@ -77,39 +78,5 @@ export function PaperRules({ offset = 31, lines = 12 }: { offset?: number; lines
         />
       ))}
     </View>
-  );
-}
-
-/** A heading inside a card: the same stamped look as the library card's. */
-export function CardHeading({ children }: { children: string }) {
-  return (
-    <Text
-      style={{
-        fontFamily: font.mono,
-        fontSize: 11,
-        letterSpacing: 1,
-        color: color.stampFaded,
-        paddingBottom: space.xs,
-      }}
-    >
-      {children.toUpperCase()}
-    </Text>
-  );
-}
-
-/** What a card says when there is nothing on it yet. */
-export function CardEmpty({ children }: { children: string }) {
-  return (
-    <Text
-      style={{
-        fontFamily: font.sans,
-        fontSize: 13,
-        lineHeight: 19,
-        color: color.stampFaded,
-        paddingVertical: space.md,
-      }}
-    >
-      {children}
-    </Text>
   );
 }

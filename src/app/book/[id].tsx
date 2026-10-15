@@ -12,13 +12,12 @@ import { selectBook, useLibrary } from '@/store/library';
 import { usePlayer } from '@/store/player';
 import { duplicatesOf, folderLabel } from '@/lib/library/duplicates';
 import { bytes, hoursMinutes, hoursLeft, stampDate } from '@/lib/format';
-import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
+import { color, font, shadow, space, TOUCH } from '@/theme/tokens';
 import { BookCover } from '@/components/BookCover';
 import { COMPACT_CARD_ESTIMATE, LibraryCard, LibraryCardSheet } from '@/components/LibraryCard';
 import { StatusTag } from '@/components/CoverBadges';
 import { NoteCard, NoteText } from '@/components/NoteCard';
-import { ChevronLeft, PlayIcon } from '@/components/icons';
-import { CardHeading, PaperCard } from '@/components/PaperCard';
+import { ChevronLeft, PauseIcon, PlayIcon, ReturnIcon } from '@/components/icons';
 import { MarginsCard } from '@/components/MarginsCard';
 import { CharacterSheet } from '@/components/CharacterSheet';
 import { NoteSheet } from '@/components/NoteSheet';
@@ -47,13 +46,29 @@ const EDGE_WIDTH = 13;
  * the whole right half of the screen empty.
  */
 const CARD_OVERLAP = 18;
-/** The two compact actions stacked in the top-right, and the air below them. */
-const ACTION_HEIGHT = 46;
-const ACTION_GAP = 10;
-const ACTION_STACK = ACTION_HEIGHT * 2 + ACTION_GAP;
+/**
+ * How wide the compact card is, as a share of the screen.
+ *
+ * Down from "the rest of the hero", which made it 200px on a Pixel and loud
+ * enough to compete with the cover. Its left edge stays where it was, so the
+ * overlap onto the book is unchanged and it is the right edge that comes in.
+ */
+const CARD_WIDTH_FRACTION = 0.44;
+/**
+ * The two actions in the top-right, as discs rather than slabs.
+ *
+ * Play is the biggest, brightest thing in the hero after the cover itself,
+ * and carries no words: nobody should have to read to find out how to play
+ * a book. Return is deliberately half its size and only an outline — it is
+ * the one move here you cannot take back by tapping again.
+ */
+const PLAY_DIAMETER = 72;
+const RETURN_DIAMETER = 48;
+const ACTION_GAP = 14;
+const ACTION_STACK = PLAY_DIAMETER;
 const CARD_CLEARANCE = 12;
-/** Under this, the right column cannot hold a button label worth reading. */
-const MIN_ACTION_COLUMN = 130;
+/** Under this, the two discs and the air between them do not fit side by side. */
+const MIN_ACTION_COLUMN = PLAY_DIAMETER + ACTION_GAP + RETURN_DIAMETER;
 /**
  * What sits below the hero: the title block, the progress block and its
  * footnote, and enough of the card stack to show it is there.
@@ -65,87 +80,110 @@ const MIN_ACTION_COLUMN = 130;
 const HERO_CHROME = 300;
 
 type Action = {
-  /** The whole sentence, for a screen reader. */
+  /** The whole sentence. The disc carries no words, so this is all there is. */
   label: string;
-  /** What fits in a button half the screen wide. */
-  short: string;
   onPress?: () => void;
-  tone: 'accent' | 'muted';
-  /** Whether pressing this starts audio, and so earns the play glyph. */
-  plays?: boolean;
+  /** A copy in flight: shown as a percentage in place of the glyph. */
+  busy?: string;
 };
 
-type Secondary = { label: string; short: string; onPress: () => void };
+/**
+ * Giving the book back, or giving up a place in the queue. Two different
+ * moves and two different glyphs, but the same disc beside the same play.
+ */
+type Secondary = { label: string; kind: 'return' | 'cancel'; onPress: () => void };
 
-/** The amber action. Compact: one line, and the glyph only when it plays. */
-function PrimaryButton({ action }: { action: Action }) {
-  const accent = action.tone === 'accent';
+/**
+ * The play disc. Amber, filled, and the only thing on this screen that size.
+ *
+ * It shows pause while this book is the one playing, so that coming back to
+ * the Book screen mid-listen offers the move you actually want. The states
+ * that cannot play — DRM, no readable audio, a hold waiting on the drive —
+ * keep the disc but go flat and unpressable; what is wrong is said in the
+ * status tag above and the progress line below, not crammed in here.
+ */
+function PlayButton({ action, playing }: { action: Action; playing: boolean }) {
+  const live = !!action.onPress;
   return (
     <Pressable
       onPress={action.onPress}
-      disabled={!action.onPress}
+      disabled={!live}
       accessibilityRole="button"
       accessibilityLabel={action.label}
-      accessibilityState={{ disabled: !action.onPress }}
+      accessibilityState={{ disabled: !live }}
       style={({ pressed }) => [
         {
-          flex: 1,
-          minHeight: ACTION_HEIGHT,
-          borderRadius: radius.button,
-          flexDirection: 'row',
+          width: PLAY_DIAMETER,
+          height: PLAY_DIAMETER,
+          borderRadius: PLAY_DIAMETER / 2,
           alignItems: 'center',
           justifyContent: 'center',
-          gap: 6,
-          paddingHorizontal: space.sm,
-          backgroundColor: accent ? color.accent : color.panel,
-          borderWidth: accent ? 0 : 1,
+          backgroundColor: live ? color.accent : color.panel,
+          borderWidth: live ? 0 : 1,
           borderColor: color.border,
           opacity: pressed ? 0.85 : 1,
         },
-        accent ? shadow(8, 0.3) : null,
+        live ? shadow(10, 0.35) : null,
       ]}
     >
-      {action.plays && action.onPress ? <PlayIcon size={13} fill={color.ground} /> : null}
-      <Text
-        numberOfLines={1}
-        style={{
-          fontFamily: font.serif,
-          fontSize: 15,
-          color: accent ? color.ground : color.muted,
-        }}
-      >
-        {action.short}
-      </Text>
+      {action.busy ? (
+        <Text style={{ fontFamily: font.monoMedium, fontSize: 15, color: color.muted }}>
+          {action.busy}
+        </Text>
+      ) : playing ? (
+        <PauseIcon size={30} fill={live ? color.ground : color.faint} />
+      ) : (
+        <PlayIcon size={30} fill={live ? color.ground : color.faint} />
+      )}
     </Pressable>
   );
 }
 
-/** The outline action. Deliberately not a slab: returning is not an accident. */
-function SecondaryButton({ action, finished }: { action: Secondary; finished: boolean }) {
+/** The return disc: smaller, outlined, and never the thing the eye lands on. */
+function ReturnButton({ action, finished }: { action: Secondary; finished: boolean }) {
+  const ink = finished ? color.accent : color.muted;
   return (
     <Pressable
       onPress={action.onPress}
       accessibilityRole="button"
       accessibilityLabel={action.label}
       style={({ pressed }) => ({
-        flex: 1,
-        minHeight: ACTION_HEIGHT,
-        borderRadius: radius.button,
-        borderWidth: 1,
-        borderColor: finished ? color.accent : color.border,
+        width: RETURN_DIAMETER,
+        height: RETURN_DIAMETER,
+        borderRadius: RETURN_DIAMETER / 2,
         alignItems: 'center',
         justifyContent: 'center',
-        paddingHorizontal: space.sm,
+        borderWidth: 1,
+        borderColor: finished ? color.accent : color.border,
         opacity: pressed ? 0.7 : 1,
       })}
     >
-      <Text
-        numberOfLines={1}
-        style={{ fontFamily: font.mono, fontSize: 12, color: finished ? color.accent : color.paper }}
-      >
-        {action.short}
-      </Text>
+      {action.kind === 'return' ? (
+        <ReturnIcon size={22} stroke={ink} />
+      ) : (
+        <Text style={{ fontFamily: font.mono, fontSize: 11, color: ink }}>stop</Text>
+      )}
     </Pressable>
+  );
+}
+
+/** The pair, in the one arrangement they ever take. */
+function ActionDiscs({
+  primary,
+  secondary,
+  playing,
+  finished,
+}: {
+  primary: Action;
+  secondary: Secondary | null;
+  playing: boolean;
+  finished: boolean;
+}) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: ACTION_GAP }}>
+      <PlayButton action={primary} playing={playing} />
+      {secondary ? <ReturnButton action={secondary} finished={finished} /> : null}
+    </View>
   );
 }
 
@@ -192,7 +230,10 @@ export default function BookScreen() {
    * everything else gives way to it.
    */
   const cardLeft = centreX - CARD_OVERLAP;
-  const cardWidth = heroWidth - cardLeft;
+  const cardWidth = Math.min(
+    Math.round(windowWidth * CARD_WIDTH_FRACTION),
+    heroWidth - cardLeft,
+  );
   const cardTop = Math.max(0, coverHeight - cardHeight);
   const heroHeight = Math.max(coverHeight, cardTop + cardHeight);
 
@@ -228,6 +269,8 @@ export default function BookScreen() {
    * being where the listener actually is.
    */
   const livePosition = usePlayer((s) => (book && s.bookId === book.id ? s.positionSec : null));
+  /** Playing *this* book: the disc shows pause rather than play. */
+  const playingThis = usePlayer((s) => (book ? s.bookId === book.id && s.playing : false));
 
   /** Whose notes the margins are narrowed to, or null for the whole book. */
   const [whose, setWhose] = useState<string | null>(null);
@@ -323,18 +366,23 @@ export default function BookScreen() {
    * What the compact card says under its stamps. The state first, because
    * that is the question the card is being glanced at to answer, then how to
    * see the rest — a card with three of eleven stamps has to say so.
+   *
+   * Every one of these is short enough to render whole. At 11px mono in a
+   * 181px card there is room for about 23 characters, and the longest here
+   * ("NEVER OUT · FULL CARD") is 21. The first version ellipsised to "tap
+   * for…", which is a hint that stops before it says anything.
    */
   const cardStatus = `${
     copying
-      ? 'CHECKING OUT'
+      ? 'COPYING'
       : out
-        ? 'ON YOUR PHONE'
+        ? 'ON PHONE'
         : onHold
           ? 'ON HOLD'
           : book.checkouts.length === 0
-            ? 'NEVER CHECKED OUT'
-            : 'ON THE SHELF'
-  } · tap for full card`;
+            ? 'NEVER OUT'
+            : 'ON SHELF'
+  } · FULL CARD`;
 
   const backupLine = libraryOnDevice
     ? 'Saved on phone'
@@ -399,79 +447,62 @@ export default function BookScreen() {
    * ride along in the label ("· 1.2 GB") is not lost — it is in the meta
    * line under the title, where it was already.
    */
+  /*
+   * The disc carries no words, so every one of these labels is what a screen
+   * reader says and the only full sentence left. The size that used to ride
+   * along in it is in the meta line under the title.
+   */
+  const copyPercent = Math.round(
+    (book.local.status === 'copying' ? book.local.progress : 0) * 100,
+  );
+
   const primary: Action = book.drmProtected
-    ? {
-        label: "Can't play — protected by DRM",
-        short: "Can't play",
-        onPress: undefined,
-        tone: 'muted',
-      }
+    ? { label: "Can't play — protected by DRM", onPress: undefined }
     : !playable
-      ? {
-          label: 'No audio that can be read',
-          short: 'No audio',
-          onPress: undefined,
-          tone: 'muted',
-        }
-    : copying
-      ? {
-          label: `Checking out… ${Math.round((book.local.status === 'copying' ? book.local.progress : 0) * 100)}%`,
-          short: `Checking out ${Math.round((book.local.status === 'copying' ? book.local.progress : 0) * 100)}%`,
-          onPress: undefined,
-          tone: 'muted',
-        }
-      : out
-        ? {
-            label: finished ? 'Listen again' : started ? 'Keep listening' : 'Start listening',
-            short: finished ? 'Listen again' : started ? 'Keep listening' : 'Start listening',
-            onPress: () => openPlayer(book.id),
-            tone: 'accent',
-            plays: true,
-          }
-        : libraryOnDevice
+      ? { label: 'No audio that can be read', onPress: undefined }
+      : copying
+        ? { label: `Checking out… ${copyPercent}%`, onPress: undefined, busy: `${copyPercent}%` }
+        : out
           ? {
-              // The library is already on the phone, so there is nothing to
-              // copy and nothing to wait for — just play it.
-              label: 'Play',
-              short: 'Play',
+              label: finished ? 'Listen again' : started ? 'Keep listening' : 'Start listening',
               onPress: () => openPlayer(book.id),
-              tone: 'accent',
-              plays: true,
             }
-          : onHold
+          : libraryOnDevice
             ? {
-                // On hold means two different things depending on what is
-                // missing: the drive, or a turn in the queue behind another
-                // copy. Saying "waiting for the drive" with the drive plugged
-                // in reads as a bug.
-                label: driveConnected ? 'In the queue' : 'Waiting for the drive',
-                short: driveConnected ? 'In the queue' : 'Waiting',
-                onPress: undefined,
-                tone: 'muted',
+                // The library is already on the phone, so there is nothing to
+                // copy and nothing to wait for — just play it.
+                label: 'Play',
+                onPress: () => openPlayer(book.id),
               }
-            : {
-                label: driveConnected
-                  ? `Check out and play · ${bytes(book.sizeBytes)}`
-                  : `Put on hold · ${bytes(book.sizeBytes)}`,
-                short: driveConnected ? 'Check out' : 'Put on hold',
-                onPress: () =>
-                  driveConnected
-                    ? checkOutAndPlay(book.id, openPlayer)
-                    : checkOut(book.id),
-                tone: 'accent',
-                plays: driveConnected,
-              };
+            : onHold
+              ? {
+                  // On hold means two different things depending on what is
+                  // missing: the drive, or a turn in the queue behind another
+                  // copy. Saying "waiting for the drive" with the drive plugged
+                  // in reads as a bug.
+                  label: driveConnected ? 'In the queue' : 'Waiting for the drive',
+                  onPress: undefined,
+                }
+              : {
+                  label: driveConnected
+                    ? `Check out and play · ${bytes(book.sizeBytes)}`
+                    : `Put on hold · ${bytes(book.sizeBytes)}`,
+                  onPress: () =>
+                    driveConnected
+                      ? checkOutAndPlay(book.id, openPlayer)
+                      : checkOut(book.id),
+                };
 
   const secondary: Secondary | null = out
     ? {
-        label: `Return to the shelves · frees ${bytes(book.sizeBytes)}`,
-        short: 'Return to shelves',
+        label: `Return to shelves · frees ${bytes(book.sizeBytes)}`,
+        kind: 'return',
         onPress: () => returnBook(book.id),
       }
     : onHold
       ? {
           label: driveConnected ? 'Leave the queue' : 'Cancel the hold',
-          short: driveConnected ? 'Leave the queue' : 'Cancel the hold',
+          kind: 'cancel',
           onPress: () => cancelHold(book.id),
         }
       : null;
@@ -545,17 +576,13 @@ export default function BookScreen() {
             />
 
             {actionsInHero ? (
-              <View
-                style={{
-                  position: 'absolute',
-                  left: actionLeft,
-                  top: 0,
-                  width: actionWidth,
-                  gap: ACTION_GAP,
-                }}
-              >
-                <PrimaryButton action={primary} />
-                {secondary ? <SecondaryButton action={secondary} finished={finished} /> : null}
+              <View style={{ position: 'absolute', left: actionLeft, top: 0, width: actionWidth }}>
+                <ActionDiscs
+                  primary={primary}
+                  secondary={secondary}
+                  playing={playingThis}
+                  finished={finished}
+                />
               </View>
             ) : null}
 
@@ -645,29 +672,18 @@ export default function BookScreen() {
           </Text>
 
           {/*
-            No offer to return, deliberately. Finishing a book used to promise
-            one here and never make it; the decision taken was that returning
-            is the listener's call and their timing, and that the tray marking
-            a book DONE is the whole of what the app should say about it.
-          */}
-          <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.faint }}>
-            {finished && out
-              ? 'all done — return it whenever you like'
-              : out
-                ? 'your place is kept, however long it sits here'
-                : driveConnected
-                  ? 'checking out copies it to your phone'
-                  : 'holds check out as soon as the drive is connected'}
-          </Text>
-
-          {/*
-            Too narrow for a button beside the cover, so they come down here —
-            still the same two compact buttons, side by side.
+            Too narrow for the discs beside the cover, so they come down here.
+            The same two, the same sizes — a smaller screen does not get a
+            different design, only a different place to put it.
           */}
           {actionsInHero ? null : (
-            <View style={{ flexDirection: 'row', gap: ACTION_GAP, paddingTop: space.sm }}>
-              <PrimaryButton action={primary} />
-              {secondary ? <SecondaryButton action={secondary} finished={finished} /> : null}
+            <View style={{ paddingTop: space.md }}>
+              <ActionDiscs
+                primary={primary}
+                secondary={secondary}
+                playing={playingThis}
+                finished={finished}
+              />
             </View>
           )}
         </View>
@@ -726,8 +742,18 @@ export default function BookScreen() {
         ) : null}
 
         <View style={{ marginTop: space.xxl }}>
-          <PaperCard style={{ marginHorizontal: space.xl, paddingHorizontal: 14, paddingTop: space.md, paddingBottom: space.lg }}>
-            <CardHeading>Margins</CardHeading>
+          <View style={{ paddingHorizontal: space.xxl }}>
+            <Text
+              style={{
+                fontFamily: font.mono,
+                fontSize: 11,
+                letterSpacing: 1,
+                color: color.faint,
+                paddingBottom: space.xs,
+              }}
+            >
+              MARGINS
+            </Text>
 
             {/*
               Undo lives on the card rather than in a slip: the slip has no
@@ -742,10 +768,10 @@ export default function BookScreen() {
                   justifyContent: 'space-between',
                   paddingVertical: space.sm,
                   borderBottomWidth: 1,
-                  borderBottomColor: color.paperRule,
+                  borderBottomColor: color.line,
                 }}
               >
-                <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.stampFaded }}>
+                <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.faint }}>
                   Note deleted
                 </Text>
                 <Pressable
@@ -753,7 +779,7 @@ export default function BookScreen() {
                   accessibilityRole="button"
                   hitSlop={10}
                 >
-                  <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.stampBack }}>
+                  <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>
                     Undo
                   </Text>
                 </Pressable>
@@ -771,7 +797,7 @@ export default function BookScreen() {
               onOpenCharacter={setOpenCharacter}
               onAddCharacter={isPro() ? () => void addBlankCharacter() : undefined}
             />
-          </PaperCard>
+          </View>
 
           {/*
             Where this book's writing is. Said plainly rather than with an
