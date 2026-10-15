@@ -373,7 +373,7 @@ export default function SettingsScreen() {
 
         <View style={{ gap: space.sm }}>
           <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}>
-            MARGINS
+            NOTES
           </Text>
           <Row
             label="Handwritten notes"

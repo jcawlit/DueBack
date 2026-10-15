@@ -368,7 +368,7 @@ describe('the page you can take away', () => {
   });
 
   it('includes the characters, their aliases, bios and first heard', () => {
-    assert.match(page, /## Who's who/);
+    assert.match(page, /## Characters/);
     assert.match(page, /### Logen/);
     assert.match(page, /_also Ninefingers_/);
     assert.match(page, /A northman\./);
@@ -386,7 +386,7 @@ describe('the page you can take away', () => {
       characters: cast,
       includeCharacters: false,
     });
-    assert.ok(!free.includes("Who's who"));
+    assert.ok(!free.includes('## Characters'));
     assert.match(free, /the duel with @Logen/);
   });
 

@@ -25,7 +25,7 @@ export type ExportInput = {
   chapters: { title: string; startSec: number }[];
   notes: Note[];
   characters: Character[];
-  /** Whether to include the Who's who section. */
+  /** Whether to include the characters section. */
   includeCharacters: boolean;
 };
 
@@ -67,7 +67,7 @@ export function exportNotes({
   }
 
   if (includeCharacters && characters.length > 0) {
-    lines.push('', "## Who's who");
+    lines.push('', '## Characters');
     for (const character of charactersByFirstHeard(characters, notes)) {
       const aliases = namesFor(character).slice(1);
       lines.push('', `### ${character.name}`);

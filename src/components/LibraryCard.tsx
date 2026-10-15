@@ -22,27 +22,40 @@ type Props = {
   checkouts: Checkout[];
   /** Minimum ruled lines, so a fresh card still looks like a card. */
   minRows?: number;
+  /**
+   * Draw only the ruling and the stamps, with no paper of its own.
+   *
+   * Inside the card stack the surrounding card *is* the library card, so a
+   * second sheet with its own shadow and lean would be a card on a card. The
+   * lean is worth keeping where this stands alone: one card pasted into a
+   * cover can sit crooked, a stack holding a scrolling list cannot.
+   */
+  bare?: boolean;
 };
 
-export function LibraryCard({ checkouts, minRows = 4 }: Props) {
+export function LibraryCard({ checkouts, minRows = 4, bare = false }: Props) {
   const rows = Math.max(minRows, checkouts.length);
   // Newest at the bottom, the way a real card fills downwards.
   const ordered = [...checkouts].sort((a, b) => a.out.localeCompare(b.out));
 
   return (
     <View
-      style={[
-        {
-          backgroundColor: color.paperCardAlt,
-          borderRadius: 2,
-          paddingTop: space.md,
-          paddingHorizontal: 14,
-          paddingBottom: 10,
-          transform: [{ rotate: '0.8deg' }],
-          overflow: 'hidden',
-        },
-        shadow(10, 0.5),
-      ]}
+      style={
+        bare
+          ? { paddingBottom: 10, overflow: 'hidden' }
+          : [
+              {
+                backgroundColor: color.paperCardAlt,
+                borderRadius: 2,
+                paddingTop: space.md,
+                paddingHorizontal: 14,
+                paddingBottom: 10,
+                transform: [{ rotate: '0.8deg' }],
+                overflow: 'hidden',
+              },
+              shadow(10, 0.5),
+            ]
+      }
     >
       {/* Ruled lines, starting below the column headings. */}
       <View

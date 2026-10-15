@@ -85,10 +85,11 @@ failure.
 
 *`src/lib/files/import.ts`*
 
-### Every file call is synchronous and blocks the JS thread
+### Metadata and direct byte calls block the JS thread
 
 `Directory.list()`, `size`, `modificationTime`, `readBytes`, `writeBytes` — all
-of them. A tree walk or a chunked copy therefore runs to completion inside one
+of these are synchronous; `move()` and `copy()` are asynchronous (see below).
+A tree walk or a chunked copy therefore runs to completion inside one
 JavaScript turn unless it yields: progress is reported faithfully and nothing
 can paint until the work has already finished. Both the walk and the drive copy
 `await` a zero timeout periodically for exactly this reason.
@@ -289,21 +290,12 @@ in this category and play correctly, so the estimate is good enough in practice.
 
 ## Identity and scanning
 
-### A book's id is a hash of its path
-
-FNV-1a over the folder path relative to the library root. Titles are never used:
-they change when tags are edited and two books can share one. The consequence —
-**changing the library root re-indexes every book** and leaves the old rows
-flagged missing.
-
-*`src/lib/library/ids.ts`*
-
 ### A folder the app created is claimed, not re-indexed
 
-Pushing an imported book to the drive creates a folder the scan would otherwise
-hash into a *new* id — indexing the copy as a second book and stamping the
-original NOT ON DRIVE. The push records the folder in `books.drive_rel_path`,
-and the scan uses that id instead of hashing the path.
+Pushing an imported book to the drive must preserve its uuid. The push records
+the folder in `books.drive_rel_path`, and scanning claims it for the existing
+book instead of creating a duplicate. See "A path locates a book; it does not
+identify one" for path keys and reconnection rules.
 
 *`src/db/books.ts` (`markImportOnDrive`, `claimedDriveFolders`)*
 
@@ -529,17 +521,19 @@ an existing hash when a scan did not take one.
 
 ### A drive knows which library it is
 
-`.dueback/library.json` at the library root holds the library id, and the
-drive's answer always wins — the same stick through a different mount is the
-same library, and its books keep their uuids. It is never overwritten: two
-phones that each minted an id for one drive would otherwise take turns
-renaming it, and every book on it would change libraries on every scan.
+Library identity is recovered from complete `.dueback/gen-N/` generations.
+The old `library.json` is a fallback for libraries without generations, never
+required to recover a valid backup. A malformed latest generation falls back
+to a complete older one; conflicting identities or no readable generations
+stop identity assignment rather than minting replacement book ids.
 
-Path keys are looked up **within one library**, because a path key is only a
-path and two libraries can both hold `A Book/01.mp3`. Books recorded with no
-library are included, since that is every book indexed before this existed.
+A new root gets a new library id, with a per-root local mapping for read-only
+providers. Path indexes, incremental fingerprints, claimed import folders and
+outgoing backups are scoped to that library. The UUID migration binds older
+unassigned rows to their configured root once.
 
-*`src/lib/sync/driveFolder.ts`, `src/db/identity.ts`*
+*`src/lib/sync/libraryIdentity.ts`, `src/lib/sync/driveSync.ts`, `src/db/identity.ts`*
+
 
 ### Reconnecting carries local paths by index, not by path
 
@@ -632,15 +626,16 @@ drive, and the manifest may predate a book moving.
 
 *`src/lib/sync/records.ts`, `src/lib/scan/scanner.ts` (`seedIdentity`)*
 
-### A newer schema is read as far as possible and never written over
+### A newer schema makes the drive backup read-only
 
-A generation whose schema version is higher than this app's is not damage —
-it is this app being behind. It is left exactly where it is, the user is told
-to update, and the next generation number is counted from **every** folder
-present rather than from the newest that validated, so a newer app's work can
-never have its number reused.
+If any generation has a newer schema, syncing may read an older compatible
+copy but must not create or prune generations. Advancing the generation number
+alone is not protection: it would put the newer schema below the pruning
+threshold and delete it. Agreement is recorded only after a complete successful
+write, and only for the exact mutation that was written.
 
-*`src/lib/sync/generations.ts`, `src/lib/sync/driveSync.ts`*
+*`src/lib/sync/driveSync.ts`, `src/store/backup.ts`, `src/db/sync.ts`*
+
 
 ### Only authored data is backed up
 
@@ -688,6 +683,12 @@ is in the way. Tapping the field is what asks for it.
 
 Dictation is the keyboard's own, so speaking a note needs no microphone
 permission and the app asks for none.
+
+Once editing starts, keyboard avoidance wraps the entire modal on Android as
+well as iOS. The paper card has a bounded, scrollable writing area and a separate
+suggestion row above the keyboard. An unbounded sheet with Android avoidance
+disabled hides both the draft and @ suggestions. Creating a character replaces
+the writing area temporarily; it does not stack another form below the draft.
 
 *`src/components/NoteSheet.tsx`*
 
@@ -749,6 +750,67 @@ margins were added, and no native rebuild was required for them.
 *`plugins/withBackupExclusion.js`, `src/db/schema.ts`*
 
 ## Screens
+
+### The Book screen is a stack of cards, and only paper goes on paper
+
+The library card, the notes and the characters are three faces of one thing:
+*your* record of a book, as distinct from the book. They share one stock
+(`paperCardAlt`), one ink (`inkOnPaper`, with `stampOut` and `stampFaded` for
+anything secondary) and one set of rules, and they sit in `CardStack` with
+tabs cut from the same paper — the active tab is the same colour as the body
+and overlaps it by a pixel, which is the whole trick that makes it read as a
+stack rather than a toolbar above a panel.
+
+The lamp accent must never appear on paper. `#e8a23a` on `#ece0c4` is about
+2:1, which is unreadable as well as wrong: the accent belongs to the dark
+chrome, and a chip or a link on a card is ink.
+
+*`src/components/CardStack.tsx`, `src/components/NotesCard.tsx`,
+`src/components/CharactersCard.tsx`*
+
+### Only one card leans
+
+`LibraryCard` is rotated 0.8°, which reads as a card pasted into a cover. A
+stack cannot be: tilted tabs are harder to hit, and Android resamples rotated
+text, so Caveat at 20° off square goes soft. Inside the stack the library card
+is drawn `bare` — the stack's paper *is* the card — so there is never a card
+on a card.
+
+*`src/components/LibraryCard.tsx`, `src/components/CardStack.tsx`*
+
+### Ruled lines only where the rows are a fixed height
+
+The library card earns its rules because every row is exactly `ROW_HEIGHT` and
+carries one date stamp. The note editor earns them because its `TextInput`
+takes its `lineHeight` from `RULE_PITCH` — the two are the same constant on
+purpose, not the same number by luck.
+
+Nothing else is ruled. A note card holds one to six lines of Caveat at a size
+the reader can change in Settings, plus chips and a row of actions; ruling
+behind that will never line up, and ruling that nearly lines up looks worse
+than none at all.
+
+*`src/components/PaperCard.tsx` (`RULE_PITCH`), `src/components/LibraryCard.tsx`*
+
+### Chapters are listed in one place
+
+The Book screen used to have a Chapters tab that was the same list as the
+player's Contents sheet, reached a different way. It was dropped: four tabs
+across a phone leaves none of them room to be read, and the three that remain
+are all the listener's own record of the book, which is one idea rather than
+three plus an odd one out.
+
+*`src/app/book/[id].tsx`, `src/components/ContentsSheet.tsx`*
+
+### What the user calls these things
+
+**Notes**, not margins. **Characters**, not Who's who. "Margins" survives in
+module and function names where it reads well as a collective — `countMarginsFor`,
+`marginsSuite` — but never on screen and never in the exported page.
+
+*`src/components/NotesCard.tsx`, `src/components/CharactersCard.tsx`,
+`src/lib/notes/export.ts`*
+
 
 ### Only one slip, mounted at the root
 
@@ -926,9 +988,24 @@ smaller one. Phones are `arm64-v8a`; the emulator is `x86_64`.
 
 ### Native changes need a rebuild
 
-`app.json` and `plugins/` only take effect at build time. Currently pending for
-the next build: `recordAudioAndroid: false`, which drops the `RECORD_AUDIO`
-permission `expo-audio` adds by default.
+`app.json`, `plugins/` and local native modules only take effect at build time.
+The Sound build includes `recordAudioAndroid: false`, which drops the
+`RECORD_AUDIO` permission `expo-audio` adds by default.
+
+### Sound follows the native audio session, not the player screen
+
+expo-audio's Android player is a `SharedRef<ExoPlayer>`. The local Sound module
+uses that reference on the main queue and listens to `onAudioSessionIdChanged`:
+a session can become available after initial attachment or change independently
+of a JavaScript part switch. Effects are released and recreated for that session;
+JavaScript recomputes levels from its actual bands. Native calls return promises.
+
+Settings load through the playback store, not a screen effect. Database writes
+are ordered, and delayed reads cannot replace newer edits. A noisy-audio broadcast
+pauses natively even if JavaScript is suspended; the event also clears the engine's
+playback intent. Device effects still require physical listening tests.
+
+*`modules/dueback-audio`, `src/store/sound.ts`, `tests/sound-integration.test.ts`*
 
 ### Checked-out audio is excluded from backup
 
@@ -938,3 +1015,55 @@ device transfer — they are copies of files that are still on the drive.
 audiobook) but **kept** for device transfer, where it may be the only copy.
 
 *`plugins/withBackupExclusion.js`*
+
+### Migrations commit their schema version with their data
+
+Each migration owns one transaction during database bootstrap. DDL, rewritten
+book references and `user_version` commit together, so an interruption can be
+retried without duplicate-column errors or half-rewritten identities. The last
+player book setting is also an identity reference.
+
+Audio paths stay where they are when ids change. Startup's orphan sweep derives
+ownership from recorded part paths, and Return uses the recorded local folder;
+neither may infer ownership from the new book UUID.
+
+*`src/db/migrations.ts`, `src/db/identityMigration.ts`, `src/store/library.ts`*
+
+### Restoring identity includes books not found at their old paths
+
+A fresh install seeds missing book rows from the generation's identity records,
+including shape and content sample, before scanning. That lets the normal
+reconnection path recognise a renamed folder and restore writing to its original
+UUID. A path-only map cannot do this because its old path is precisely what
+has disappeared.
+
+*`src/db/identity.ts`, `src/lib/scan/scanner.ts`*
+
+### Save completion must not replace newer typing
+
+An autosave completing only updates the visible note if its text still matches
+the submitted draft. Reloading notes also preserves drafts changed while the
+query was running. A serial writer alone protects disk order, not the input
+field shown to a person who is still typing.
+
+*`src/store/notes.ts`, `tests/audit-regressions.test.ts`*
+
+### Backup pending is updated by authored writes
+
+Notes, characters, progress and checkout history notify backup after a database
+write. Draft typing marks pending too. Writes while connected schedule a debounced
+backup; Return's history write uses the same path without waiting on the drive.
+A backup's timestamp is bounded by its start, so changes made during the write
+stay pending. Applying a collected snapshot must not overwrite a newer local
+mutation. An explicit zero playback position is still progress and is exported.
+
+*`src/lib/sync/changes.ts`, `src/store/backup.ts`, `src/db/sync.ts`*
+
+### Different remembered agreements must not discard a conflicting draft
+
+For legacy timestamp-based agreements, conflict detection uses the earlier of
+the remembered bases on either side, symmetrically. This conservatively preserves
+text when the devices disagree about their common revision. Failed drive writes
+never advance that base. Conflict copies keep their deterministic ids.
+
+*`src/lib/sync/records.ts`, `tests/audit-regressions.test.ts`*

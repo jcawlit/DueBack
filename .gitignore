@@ -53,3 +53,7 @@ dueback-dev.apk
 testlib/
 fixtures/
 dueback.apk
+
+# Local native modules: gradle output, never source.
+modules/*/android/build/
+modules/*/android/.cxx/

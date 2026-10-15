@@ -18,13 +18,9 @@ import { LibraryCard } from '@/components/LibraryCard';
 import { StatusTag } from '@/components/CoverBadges';
 import { NoteCard, NoteText } from '@/components/NoteCard';
 import { ChevronLeft } from '@/components/icons';
-import {
-  ChaptersPanel,
-  MarginsPanel,
-  TabBar,
-  type BookTab,
-} from '@/components/BookTabs';
-import { CharacterSheet, WhosWhoPanel } from '@/components/WhosWho';
+import { CardStack, type BookTab, type StackTab } from '@/components/CardStack';
+import { NotesCard } from '@/components/NotesCard';
+import { CharacterSheet, CharactersCard } from '@/components/CharactersCard';
 import { NoteSheet } from '@/components/NoteSheet';
 import { useNotes } from '@/store/notes';
 import { exportNotes } from '@/lib/notes/export';
@@ -65,7 +61,7 @@ export default function BookScreen() {
    */
   const livePosition = usePlayer((s) => (book && s.bookId === book.id ? s.positionSec : null));
 
-  const [tab, setTab] = useState<BookTab>('margins');
+  const [tab, setTab] = useState<BookTab>('notes');
   const [editing, setEditing] = useState<string | null>(null);
   const [openCharacter, setOpenCharacter] = useState<Character | null>(null);
 
@@ -167,10 +163,17 @@ export default function BookScreen() {
     ? (mine.find((n) => n.id === editing) ?? null)
     : null;
 
-  const tabs: { key: BookTab; label: string }[] = [
-    { key: 'chapters', label: 'Chapters' },
-    { key: 'margins', label: 'Margins' },
-    ...(isPro() ? [{ key: 'whoswho' as const, label: "Who's who" }] : []),
+  /*
+   * Three faces of the same thing: your record of this book. Chapters used to
+   * sit here too and was dropped — the player's Contents sheet is the same
+   * list, and four tabs across a phone leaves none of them room to be read.
+   */
+  const tabs: StackTab<BookTab>[] = [
+    { key: 'card', label: 'Library card', hint: 'When this book went out and came back' },
+    { key: 'notes', label: 'Notes', hint: 'What you wrote while listening' },
+    ...(isPro()
+      ? [{ key: 'characters' as const, label: 'Characters', hint: 'Who is in this book' }]
+      : []),
   ];
 
   /** Opens the player and lands on a second — a note's time chip. */
@@ -188,7 +191,7 @@ export default function BookScreen() {
    * Always free, and always the whole of it. This is the listener's own
    * writing; an app that holds it hostage is not one worth trusting with it.
    */
-  const shareMargins = async () => {
+  const shareNotes = async () => {
     await flushNotes();
     const page = exportNotes({
       title: book.title,
@@ -430,95 +433,95 @@ export default function BookScreen() {
         ) : null}
 
         <View style={{ marginTop: space.xxl }}>
-          <TabBar tab={tab} onChange={setTab} tabs={tabs} />
+          <CardStack tabs={tabs} active={tab} onChange={setTab}>
+            {tab === 'card' ? <LibraryCard bare checkouts={book.checkouts} /> : null}
 
-          {/*
-            Undo lives here rather than in a slip: the slip has no button, and
-            a deletion is the one thing worth offering back for longer than a
-            message stays on screen.
-          */}
-          {tab === 'margins' && undoable ? (
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginHorizontal: space.xxl,
-                marginTop: space.md,
-                paddingHorizontal: space.md,
-                paddingVertical: space.sm,
-                borderWidth: 1,
-                borderColor: color.border,
-                borderRadius: radius.button,
-              }}
-            >
-              <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>
-                Note deleted
-              </Text>
-              <Pressable onPress={() => void undoDelete()} accessibilityRole="button" hitSlop={10}>
-                <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.ribbon }}>
-                  Undo
-                </Text>
-              </Pressable>
-            </View>
-          ) : null}
+            {tab === 'notes' ? (
+              <>
+                {/*
+                  Undo lives on the card rather than in a slip: the slip has no
+                  button, and a deletion is the one thing worth offering back
+                  for longer than a message stays on screen.
+                */}
+                {undoable ? (
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      paddingVertical: space.sm,
+                      borderBottomWidth: 1,
+                      borderBottomColor: color.paperRule,
+                    }}
+                  >
+                    <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.stampFaded }}>
+                      Note deleted
+                    </Text>
+                    <Pressable
+                      onPress={() => void undoDelete()}
+                      accessibilityRole="button"
+                      hitSlop={10}
+                    >
+                      <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.stampBack }}>
+                        Undo
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
 
-          {tab === 'chapters' ? <ChaptersPanel book={book} onPlayFrom={playFrom} /> : null}
-          {tab === 'margins' ? (
-            <MarginsPanel
-              book={book}
-              notes={mine}
-              characters={characters}
-              onPlayFrom={playFrom}
-              onEdit={(note) => setEditing(note.id)}
-              onDelete={(note) => void deleteNote(note.id)}
-            />
-          ) : null}
-          {tab === 'whoswho' ? (
-            <WhosWhoPanel
-              characters={characters}
-              notes={mine}
-              onOpen={setOpenCharacter}
-              onAdd={() => void addBlankCharacter()}
-            />
-          ) : null}
+                <NotesCard
+                  book={book}
+                  notes={mine}
+                  characters={characters}
+                  onPlayFrom={playFrom}
+                  onEdit={(note) => setEditing(note.id)}
+                  onDelete={(note) => void deleteNote(note.id)}
+                />
+              </>
+            ) : null}
+
+            {tab === 'characters' ? (
+              <CharactersCard
+                characters={characters}
+                notes={mine}
+                onOpen={setOpenCharacter}
+                onAdd={() => void addBlankCharacter()}
+              />
+            ) : null}
+          </CardStack>
 
           {/*
             Where this book's writing is. Said plainly rather than with an
             icon: "pending" here means the phone has it and the drive does
             not yet, which is a fact worth being able to read.
           */}
-          <Text
+          <View
             style={{
-              fontFamily: font.mono,
-              fontSize: 10,
-              color: color.faint,
-              textAlign: 'center',
-              paddingTop: space.lg,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginHorizontal: space.xxl,
+              marginTop: space.lg,
             }}
           >
-            {backupLine}
-          </Text>
-
-          <Pressable
-            onPress={() => void shareMargins()}
-            accessibilityRole="button"
-            style={({ pressed }) => ({
-              alignSelf: 'center',
-              marginTop: space.xl,
-              minHeight: TOUCH,
-              justifyContent: 'center',
-              opacity: pressed ? 0.6 : 1,
-            })}
-          >
-            <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>
-              share these notes
+            <Text style={{ fontFamily: font.mono, fontSize: 10, color: color.faint }}>
+              {backupLine}
             </Text>
-          </Pressable>
-        </View>
-
-        <View style={{ marginTop: space.xl, marginHorizontal: space.xxl }}>
-          <LibraryCard checkouts={book.checkouts} />
+            <Pressable
+              onPress={() => void shareNotes()}
+              accessibilityRole="button"
+              hitSlop={10}
+              style={({ pressed }) => ({
+                minHeight: TOUCH,
+                justifyContent: 'center',
+                opacity: pressed ? 0.6 : 1,
+              })}
+            >
+              <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>
+                share notes
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </ScrollView>
 

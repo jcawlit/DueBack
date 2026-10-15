@@ -1,14 +1,18 @@
 /**
- * Who's who: the index card for every person in a book, and the card you get
- * when you turn one over.
+ * The characters card: everyone in this book, and the card you get when you
+ * turn one of them over.
  *
  * Ordered by when you first heard of them rather than alphabetically, because
  * the question this answers is "who was that again", and the answer is nearly
  * always someone met recently or met at the very start.
+ *
+ * The list lives inside `CardStack` and so sets no colour that is not on
+ * paper; the editor is a sheet of its own, and carries the same stock with
+ * it so that turning a card over does not change what it is made of.
  */
 
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   charactersByFirstHeard,
@@ -22,13 +26,15 @@ import {
 import { timestamp } from '@/lib/format';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 import { NoteText, useNoteFont } from './NoteText';
-import { EmptyPanel, RowAction, TimeChip } from './BookTabs';
+import { CardEmpty } from './CardStack';
+import { paperCardStyle } from './PaperCard';
+import { RowAction, TimeChip } from './NotesCard';
 
 function heardLabel(sec: number | null): string {
   return sec === null ? 'not heard yet' : `first heard ${timestamp(sec)}`;
 }
 
-export function WhosWhoPanel({
+export function CharactersCard({
   characters,
   notes,
   onOpen,
@@ -42,11 +48,9 @@ export function WhosWhoPanel({
   const ordered = charactersByFirstHeard(characters, notes);
 
   return (
-    <View style={{ paddingTop: space.md, gap: space.sm }}>
+    <View>
       {ordered.length === 0 ? (
-        <EmptyPanel>
-          Nobody yet. Type @ in a note to tag someone, or add them here.
-        </EmptyPanel>
+        <CardEmpty>Nobody yet. Type @ in a note to tag someone, or add them here.</CardEmpty>
       ) : null}
 
       {ordered.map((character) => {
@@ -57,25 +61,24 @@ export function WhosWhoPanel({
             key={character.id}
             onPress={() => onOpen(character)}
             accessibilityRole="button"
+            accessibilityHint="Opens their card"
             style={({ pressed }) => ({
-              marginHorizontal: space.xxl,
-              padding: space.md,
-              borderWidth: 1,
-              borderColor: color.line,
-              borderRadius: radius.button,
-              gap: space.xs,
-              backgroundColor: pressed ? color.panel : 'transparent',
+              paddingVertical: space.sm,
+              gap: 3,
+              borderBottomWidth: 1,
+              borderBottomColor: color.paperRule,
+              opacity: pressed ? 0.6 : 1,
             })}
           >
-            <Text style={{ fontFamily: font.serif, fontSize: 17, color: color.paper }}>
+            <Text style={{ fontFamily: font.serif, fontSize: 17, color: color.inkOnPaper }}>
               {character.name}
             </Text>
             {character.bio.trim().length > 0 ? (
-              <NoteText numberOfLines={2} size={14} tone="muted">
+              <NoteText numberOfLines={2} size={14} style={{ color: color.inkOnPaper }}>
                 {character.bio}
               </NoteText>
             ) : null}
-            <Text style={{ fontFamily: font.mono, fontSize: 10, color: color.faint }}>
+            <Text style={{ fontFamily: font.mono, fontSize: 10, color: color.stampFaded }}>
               {heardLabel(heard)} · {count} {count === 1 ? 'note' : 'notes'}
             </Text>
           </Pressable>
@@ -86,18 +89,18 @@ export function WhosWhoPanel({
         onPress={onAdd}
         accessibilityRole="button"
         style={({ pressed }) => ({
-          marginHorizontal: space.xxl,
+          marginTop: space.md,
           minHeight: TOUCH,
           alignItems: 'center',
           justifyContent: 'center',
           borderWidth: 1,
           borderStyle: 'dashed',
-          borderColor: color.border,
+          borderColor: color.paperRule,
           borderRadius: radius.button,
           opacity: pressed ? 0.6 : 1,
         })}
       >
-        <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.accent }}>
+        <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.stampOut }}>
           + Add character
         </Text>
       </Pressable>
@@ -149,16 +152,12 @@ export function CharacterSheet({
 
   return (
     <Modal visible animationType="slide" transparent statusBarTranslucent onRequestClose={commit}>
-      <View style={{ flex: 1, backgroundColor: 'rgba(10,7,5,0.6)' }}>
-        <Pressable style={{ height: 70 }} onPress={commit} accessibilityLabel="Close" />
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, paddingTop: insets.top + space.md, paddingBottom: Math.max(insets.bottom, space.md), paddingHorizontal: space.lg, backgroundColor: 'rgba(10,7,5,0.6)' }}>
+        <Pressable style={{ height: 24 }} onPress={commit} accessibilityLabel="Close" />
         <View
           style={{
             flex: 1,
-            backgroundColor: color.ground,
-            borderTopLeftRadius: 14,
-            borderTopRightRadius: 14,
-            borderTopWidth: 1,
-            borderColor: color.line,
+            ...paperCardStyle,
           }}
         >
           <View
@@ -170,14 +169,14 @@ export function CharacterSheet({
               paddingTop: space.lg,
               paddingBottom: space.sm,
               borderBottomWidth: 1,
-              borderBottomColor: color.line,
+              borderBottomColor: color.paperRule,
             }}
           >
-            <Text style={{ fontFamily: font.mono, fontSize: 10, color: color.faint }}>
+            <Text style={{ fontFamily: font.mono, fontSize: 10, color: color.wood }}>
               {heardLabel(heard)}
             </Text>
-            <Pressable onPress={commit} accessibilityRole="button" hitSlop={12}>
-              <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.accent }}>
+            <Pressable onPress={commit} accessibilityRole="button" hitSlop={8} style={{ minHeight: TOUCH, justifyContent: 'center' }}>
+              <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.stampOut }}>
                 done
               </Text>
             </Pressable>
@@ -187,7 +186,7 @@ export function CharacterSheet({
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{
               padding: space.xl,
-              paddingBottom: insets.bottom + 40,
+              paddingBottom: space.xl,
               gap: space.md,
             }}
           >
@@ -195,11 +194,11 @@ export function CharacterSheet({
               value={name}
               onChangeText={setName}
               placeholder="Name"
-              placeholderTextColor={color.faint}
+              placeholderTextColor={color.wood}
               style={{
                 fontFamily: font.serif,
                 fontSize: 22,
-                color: color.paper,
+                color: color.inkOnPaper,
                 paddingVertical: space.xs,
               }}
             />
@@ -207,16 +206,16 @@ export function CharacterSheet({
               value={aliases}
               onChangeText={setAliases}
               placeholder="Also known as (comma separated)"
-              placeholderTextColor={color.faint}
+              placeholderTextColor={color.wood}
               style={{
                 fontFamily: font.mono,
                 fontSize: 12,
-                color: color.muted,
+                color: color.wood,
                 paddingVertical: space.xs,
               }}
             />
 
-            <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}>
+            <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.wood }}>
               WHO THEY ARE
             </Text>
             <TextInput
@@ -224,16 +223,16 @@ export function CharacterSheet({
               onChangeText={setBio}
               multiline
               placeholder="What you know about them so far"
-              placeholderTextColor={color.faint}
+              placeholderTextColor={color.wood}
               style={[
                 bioFont,
                 {
                   minHeight: 80,
                   padding: space.md,
                   borderWidth: 1,
-                  borderColor: color.line,
+                  borderColor: color.paperRule,
                   borderRadius: radius.button,
-                  color: color.paper,
+                  color: color.inkOnPaper,
                   textAlignVertical: 'top',
                 },
               ]}
@@ -244,7 +243,7 @@ export function CharacterSheet({
                 fontFamily: font.mono,
                 fontSize: 10,
                 letterSpacing: 1,
-                color: color.faint,
+                color: color.wood,
                 paddingTop: space.sm,
               }}
             >
@@ -257,19 +256,19 @@ export function CharacterSheet({
                 style={{
                   padding: space.md,
                   borderWidth: 1,
-                  borderColor: color.line,
+                  borderColor: color.paperRule,
                   borderRadius: radius.button,
                   gap: space.sm,
                 }}
               >
                 <TimeChip atSec={note.positionSec} onPress={() => onPlayFrom(note.positionSec)} />
                 {isBookmark(note) ? (
-                  <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>
+                  <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.wood }}>
                     bookmark
                   </Text>
                 ) : (
                   <>
-                    <NoteText>{note.text}</NoteText>
+                    <NoteText style={{ color: color.inkOnPaper }}>{note.text}</NoteText>
                     <RowAction
                       label="+ add to bio"
                       onPress={() => {
@@ -290,7 +289,7 @@ export function CharacterSheet({
             <View style={{ paddingTop: space.xl }}>
               {confirmingDelete ? (
                 <View style={{ gap: space.sm }}>
-                  <Text style={{ fontFamily: font.sans, fontSize: 13, color: color.muted }}>
+                  <Text style={{ fontFamily: font.sans, fontSize: 13, color: color.wood }}>
                     Remove {character.name} from this book? Your notes stay exactly as they
                     are — only the tags go.
                   </Text>
@@ -309,7 +308,7 @@ export function CharacterSheet({
             </View>
           </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
