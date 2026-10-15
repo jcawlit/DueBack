@@ -151,15 +151,72 @@ export const useBackup = create<BackupState>((set, get) => ({
   },
 }));
 
-let backupTimer: ReturnType<typeof setTimeout> | undefined;
-let burstStarted = 0;
-onReadingDataChanged(() => {
+/**
+ * When a change reaches the drive.
+ *
+ * Writing a note is rare and precious, so it goes almost at once — long
+ * enough only to collect a burst of keystrokes and a Return into one write.
+ *
+ * Progress is neither. It moves every five seconds for as long as a book
+ * plays, and each backup is a full read-merge-write-validate cycle in
+ * synchronous file calls on a USB stick. Backing up per tick wrote a new
+ * generation every few seconds of listening — the pruning kept the drive
+ * tidy, which is how it went unnoticed, but the drive never stopped working.
+ *
+ * Ten minutes is the judgement: the phone already holds the position safely,
+ * so the drive's copy is insurance against losing the phone rather than a
+ * live mirror, and being a few minutes stale costs nothing. A note, a scan,
+ * or a book going out or coming back all carry the latest position with them
+ * anyway, because the whole set is written every time.
+ */
+const AUTHORED_DEBOUNCE_MS = 1_500;
+const PROGRESS_INTERVAL_MS = 10 * 60 * 1_000;
+
+let authoredTimer: ReturnType<typeof setTimeout> | undefined;
+let progressTimer: ReturnType<typeof setTimeout> | undefined;
+let lastRunAt = 0;
+
+/**
+ * Drops any backup waiting to happen.
+ *
+ * For the drive going away — there is nothing to write to, and the change is
+ * still marked pending, so the next scan picks it up. Also what lets a test
+ * finish: a ten-minute timer keeps Node's event loop alive on its own.
+ */
+export function cancelScheduledBackup() {
+  clearTimeout(authoredTimer);
+  clearTimeout(progressTimer);
+  authoredTimer = undefined;
+  progressTimer = undefined;
+}
+
+async function runBackupNow() {
+  lastRunAt = Date.now();
+  await useBackup.getState().run();
+}
+
+onReadingDataChanged((kind) => {
+  // Said straight away either way: the Book screen should read "pending" the
+  // moment something is written, not when the drive gets around to it.
   useBackup.setState({ pending: true });
-  const now = Date.now();
-  if (!burstStarted) burstStarted = now;
-  clearTimeout(backupTimer);
-  backupTimer = setTimeout(() => {
-    burstStarted = 0;
-    void useBackup.getState().run();
-  }, Math.min(1500, Math.max(0, 30000 - (now - burstStarted))));
+
+  if (kind === 'progress') {
+    // One already waiting covers this one too.
+    if (progressTimer) return;
+    const wait = Math.max(0, PROGRESS_INTERVAL_MS - (Date.now() - lastRunAt));
+    progressTimer = setTimeout(() => {
+      progressTimer = undefined;
+      void runBackupNow();
+    }, wait);
+    return;
+  }
+
+  clearTimeout(authoredTimer);
+  authoredTimer = setTimeout(() => {
+    authoredTimer = undefined;
+    // A progress tick waiting its turn has just been covered.
+    clearTimeout(progressTimer);
+    progressTimer = undefined;
+    void runBackupNow();
+  }, AUTHORED_DEBOUNCE_MS);
 });

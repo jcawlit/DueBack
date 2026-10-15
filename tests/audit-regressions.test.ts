@@ -249,6 +249,42 @@ describe('production sync and restore', () => {
     } finally { useBackup.setState({ run: original }); }
   });
 
+  it('does not back up the drive every time a playing position is saved', async () => {
+    /*
+     * Found on a real drive: the generation numbers climbed several at a time
+     * between two looks at the same folder. Pruning kept only two, which is
+     * why nothing looked wrong — but a full read-merge-write-validate cycle,
+     * in synchronous file calls, was running every few seconds for as long as
+     * a book played.
+     *
+     * A position is written every five seconds. None of those may reach the
+     * drive on its own; the phone already holds the position safely, and the
+     * next note or scan carries it across with everything else.
+     */
+    const { useBackup, cancelScheduledBackup } = await import('../src/store/backup.ts');
+    const { readingDataChanged } = await import('../src/lib/sync/changes.ts');
+    const original = useBackup.getState().run;
+    let runs = 0;
+    useBackup.setState({ pending: false, run: async () => { runs += 1; } });
+    try {
+      for (let tick = 0; tick < 6; tick += 1) {
+        readingDataChanged('progress');
+        await new Promise((resolve) => setTimeout(resolve, 60));
+      }
+      assert.equal(
+        useBackup.getState().pending,
+        true,
+        'the Book screen should still say the drive is behind',
+      );
+      await new Promise((resolve) => setTimeout(resolve, 1700));
+      assert.equal(runs, 0, 'a position tick must not reach the drive on its own');
+    } finally {
+      // The ten-minute timer would otherwise hold the test process open.
+      cancelScheduledBackup();
+      useBackup.setState({ run: original });
+    }
+  });
+
   it('keeps newer typing on screen when an earlier save finishes', async () => {
     const { onReadingDataChanged } = await import('../src/lib/sync/changes.ts');
     onReadingDataChanged(() => {});

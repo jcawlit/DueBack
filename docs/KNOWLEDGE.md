@@ -568,6 +568,24 @@ what generations exist to prevent.
 
 *`src/lib/sync/generations.ts`, `src/lib/sync/driveSync.ts`*
 
+### A position tick must never reach the drive on its own
+
+Progress is written every five seconds for as long as a book plays. A backup
+is a full read-merge-write-validate cycle in synchronous file calls, so one
+per tick means the USB drive never stops working for the length of a book —
+and the pruning keeps only two generations, so the folder looks tidy the
+whole time. The only visible sign was the generation number climbing several
+at a time between two looks.
+
+`readingDataChanged` therefore takes a kind. Authored changes — a note, a
+character, a book going out or coming back — go almost at once, with a short
+debounce to collect a burst. Progress is capped at one backup per ten
+minutes, because the phone already holds the position safely: the drive's
+copy is insurance against losing the phone, not a live mirror, and any other
+backup carries the latest position across anyway.
+
+*`src/lib/sync/changes.ts`, `src/store/backup.ts`, `src/db/books.ts`*
+
 ### Read and merge first, then write
 
 A phone that has been away writes what it learned **on top of** what it

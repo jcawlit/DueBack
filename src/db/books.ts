@@ -501,7 +501,13 @@ export async function updateProgress(id: string, positionSec: number, finishedAt
     positionSec, writer.at, finishedAt ?? null,
     writer.at, writer.mutationId, writer.device, id,
   );
-  readingDataChanged();
+  /*
+   * Flagged as progress, not as something authored. This runs every five
+   * seconds while a book plays, and a backup per tick means a full
+   * read-merge-write-validate cycle on the drive, in synchronous file calls,
+   * for the whole length of a book.
+   */
+  readingDataChanged('progress');
 }
 
 /** Records where each part's local copy landed after a successful copy. */
