@@ -422,6 +422,13 @@ counted as skipped files, and never offered as cover art. Counting them as
 
 ## Known, not fixed
 
+> **Overtaken.** This list was accurate when it was written and is not now:
+> the root-level fingerprint ambiguity, the headphone-unplug pause and the
+> `status.playing || true` part-boundary bug have all since been fixed. The
+> current list of what is open and what is deliberately left alone is
+> `docs/STATE.md`. This section is kept as it was, because a changelog that
+> edits its own history is no use for working out when something changed.
+
 - **No next/previous chapter on the lock screen.** Not available from
   `expo-audio`: `AudioLockScreenOptions` has no such flag, and
   `AudioMediaSessionCallback.onConnect` explicitly removes

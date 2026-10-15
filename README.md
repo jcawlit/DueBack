@@ -229,6 +229,7 @@ Known gaps:
 
 | | |
 |---|---|
+| `docs/STATE.md` | where the project actually is: what is verified, what has never run on hardware, and what is deliberately not fixed |
 | `docs/KNOWLEDGE.md` | platform quirks, invariants, and why odd-looking code is that way. Searchable with `npm run kb`. |
 | `CHANGES.md` | what changed in each pass, and what is still open |
 | `TESTING.md` | the hardware checklist — the things only a real phone and a real drive can answer |

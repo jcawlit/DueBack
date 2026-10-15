@@ -3,6 +3,18 @@
 Expo/React Native audiobook app. Preserve the existing mobile UI, performance,
 and cross-platform behaviour.
 
+## Start here
+
+- `docs/STATE.md` says what is verified, what has never run on hardware, what
+  is deliberately not fixed, and which traps have already cost a day. Read it
+  before auditing anything or proposing a direction; it is the current list,
+  where `CHANGES.md` is history.
+- A fresh clone has no `android/`, no APK, no `fixtures/` and no `testlib/`.
+  All are generated and correctly ignored — `docs/STATE.md` says how.
+- `npm test`, `npm run lint` and `npm run typecheck` run in CI on every push
+  (`.github/workflows/ci.yml`). The on-device suites do not: they need a
+  device and a generated fixture library.
+
 ## Read only what the task needs
 
 - Before debugging, query `npm run kb -- "specific phrase"`. With no arguments

@@ -1,0 +1,42 @@
+# The three checks `AGENTS.md` requires before every commit, run again here
+# because "it passed locally" stops being true the moment more than one agent
+# is working on the repo.
+#
+# Deliberately not building the app. A release APK takes four minutes of
+# Gradle and needs the Android SDK; nothing it would catch is missed by
+# typecheck and lint, and a CI run nobody waits for is a CI run nobody reads.
+# The device suites are not here either — they need a phone, a USB drive and a
+# generated fixture library. See `docs/STATE.md`.
+
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Must match what the tests need: they run TypeScript directly
+          # through `--experimental-strip-types`, and one suite uses
+          # `node:sqlite`.
+          node-version: 22
+          cache: npm
+
+      # `npm ci`, never `npm install`: the lockfile is the point. See
+      # `npm run kb -- "expo install"` for what happened the one time the
+      # dependency tree was allowed to move on its own.
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run lint
+
+      - run: npm test
