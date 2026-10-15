@@ -49,25 +49,61 @@ not idempotent — two runs back to back are worse than one from a clean slate,
 because checked-out books and imports survive. `wipeAppData()` exists in the
 harness but is not run automatically.
 
-**3. A Pixel with a real USB drive — `TESTING.md`.**
-The only thing that can answer anything involving the Storage Access
-Framework, audio hardware or Android power management.
+**3. A Pixel with a real USB drive — the only thing that can answer anything
+involving the Storage Access Framework, audio hardware or Android power
+management.**
 
-### Never verified on real hardware
+### Passed on a Pixel with a real drive, 15 October 2026
+
+The build was the APK at commit `1b9a3c5`. Everything below had never run on
+hardware before that session, and all of it passed.
+
+- **The uuid migration, against a real library.** Three migrations run on first
+  launch, the largest rewriting every book id. All books present afterwards,
+  progress intact, playback unaffected.
+- **The Sound panel.** Opened over a playing book, presets and sliders worked,
+  nothing reported wrong.
+- **Pausing when headphones come out.** Wired unplug and Bluetooth walked out
+  of range both paused rather than switching to the speaker. This had never
+  worked in any earlier build.
+- **Drive backup end to end.** A USB provider created `.dueback/`, and the
+  generation folders hold readable JSON. This was the single biggest unknown:
+  nothing but a real SAF provider can answer whether that folder can be made.
+- **Notes.** The pencil bookmark, typing surviving a dismissed sheet, the Notes
+  tab and `@` to tag a character.
+- **Reconnecting a renamed folder.** A book's folder renamed on a computer,
+  then rescanned: reconnected silently, with progress and notes intact and no
+  prompt. The content sample matched, which is the whole point of identity.
+- **Restore after clearing app data.** Reinstalled state, same folder picked,
+  and the notes came back from the drive. This is the promise the backup
+  exists to keep, and it is now kept on real hardware.
+
+One thing was found by looking rather than by the app failing: the generation
+number climbed several between two looks at the same folder. That was a real
+bug — see "A position tick must never reach the drive" below, fixed in
+`b0ffc11`.
+
+### Still never verified on real hardware
 
 Treat these as open questions, not as working features:
 
-- **Drive backup end to end** (`.dueback/` generations). Proven on a filesystem
-  path by suite A14; no USB provider has ever been asked to create `.dueback`
-  or its `gen-N` folders.
-- **The Sound panel.** Built, typechecked and in an APK. Whether this Pixel's
-  `LoudnessEnhancer` and `Equalizer` initialise at all, and with how many
-  bands, is unknown — the panel reports it at runtime.
-- **Headphone unplug pausing.** The receiver is registered; the broadcast has
-  never been seen to arrive.
-- **The incomplete-marker reclaim path.** A part-written push leaves a marked
-  folder; scans skip it. A retry reclaiming that folder has never completed on
-  a real drive.
+- **The backup-frequency fix (`b0ffc11`) is in no APK.** The build on the phone
+  still writes a generation every few seconds of playback. Correct, just
+  wasteful; a rebuild is what proves the fix.
+- **What the Sound panel printed for this device.** It works, but the line
+  naming the band count and level range was not written down, so whether this
+  Pixel's `Equalizer` gave five bands or ten is still unknown. Worth capturing
+  the next time the panel is opened.
+- **Effects across a part boundary, and TalkBack on the sliders.**
+  `docs/SOUND.md` lists both; neither was done.
+- **Two phones syncing with each other.** There is one phone. Every merge rule
+  is unit-tested and the restore path is proven, but no two real devices have
+  ever met over the same drive, so conflicted copies have never been seen in
+  the wild.
+- **Reclaiming an incomplete push on the current build.** An interrupted
+  phone-to-drive push leaves a marked folder, and scans skipping it plus the
+  re-prompt were seen on hardware in an earlier session. A retry reclaiming
+  that folder has not been repeated since the chunked-write change.
 
 ## Known, and deliberately not fixed
 
@@ -98,9 +134,10 @@ evidence that the reasoning was wrong.
 
 Roughly in the order I would take them.
 
-1. **Nothing has been tested on the phone since the Sound panel landed.** The
-   current APK contains three features — the card-stack UI, the Sound panel and
-   the headphone handler — that have never been run on hardware.
+1. **The backup-frequency fix needs a build to reach the phone.** `b0ffc11` is
+   committed and unit-tested but not in any APK. What proves it is watching the
+   generation number advance about once per ten minutes of listening instead of
+   every few seconds.
 2. **The device suite's lack of a reset step** makes every run after the first
    misleading. A `wipeAppData()` at the start would fix it.
 3. **Four Expo patch bumps and a missing `expo-asset` peer.** `expo-doctor`
@@ -109,7 +146,8 @@ Roughly in the order I would take them.
 4. **Conflicted copies need a prior sync to fire.** The first-ever merge
    between two phones is last-write-wins, so one side's edit to a note can be
    lost. Deliberate — the alternative litters the margins with copies — but it
-   is the weakest point in the sync design.
+   is the weakest point in the sync design, and the one part of sync no
+   hardware has exercised.
 5. **Reconnect questions are transient.** Held in the store, not a table. An
    unanswered question is re-asked on the next scan, which is self-healing but
    does not survive a force-stop.
@@ -132,6 +170,11 @@ Things that have already cost a day each.
   correct while matching nothing. `npm run kb -- "drive renames"`.
 - **A handle held on a `content://` URI dies mid-copy.** The descriptor is not
   retained by expo-file-system. `npm run kb -- "file handle"`.
+- **A position tick must never reach the drive.** Progress is written every
+  five seconds while a book plays. Anything that treats that like an edit —
+  a backup, a sync, a rewrite — runs for the whole length of a book, and the
+  generation pruning keeps the folder looking tidy while it happens.
+  `npm run kb -- "position tick"`.
 
 ## Where everything else is
 
@@ -140,11 +183,11 @@ Things that have already cost a day each.
 | Standing rules for agents | `AGENTS.md` |
 | Platform quirks and invariants | `npm run kb`, then `docs/KNOWLEDGE.md` |
 | What changed and why, chronologically | `CHANGES.md` |
-| Hardware checks a person must do | `TESTING.md` |
+| What the phone did in the first hardware round | `TESTING.md` |
 | Running the emulator suites | `docs/EMULATOR.md` |
 | The sound feature, and iOS notes | `docs/SOUND.md` |
 | Prompt shapes for delegated work | `docs/AGENT-WORKFLOW.md` |
 
-`CHANGES.md` is 1,600 lines and chronological. Its older "Known, not fixed"
+`CHANGES.md` is 1,800 lines and chronological. Its older "Known, not fixed"
 sections have been overtaken by later work — three of the six items listed
 there are fixed. **This file is the current list; that one is history.**

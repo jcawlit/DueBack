@@ -1688,3 +1688,139 @@ and repeated syncs do not pile up folders.
 `src/lib/sync/driveFolder.ts`, `src/db/sync.ts`, `src/db/schema.ts`, `src/db/books.ts`,
 `src/db/notes.ts`, `src/store/backup.ts`, `src/store/scan.ts`, `src/app/settings.tsx`,
 `src/app/book/[id].tsx`, `src/app/_layout.tsx`, `src/dev/syncSuite.ts`*
+
+---
+
+# Card pass — the Book screen as a stack of paper
+
+The margins shipped working but looking borrowed: the notes and characters
+panes were their own thing, sharing neither the typeface nor the texture of
+the library card above them.
+
+## One stack, three cards
+
+`CardStack.tsx` replaces `BookTabs.tsx`. The tabs are the top edges of cards in
+a pile: the active one takes the paler paper and overlaps the body by a pixel
+so the line between them disappears, and the ones behind sit at reduced opacity
+in the darker stock. Nothing animates. A stack of index cards does not slide.
+
+`PaperCard.tsx` became the shared surface — ruled lines at an exported
+`RULE_PITCH` so a note's rows line up with the rules behind them instead of
+drifting a little further out of step down the card.
+
+*`src/components/CardStack.tsx`, `PaperCard.tsx`, `LibraryCard.tsx`*
+
+## Naming, as asked
+
+"Who's who" became **Characters** and "Margins" became **Notes**. The old names
+were ours; these are what the thing is.
+
+*`src/components/CharactersCard.tsx` (was `WhosWho.tsx`), `NotesCard.tsx`*
+
+## The note sheet stopped fighting React
+
+`NoteSheet.tsx` lost a third of its lines. It had been synchronising props into
+state inside an effect, which `react-hooks/set-state-in-effect` is right to
+object to: a save finishing could overwrite newer typing. The component is now
+keyed on the note's id and initialises its state from props, so a different
+note is a different component and the question never arises.
+
+*`src/components/NoteSheet.tsx`*
+
+---
+
+# Sound pass — effects, and what happens when the headphones come out
+
+**Native.** This one needed a rebuild.
+
+## A local Expo module for the audio session
+
+`modules/dueback-audio` takes expo-audio's `SharedRef<ExoPlayer>`, reads the
+audio session id off it on the main thread, and attaches Android's
+`LoudnessEnhancer` and `Equalizer` to it. It queries the real band count and
+level ranges rather than assuming, and re-attaches when the session changes.
+
+Whatever is missing hides its own sliders. Playback never depends on an effect
+initialising — **Off** always works, with or without Pro, with or without
+hardware support.
+
+*`modules/dueback-audio/**`, `src/lib/audio/soundFx.ts`, `src/store/sound.ts`*
+
+## Three presets and a Custom that appears by itself
+
+Off, Clear voice, Quiet recording, built from Boost, Clarity and Warmth. Moving
+any slider selects Custom; nothing has to be chosen first. Settings are per
+book in SQLite, with "make this the default" and "use the all-books default"
+for the override. Boost is capped at 12 dB by the app, which is our judgement
+and not a hardware maximum.
+
+*`src/lib/audio/sound.ts`, `src/components/SoundPanel.tsx`*
+
+## Pulling the headphones out pauses
+
+`ACTION_AUDIO_BECOMING_NOISY` is received natively, pauses there, and then
+tells the JavaScript engine so its playback intent stops too. Pausing in only
+one of those two places leaves the app believing it is still playing.
+
+*`modules/dueback-audio`, `src/lib/audio/expoAudioEngine.ts`, `src/store/player.ts`*
+
+## The module was not linked, and said nothing
+
+The first build contained no `dueback-audio` at all. No error at build time, no
+warning at runtime — just a module that was not there. A local module is only
+autolinked if `package.json` says where to look:
+
+```json
+"expo": { "autolinking": { "nativeModulesDir": "./modules" } }
+```
+
+It was caught by checking the merged manifest and noticing that the one
+permission present had come from expo-audio rather than from us.
+`npm run kb -- "autolinking"`.
+
+*`package.json`*
+
+---
+
+# Backup frequency — a position tick is not an edit
+
+Found on a real drive rather than by a failing test: the generation numbers had
+climbed four between two looks at the same folder.
+
+Progress is written every five seconds while a book plays, and every write
+scheduled a backup. The debounce was 1.5 seconds — shorter than the drip — so
+each tick got its own full read-merge-write-validate cycle, in synchronous file
+calls, for as long as a book played. The pruning keeps only two generations,
+which is exactly why the folder looked tidy while the drive never stopped
+working.
+
+`readingDataChanged` now takes a kind. **Authored** changes — a note, a
+character, a book going out or coming back — still go almost at once, with the
+short debounce to collect a burst. **Progress** is capped at one backup per ten
+minutes, because the phone already holds the position safely: the drive's copy
+is insurance against losing the phone, not a live mirror, and every backup
+writes the whole set, so the next note or scan carries the latest position
+across anyway.
+
+`cancelScheduledBackup()` was added with it, for a drive that goes away — and
+because a ten-minute timer otherwise holds Node's event loop open and hangs the
+test suite.
+
+A regression test fires six progress ticks and asserts that none of them
+reaches the drive, while the Book screen still reads "pending" throughout.
+
+*`src/lib/sync/changes.ts`, `src/store/backup.ts`, `src/db/books.ts`,
+`tests/audit-regressions.test.ts`*
+
+---
+
+# First full hardware pass — 15 October 2026
+
+Not a change, but the thing the three passes above were waiting for. Seven
+checks on a Pixel with a real USB drive: the uuid migration against a real
+library, the Sound panel, the headphone pause, `.dueback/` created by a real
+SAF provider, notes, a renamed folder reconnecting silently, and a full restore
+after clearing app data. All passed. The backup-frequency bug above was the
+only thing it turned up, and only by looking at the drive.
+
+`docs/STATE.md` holds the detail, and what is still unverified.

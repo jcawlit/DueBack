@@ -19,9 +19,19 @@ they needed no change.
 
 ## Pixel acceptance checks
 
-Device verification pending: no physical device was connected during this work.
-The tests mock Android effects, so they do not establish Pixel support.
+**Partly done, 15 October 2026.** The panel was opened over a playing book on
+a Pixel: presets and sliders worked and nothing reported wrong. What was not
+written down is the line the panel prints naming this device's band count and
+level range, so the exact `Equalizer` capability here is still unrecorded.
+The checks below that are not struck through have not been done; the unit
+tests mock Android effects, so they establish nothing about hardware.
 
+- ~~Compare Off, Clear voice and Quiet recording; check Custom appears.~~ Done.
+- ~~Disconnect Bluetooth earbuds while playing; playback should pause.~~ Done,
+  wired and Bluetooth both.
+- Capture what the panel reports for this device: Boost requires
+  LoudnessEnhancer, Clarity and Warmth require Equalizer, and anything missing
+  should say "Not supported on this device".
 - Play a quiet recording. Compare Off, Clear voice and Quiet recording; adjust
   all sliders. Check Custom appears and Off restores the original sound.
 - Check which controls appear: Boost requires LoudnessEnhancer; Clarity and
@@ -31,8 +41,6 @@ The tests mock Android effects, so they do not establish Pixel support.
   and reopen the app; check both settings survive.
 - Cross a Hyperion part boundary with effects active, both on screen and with
   the screen locked. Check tone, level and playback remain correct.
-- Try Bluetooth earbuds and disconnect them while playing with the screen
-  locked. Playback should pause. Repeat with wired/USB headphones if available.
 - With TalkBack, adjust each slider using increment/decrement actions and
   confirm its label and value are announced.
 

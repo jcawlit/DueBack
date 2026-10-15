@@ -1,5 +1,11 @@
 # List B — what only a real phone can tell us
 
+> **This is a worked record, not a to-do list.** It is the first hardware
+> round, with the tester's notes left in place under each check, and much of
+> what it reports has since been fixed. For what is verified *now*, and what
+> is still unanswered, read `docs/STATE.md`. Keep this file for the notes:
+> they say what the phone actually did, which is not recoverable later.
+
 Ten checks, in priority order. The emulator suite covers 82 cases and none of
 these; every one depends on hardware, a real drive, or Android behaviour that
 cannot be faked.
