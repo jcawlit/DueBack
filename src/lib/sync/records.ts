@@ -160,7 +160,8 @@ export function isDeleted(record: Stamp): boolean {
  * guessing "conflict" would litter the margins with copies.
  */
 function bothMovedOn(mine: Stamp, theirs: Stamp): boolean {
-  const base = mine.baseUpdatedAt ?? theirs.baseUpdatedAt ?? null;
+  const bases = [mine.baseUpdatedAt, theirs.baseUpdatedAt].filter((x): x is string => !!x);
+  const base = bases.sort()[0];
   if (!base) return false;
   return mine.updatedAt > base && theirs.updatedAt > base;
 }

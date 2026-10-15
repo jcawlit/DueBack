@@ -13,6 +13,9 @@ import { SETTING_KEYS, getSetting, setSetting } from '@/db/schema';
 import { applyPayload, collectPayload, isBackupPending, markSynced } from '@/db/sync';
 import { ensureDeviceId } from '@/db/identity';
 import { syncToDrive } from '@/lib/sync/driveSync';
+import { isScanning } from '@/lib/scanBusy';
+import { onReadingDataChanged } from '@/lib/sync/changes';
+import { useNotes } from './notes';
 import { useLibrary } from './library';
 
 type BackupState = {
@@ -35,10 +38,12 @@ type BackupState = {
   run: (options?: { force?: boolean }) => Promise<void>;
 };
 
+let requestedDuringRun = false;
+
 export const useBackup = create<BackupState>((set, get) => ({
   enabled: true,
   running: false,
-  pending: false,
+  pending: true,
   lastAt: null,
   status: null,
   needsNewerApp: false,
@@ -57,22 +62,24 @@ export const useBackup = create<BackupState>((set, get) => ({
   },
 
   setEnabled: (value) => {
-    set({ enabled: value });
-    void setSetting(SETTING_KEYS.backupEnabled, value ? '1' : '0').catch(() => {});
+    set({ enabled: value, pending: true });
+    void setSetting(SETTING_KEYS.backupEnabled, value ? '1' : '0').then(() => { if (value) return get().run(); }).catch(() => {});
   },
 
   refreshPending: async () => {
     try {
-      set({ pending: await isBackupPending(get().lastAt) });
+      const libraryId = await getSetting(SETTING_KEYS.libraryId);
+      const lastLibrary = await getSetting('backup.libraryId');
+      set({ pending: libraryId !== lastLibrary || !get().lastAt || await isBackupPending(get().lastAt) });
     } catch {
-      // Unknown is shown as "not pending": claiming work is outstanding when
-      // we cannot tell would put a worried line on every Book screen.
+      set({ pending: true });
     }
   },
 
   run: async (options) => {
     const { enabled, running } = get();
-    if (running) return;
+    if (running) { requestedDuringRun = true; return; }
+    if (isScanning()) return;
     if (!enabled && !options?.force) return;
 
     const library = useLibrary.getState();
@@ -85,9 +92,11 @@ export const useBackup = create<BackupState>((set, get) => ({
     if (!root || library.libraryOnDevice || !library.driveConnected) return;
 
     set({ running: true });
+    const startedAt = new Date().toISOString();
     try {
-      const [device, mine] = await Promise.all([ensureDeviceId(), collectPayload()]);
+      await useNotes.getState().flush();
       const libraryId = await getSetting(SETTING_KEYS.libraryId);
+      const [device, mine] = await Promise.all([ensureDeviceId(), collectPayload(libraryId ?? undefined)]);
       if (!libraryId) {
         set({ status: 'This library has no identity yet; scan it first.' });
         return;
@@ -103,15 +112,18 @@ export const useBackup = create<BackupState>((set, get) => ({
        */
       if (outcome.merged) {
         const report = await applyPayload(outcome.merged);
-        await markSynced(outcome.merged);
-        if (report.notes + report.characters + report.history > 0) {
+        if (outcome.ok) await markSynced(outcome.merged);
+        if (report.notes + report.characters + report.history + report.progress > 0) {
           await useLibrary.getState().refresh();
+          const open = useNotes.getState().bookId;
+          if (open) await useNotes.getState().load(open);
         }
       }
 
       if (outcome.ok) {
-        const at = new Date().toISOString();
+        const at = startedAt;
         await setSetting(SETTING_KEYS.backupAt, at);
+        await setSetting('backup.libraryId', libraryId);
         set({ lastAt: at, status: outcome.message });
       } else {
         set({ status: outcome.message });
@@ -131,6 +143,23 @@ export const useBackup = create<BackupState>((set, get) => ({
       set({ status: `The drive backup failed: ${(err as Error)?.message ?? 'unknown error'}` });
     } finally {
       set({ running: false });
+      if (requestedDuringRun) {
+        requestedDuringRun = false;
+        setTimeout(() => void get().run(), 0);
+      }
     }
   },
 }));
+
+let backupTimer: ReturnType<typeof setTimeout> | undefined;
+let burstStarted = 0;
+onReadingDataChanged(() => {
+  useBackup.setState({ pending: true });
+  const now = Date.now();
+  if (!burstStarted) burstStarted = now;
+  clearTimeout(backupTimer);
+  backupTimer = setTimeout(() => {
+    burstStarted = 0;
+    void useBackup.getState().run();
+  }, Math.min(1500, Math.max(0, 30000 - (now - burstStarted))));
+});

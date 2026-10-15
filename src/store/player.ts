@@ -14,6 +14,8 @@ import { SPEEDS, type AudioEngine, type EngineTrack } from '@/lib/audio/engine';
 import { loadParts } from '@/db/books';
 import { SETTING_KEYS, getSetting, setSetting } from '@/db/schema';
 import { localUriFor } from '@/lib/files/copy';
+import { onBecomingNoisy } from '@/lib/audio/soundFx';
+import { useSound } from './sound';
 import { onBookAudioRemoved, useLibrary } from './library';
 
 export { SPEEDS };
@@ -72,6 +74,28 @@ type PlayerState = {
 };
 
 const engine: AudioEngine = createExpoAudioEngine();
+
+/*
+ * The Sound panel's effects follow the session, which moves on every part
+ * change. Subscribed once, at module scope, rather than from a screen: the
+ * effects belong to playback, and playback outlives whatever is on screen.
+ */
+engine.onSessionChange((nativePlayer) => {
+  useSound.getState().useSession(nativePlayer);
+});
+
+/*
+ * Pause when the headphones come out.
+ *
+ * Android broadcasts this as the sound is about to start coming out of the
+ * phone's own speaker. expo-audio does not expose it, which is why it is a
+ * native module of ours — and why until now unplugging earbuds carried on
+ * playing the book out loud.
+ */
+onBecomingNoisy(() => {
+  void engine.pause();
+  usePlayer.setState({ playing: false });
+});
 
 let unsubscribe: (() => void) | null = null;
 let lastPersistedAt = 0;
@@ -328,6 +352,8 @@ export const usePlayer = create<PlayerState>((set, get) => {
         lastSubtitle = '';
         syncNowPlaying(startAt);
 
+        await useSound.getState().load(bookId);
+        if (!current()) return;
         await withTimeout(
           engine.load(track, startAt),
           LOAD_TIMEOUT_MS,

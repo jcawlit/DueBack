@@ -55,7 +55,7 @@ npm install
 npx expo start          # then press a for Android, i for iOS
 npm run typecheck       # app + tests
 npm run lint
-npm test                # parser unit tests (Node's built-in runner)
+npm test                # automated tests (Node's built-in runner)
 npm run kb saf          # search the knowledge base
 ```
 
@@ -64,6 +64,9 @@ broken. `npm run kb expo install` explains why.
 
 Expo SDK 57, React Native 0.86, TypeScript, Expo Router (routes in `src/app/`),
 SQLite via `expo-sqlite`.
+
+Agent rules: [AGENTS.md](AGENTS.md). Optional
+[task prompt templates](docs/AGENT-WORKFLOW.md) keep individual jobs focused.
 
 ## Development build
 

@@ -7,6 +7,7 @@
  * newly found book's audio onto the identity of a book that has gone.
  */
 
+import type { BookIdentityRecord } from '@/lib/sync/records';
 import type { BookShape } from '@/lib/library/identity';
 import { adoptLibraryId, ensureDeviceId, ensureLibraryId, getDb } from './schema';
 import { withLockRetry } from './books';
@@ -28,7 +29,7 @@ export async function loadPathKeyIndex(libraryId: string | null): Promise<Map<st
   const db = await getDb();
   const rows = await db.getAllAsync<{ id: string; path_key: string | null }>(
     `SELECT id, path_key FROM books
-      WHERE path_key IS NOT NULL AND (library_id IS NULL OR library_id = ?)`,
+      WHERE path_key IS NOT NULL AND library_id = ?`,
     libraryId,
   );
   const index = new Map<string, string>();
@@ -176,3 +177,19 @@ export type ReconnectQuestion = {
   candidates: { id: string; title: string; folderRelPath: string }[];
   reason: 'unverified' | 'ambiguous';
 };
+
+/** Seed missing books too, so a fresh install can reconnect renamed audio by sample. */
+export async function seedRestoredIdentities(libraryId: string, identities: BookIdentityRecord[]) {
+  const db = await getDb();
+  await withLockRetry(() => db.withTransactionAsync(async () => {
+    for (const book of identities) {
+      if (book.deletedAt) continue;
+      await db.runAsync(`INSERT OR IGNORE INTO books
+        (id, folder_rel_path, raw_folder_name, title, author, path_key, library_id,
+         size_bytes, duration_sec, part_sizes, sample_hash, sample_version, missing)
+        VALUES (?, '', '', ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)`,
+        book.id, book.title, book.author, book.pathKey, libraryId,
+        book.sizeBytes, book.durationSec, JSON.stringify(book.partSizes), book.sampleHash);
+    }
+  }));
+}

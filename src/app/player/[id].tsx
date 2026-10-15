@@ -18,11 +18,14 @@ import { BookCover } from '@/components/BookCover';
 import { ChapterScrubber } from '@/components/ChapterScrubber';
 import { ContentsSheet } from '@/components/ContentsSheet';
 import { NoteSheet } from '@/components/NoteSheet';
+import { SoundPanel } from '@/components/SoundPanel';
+import { useSound } from '@/store/sound';
 import { LampGlow } from '@/components/LampGlow';
 import {
   ChevronDown,
   ContentsIcon,
   PencilIcon,
+  SoundIcon,
   Forward30,
   LampIcon,
   PauseIcon,
@@ -37,6 +40,7 @@ export default function PlayerScreen() {
   const { height: windowHeight } = useWindowDimensions();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [contentsOpen, setContentsOpen] = useState(false);
+  const [soundOpen, setSoundOpen] = useState(false);
   /** The note the sheet is editing, and whether the pencil has just made it. */
   const [editing, setEditing] = useState<{ noteId: string; justSaved: boolean } | null>(null);
 
@@ -79,6 +83,16 @@ export default function PlayerScreen() {
   const deleteNote = useNotes((s) => s.deleteNote);
   const addCharacter = useNotes((s) => s.addCharacter);
 
+  const soundSettings = useSound((s) => s.effective);
+  const soundCaps = useSound((s) => s.capabilities);
+  const soundPossible = useSound((s) => s.possible);
+  const soundOwn = useSound((s) => s.own !== null);
+  const soundSaveError = useSound((s) => s.saveError);
+  const setPreset = useSound((s) => s.setPreset);
+  const setSlider = useSound((s) => s.setSlider);
+  const resetSoundToDefault = useSound((s) => s.useDefaultForBook);
+  const makeSoundDefault = useSound((s) => s.makeDefault);
+
   useEffect(() => {
     if (id) void open(id);
   }, [id, open]);
@@ -86,6 +100,7 @@ export default function PlayerScreen() {
   useEffect(() => {
     if (id) void loadNotes(id);
   }, [id, loadNotes]);
+
 
   // Deliberately no teardown here. Playback belongs to the app, not to this
   // screen: leaving it should not stop the audio, and coming back should not
@@ -481,6 +496,13 @@ export default function PlayerScreen() {
           icon={<PencilIcon />}
         />
         <TrayButton
+          label="sound"
+          onPress={() => setSoundOpen(true)}
+          accessibilityLabel="Sound: presets and tone controls"
+          active={soundSettings.preset !== 'off'}
+          icon={<SoundIcon stroke={soundSettings.preset !== 'off' ? color.accent : color.muted} />}
+        />
+        <TrayButton
           label="contents"
           onPress={() => setContentsOpen(true)}
           accessibilityLabel={`Contents, chapter ${index + 1} of ${book.chapters.length}`}
@@ -534,6 +556,20 @@ export default function PlayerScreen() {
           setEditing(null);
         }}
         onClose={closeSheet}
+      />
+
+      <SoundPanel
+        visible={soundOpen}
+        settings={soundSettings}
+        capabilities={soundCaps}
+        possible={soundPossible}
+        hasOwn={soundOwn}
+        saveError={soundSaveError}
+        onPreset={(preset) => void setPreset(preset)}
+        onSlider={(which, value) => void setSlider(which, value)}
+        onUseDefault={() => void resetSoundToDefault()}
+        onMakeDefault={() => void makeSoundDefault()}
+        onClose={() => setSoundOpen(false)}
       />
 
       <ContentsSheet

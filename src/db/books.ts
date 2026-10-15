@@ -4,12 +4,13 @@
  * uses so nothing downstream had to change when fixtures went away.
  */
 
+import { readingDataChanged } from '@/lib/sync/changes';
 import type { Book, Chapter, Checkout, LocalState } from '@/data/types';
 import { coverUri } from '@/lib/files/access';
 import { fallbackPalette } from '@/lib/library/palette';
 import { fingerprintKey } from '@/lib/library/grouping';
 import { newUuid } from '@/lib/library/ids';
-import { ensureDeviceId, getDb } from './schema';
+import { ensureDeviceId, getDb, getSetting, SETTING_KEYS } from './schema';
 
 export type BookRow = {
   id: string;
@@ -315,7 +316,7 @@ export async function markMissingExcept(
  * Assembled here rather than in SQL so that it sorts the same way
  * `fingerprintOf` does in the scanner; `group_concat` has no guaranteed order.
  */
-export async function existingFingerprints(): Promise<
+export async function existingFingerprints(libraryId?: string): Promise<
   Map<string, { fingerprint: string; ids: string[] }>
 > {
   const db = await getDb();
@@ -328,7 +329,8 @@ export async function existingFingerprints(): Promise<
   }>(
     `SELECT b.folder_rel_path AS folder, b.id AS id,
             p.rel_path AS relPath, p.size_bytes AS size, p.modified_ms AS modified
-     FROM books b JOIN parts p ON p.book_id = b.id`,
+     FROM books b JOIN parts p ON p.book_id = b.id WHERE (? IS NULL OR b.library_id = ?)`,
+    libraryId ?? null, libraryId ?? null,
   );
 
   // Gathered per book first, because the key a book is filed under depends on
@@ -499,6 +501,7 @@ export async function updateProgress(id: string, positionSec: number, finishedAt
     positionSec, writer.at, finishedAt ?? null,
     writer.at, writer.mutationId, writer.device, id,
   );
+  readingDataChanged();
 }
 
 /** Records where each part's local copy landed after a successful copy. */
@@ -571,6 +574,7 @@ export async function recordCheckoutComplete(
       );
     }),
   );
+  readingDataChanged();
 }
 
 export async function clearPartLocalPaths(bookId: string) {
@@ -611,6 +615,7 @@ export async function addCheckout(id: string, outAt: string) {
      VALUES (?, ?, ?, ?, ?, ?)`,
     newUuid(), id, outAt, writer.at, writer.mutationId, writer.device,
   );
+  readingDataChanged();
 }
 
 export async function closeCheckout(id: string, backAt: string) {
@@ -622,6 +627,7 @@ export async function closeCheckout(id: string, backAt: string) {
                  ORDER BY out_at DESC LIMIT 1)`,
     backAt, writer.at, writer.mutationId, writer.device, id,
   );
+  readingDataChanged();
 }
 
 /** How many indexed books are no longer on the drive. */
@@ -756,6 +762,7 @@ export async function markImportOnDrive(
   files: { uri: string; name: string; modifiedMs: number }[],
 ) {
   const db = await getDb();
+  const libraryId = await getSetting(SETTING_KEYS.libraryId);
   await db.withExclusiveTransactionAsync(async (txn) => {
     for (let i = 0; i < files.length; i += 1) {
       await txn.runAsync(
@@ -772,12 +779,14 @@ export async function markImportOnDrive(
       `UPDATE books
           SET on_drive = 1,
               missing = 0,
+              library_id = ?,
               drive_rel_path = ?,
               folder_rel_path = ?,
               raw_folder_name = ?,
               -- "Added from this phone. Not on the drive yet." is no longer true.
               warnings = NULL
         WHERE id = ?`,
+      libraryId,
       folderRelPath,
       folderRelPath,
       folderRelPath,
@@ -793,11 +802,12 @@ export async function markImportOnDrive(
  * scan would hash the folder's path into a fresh id and index the app's own
  * copy as a second book.
  */
-export async function claimedDriveFolders(): Promise<Map<string, string>> {
+export async function claimedDriveFolders(libraryId?: string): Promise<Map<string, string>> {
   const db = await getDb();
   const rows = await db.getAllAsync<{ id: string; path: string }>(
     `SELECT id, drive_rel_path AS path FROM books
-      WHERE drive_rel_path IS NOT NULL AND drive_rel_path <> ''`,
+      WHERE drive_rel_path IS NOT NULL AND drive_rel_path <> '' AND (? IS NULL OR library_id = ?)`,
+    libraryId ?? null, libraryId ?? null,
   );
   return new Map(rows.map((r) => [r.path, r.id]));
 }

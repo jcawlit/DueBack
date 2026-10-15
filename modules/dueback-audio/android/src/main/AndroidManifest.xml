@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!--
+    Required to attach an AudioEffect to a playback session. Not a recording
+    permission and not user-facing: it is the permission Android asks of any
+    app that changes how its own output sounds.
+  -->
+  <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+</manifest>

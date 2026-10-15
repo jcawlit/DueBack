@@ -7,6 +7,7 @@
  * is the one state never written there — `npm run kb copying`.
  */
 
+import { localFolderId } from '@/lib/files/localNames';
 import { create } from 'zustand';
 import type { Book, SortMode } from '@/data/types';
 import { occupiesBudget } from '@/data/types';
@@ -237,7 +238,10 @@ export async function reconcileLocalCopies() {
         row.localPaths.length >= row.partCount &&
         row.localPaths.every((p) => localUriFor(p) !== null);
       if (complete) {
-        stillCheckedOut.add(row.id);
+        for (const path of row.localPaths) {
+          const owner = localFolderId(path, 'books');
+          if (owner) stillCheckedOut.add(owner);
+        }
         continue;
       }
 
@@ -897,7 +901,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
       // is playing used to leave it playing from files that no longer existed.
       audioRemovedHandler?.(id);
       // The local files go; progress and history stay in the database.
-      deleteLocalCopy(id);
+      deleteLocalCopy(book.local.status === 'checked-out' ? localFolderId(book.local.localPath, 'books') ?? id : id);
       set({ confirm: null });
 
       // An import that never reached the drive has no copy anywhere else, so
@@ -906,7 +910,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
       // played — and it only disappeared on the next launch, when startup
       // reconciliation finally noticed.
       if (book.importedFromPhone && book.onlyCopyOnPhone) {
-        deleteImport(id);
+        deleteImport(book.local.status === 'checked-out' ? localFolderId(book.local.localPath, 'imported') ?? id : id);
         set((s) => ({ books: s.books.filter((b) => b.id !== id) }));
         // Dropped from the list at once so the shelf does not flicker, but the
         // row has to be gone from the database before anything reloads from
@@ -923,7 +927,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
         return;
       }
 
-      if (book.importedFromPhone) deleteImport(id);
+      if (book.importedFromPhone) deleteImport(book.local.status === 'checked-out' ? localFolderId(book.local.localPath, 'imported') ?? id : id);
       void clearPartLocalPaths(id);
       void setLocalState(id, { status: 'on-shelf' });
       void closeCheckout(id, backDate);

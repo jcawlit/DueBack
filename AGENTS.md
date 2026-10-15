@@ -1,60 +1,45 @@
-This is an Expo/React Native mobile application. Prioritize mobile-first patterns, performance, and cross-platform compatibility.
+﻿# Due Back
 
-## Expo has changed — do not trust your training data
+Expo/React Native audiobook app. Preserve the existing mobile UI, performance,
+and cross-platform behaviour.
 
-Expo ships breaking changes every SDK release. APIs you remember are likely renamed, moved, or removed. Before writing any code that touches an Expo, EAS, or React Native API:
+## Read only what the task needs
 
-1. Read the major version of the `expo` package in `package.json`.
-2. Fetch the matching versioned docs: `https://docs.expo.dev/versions/v<major>.0.0/`
-3. For anything else, fetch https://docs.expo.dev/llms.txt — an index of all Expo docs with corrections to common LLM misconceptions. Follow its links to the specific page you need; never answer from memory.
+- Before debugging, query `npm run kb -- "specific phrase"`. With no arguments
+  it lists headings; multiple terms match ANY term. Read relevant entries in
+  `docs/KNOWLEDGE.md`, not the whole file.
+- Search paths/symbols with `rg`; read bounded sections. Reuse unchanged files,
+  docs and check results already in context. Summarize successful tool output;
+  retain failure details. Expand investigation when evidence requires it.
+- Keep new platform quirks and non-obvious invariants in the knowledge base;
+  update/remove obsolete entries in the same change. Code comments state rules.
+- Task scope comes from the current request. Preserve unrelated work. Prompt
+  templates in `docs/AGENT-WORKFLOW.md` are optional, not required reading.
 
-## The knowledge base
+## API and dependency checks
 
-`docs/KNOWLEDGE.md` holds what this project has learned the hard way: platform
-behaviour that contradicts the docs, invariants the code depends on, and
-decisions that look wrong until you know why.
+- Before changing Expo/React Native/EAS API usage, read the installed versions
+  in `package.json` and the relevant official docs. Expo SDK docs:
+  `https://docs.expo.dev/versions/v<major>.0.0/`. Use
+  `https://docs.expo.dev/llms.txt` to locate other Expo/EAS pages. Reuse docs
+  already verified for that version during this task.
+- Install dependencies with `npx expo install <package>`; prefer Expo modules
+  and check applicable skills. Use `bunx` instead of `npx` if `bun.lock` exists.
+- **Never run `expo install --fix` here**: it breaks dependency hoisting.
+  See `npm run kb -- "expo install"`.
 
-```bash
-npm run kb                  # list every entry
-npm run kb saf cover        # read the entries matching those words
-```
+## Implementation and validation
 
-- **Check it before debugging.** Most odd behaviour here has been met before.
-- **Update it in the same change.** Anything that teaches something — a
-  platform quirk, a bug whose cause was not obvious, a new invariant — gets an
-  entry. A change that removes a behaviour removes its entry.
-- **Comments state the rule; the knowledge base keeps the story.** Write the
-  invariant and why it is not obvious, not the history of how it broke. Where
-  the full account is worth having, it belongs in `docs/KNOWLEDGE.md`.
-
-## Commands
-
-Use `bunx` instead of `npx` if the project uses bun (`bun.lock` present).
-
-```bash
-npx expo install <package>  # ALWAYS use instead of npm/yarn/pnpm/bun add — resolves SDK-compatible versions
-npx expo start              # start the dev server
-npx expo lint               # lint
-npx tsc --noEmit            # typecheck
-npx expo-doctor             # diagnose dependency and config issues
-npx expo install --fix      # fix incompatible package versions
-```
-
-Run lint and typecheck before declaring any task done.
-
-## Navigation & Routing
-
-- Use **Expo Router** for all navigation. Routes live in `src/app/` — every file there is a screen, `_layout.tsx` files define navigators. Keep non-route code (components, hooks, utils) outside `src/app/`.
-- Import `Link`, `router`, and `useLocalSearchParams` from `expo-router`.
-- Docs: https://docs.expo.dev/router/introduction.md
-
-## Building with EAS
-
-Use EAS to build, sign, and submit the app in the cloud (`eas build`, `eas submit`) and to ship over-the-air updates (`eas update`) — no local Xcode or Android Studio required. Run EAS CLI as `bunx eas-cli <command>` in Bun projects, or `npx eas-cli@latest <command>` otherwise; substitute that for bare `eas` in docs examples.
-Docs: https://docs.expo.dev/eas/index.md
-
-## Rules
-
-- If `ios/` and `android/` directories do not exist, they are generated (Continuous Native Generation). Never create or edit them by hand — configure native behavior in `app.json` and config plugins.
-- Expo Go only includes its bundled native modules. After adding a library with native code, the app needs a development build: `npx expo run:ios|android` locally, or `eas build --profile development`.
-- Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md
+- Expo Router routes belong in `src/app/`; non-route code belongs outside it.
+  Import navigation helpers from `expo-router`.
+- If native directories are absent, configure native changes through app config
+  and plugins; never hand-create generated `ios/` or `android/` trees.
+  New native modules require a development build, not Expo Go.
+- Use EAS for cloud builds, signing, submission and OTA updates:
+  `npx eas-cli@latest <command>` (`bunx eas-cli` with Bun).
+- Before every commit: `npm test`, `npm run lint`, `npm run typecheck` must pass.
+  Run lint and typecheck before declaring work done; run relevant tests for code
+  changes. Re-run checks after relevant changes or failures, not repeatedly on
+  unchanged code. Typecheck covers both app and tests.
+- Report changes, verification, limitations and any required phone checks
+  briefly. Device behaviour is verified only when actually tested on a device.

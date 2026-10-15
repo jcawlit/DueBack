@@ -116,7 +116,11 @@ export function readDrive(rootUri: string, libraryId: string): DriveRead {
   result.all = folders.map((f) => f.n);
 
   for (const { n, dir } of folders) {
-    const validation = readGeneration(dir, libraryId);
+    let validation;
+    try { validation = readGeneration(dir, libraryId); } catch {
+      result.skipped.push(`gen-${n}: malformed generation`);
+      continue;
+    }
     if (validation.ok) {
       result.validated.push(n);
       if (!result.payload) {
@@ -212,6 +216,14 @@ export async function syncToDrive(
   const read = readDrive(rootUri, libraryId);
   const merged = read.payload ? mergePayloads(mine, read.payload) : mine;
 
+  if (read.newerSchema) {
+    return { ok: false, read, merged, needsNewerApp: true,
+      message: 'Update the app before writing to this drive backup.' };
+  }
+
+  if (read.all.length && !read.payload) {
+    return { ok: false, read, message: 'No complete backup could be read; existing generations were left untouched.' };
+  }
   const folder = ensureDriveFolder(rootUri);
   if (!folder) {
     return {
@@ -256,4 +268,25 @@ export async function syncToDrive(
     needsNewerApp: read.newerSchema,
     message: `Backed up to the drive (generation ${generation}).`,
   };
+}
+
+/** Recover the bootstrap identity from a complete generation, not a single marker. */
+export function recoverDriveLibraryId(rootUri: string): string | null {
+  const folder = findDriveFolder(rootUri);
+  if (!folder) return null;
+  const folders = generationFolders(folder);
+  const ids = new Set<string>();
+  for (const { dir } of folders) {
+    const file = childByName<File>(dir, MANIFEST_FILE, 'file');
+    const manifest = file ? readJsonFile<Manifest>(file) : null;
+    if (!manifest || typeof manifest.libraryId !== 'string') continue;
+    try {
+      const result = readGeneration(dir, manifest.libraryId);
+      if (result.ok || result.reason === 'newer-schema') ids.add(manifest.libraryId);
+    } catch { /* A malformed generation cannot establish identity. */ }
+  }
+  if (ids.size > 1) throw new Error('The drive contains conflicting library identities. Choose the correct backup before scanning.');
+  if (ids.size === 1) return [...ids][0];
+  if (folders.length) throw new Error('No complete drive backup could establish this library?s identity. Restore a valid generation before scanning.');
+  return null;
 }

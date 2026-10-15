@@ -1,0 +1,29 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.duebackaudio'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.duebackaudio"
+  defaultConfig {
+    minSdkVersion rootProject.ext.minSdkVersion
+    targetSdkVersion rootProject.ext.targetSdkVersion
+    versionCode 1
+    versionName "0.1.0"
+  }
+  compileSdk rootProject.ext.compileSdkVersion
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  // Only for the ExoPlayer type, so the audio session id can be read off the
+  // player expo-audio hands over. Pinned to the version expo-audio itself
+  // uses; Gradle resolves to the higher if they ever differ, and
+  // getAudioSessionId has been on the interface throughout.
+  implementation "androidx.media3:media3-exoplayer:1.9.0"
+}

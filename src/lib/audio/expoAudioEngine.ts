@@ -105,6 +105,18 @@ export function createExpoAudioEngine(): AudioEngine {
     }
   };
 
+  /** Told when the session behind the player may have moved. */
+  const sessionListeners = new Set<(nativePlayer: unknown) => void>();
+  const announceSession = () => {
+    for (const listener of sessionListeners) {
+      try {
+        listener(player);
+      } catch {
+        // An effect that cannot attach is never a reason to stop playing.
+      }
+    }
+  };
+
   /** Moves playback to `index`, resuming if it was already playing. */
   const switchToPart = async (index: number, offsetSec: number, resume: boolean) => {
     const list = parts();
@@ -121,6 +133,13 @@ export function createExpoAudioEngine(): AudioEngine {
       await player.seekTo(Math.max(0, offsetSec));
       refreshLockScreen();
       if (resume) player.play();
+      /*
+       * `replace` reuses the same ExoPlayer, so in practice the session
+       * survives — but that is an implementation detail of expo-audio, not a
+       * promise, and an effect on a stale session fails silently. Announcing
+       * it costs one no-op call when nothing has changed.
+       */
+      announceSession();
     } finally {
       switching = false;
     }
@@ -204,6 +223,9 @@ export function createExpoAudioEngine(): AudioEngine {
       player.setPlaybackRate(Math.min(rate, MAX_RATE), PITCH_QUALITY);
       await player.seekTo(located.offsetSec);
       claimLockScreen();
+      // A new player means a new session, so anything attached to the old one
+      // is now attached to nothing.
+      announceSession();
     },
 
     async play() {
@@ -256,6 +278,8 @@ export function createExpoAudioEngine(): AudioEngine {
       // drive that may be unplugged next.
       await clearAllPreloadedSources().catch(() => {});
       player = null;
+      // Nothing to attach effects to now.
+      announceSession();
       track = null;
       subtitle = '';
       partIndex = 0;
@@ -268,6 +292,20 @@ export function createExpoAudioEngine(): AudioEngine {
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+
+    onSessionChange(listener) {
+      sessionListeners.add(listener);
+      // Told at once if there is already a player, so a listener that arrives
+      // after playback started is not left waiting for the next part.
+      if (player) {
+        try {
+          listener(player);
+        } catch {
+          // Never the engine's problem.
+        }
+      }
+      return () => sessionListeners.delete(listener);
     },
   };
 }

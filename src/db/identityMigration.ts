@@ -54,6 +54,7 @@ export async function rewriteBookIdsToUuids(
         uuid, row.id,
       );
     }
+    await db.runAsync("UPDATE settings SET value = ? WHERE key = 'player.lastBookId' AND value = ?", uuid, row.id);
     // `path_key` is the old id: that is exactly what it was, a hash of where
     // the book was found.
     await db.runAsync('UPDATE books SET id = ?, path_key = ? WHERE id = ?', uuid, row.id, row.id);

@@ -37,16 +37,15 @@ import {
 } from '@/db/books';
 import { SETTING_KEYS, setSetting } from '@/db/schema';
 import {
-  adoptLibraryId,
-  ensureLibraryId,
+  seedRestoredIdentities,
   loadPathKeyIndex,
   loadVanishedBooks,
   reconnectBook,
   type ReconnectQuestion,
 } from '@/db/identity';
 import { planReconnection, shapeOf } from '@/lib/library/identity';
-import { readDriveLibrary, writeDriveLibrary } from '@/lib/sync/driveFolder';
 import { readDrive } from '@/lib/sync/driveSync';
+import { resolveLibraryId } from '@/lib/sync/libraryIdentity';
 
 /**
  * Where every book this library knows about was last found.
@@ -62,39 +61,11 @@ import { readDrive } from '@/lib/sync/driveSync';
  * and the manifest may be from before a book moved.
  */
 async function seedIdentity(rootUri: string, libraryId: string): Promise<Map<string, string>> {
-  const local = await loadPathKeyIndex(libraryId);
-  try {
-    const drive = readDrive(rootUri, libraryId);
-    for (const book of drive.payload?.identity ?? []) {
-      if (!book.pathKey || local.has(book.pathKey)) continue;
-      local.set(book.pathKey, book.id);
-    }
-  } catch {
-    // No backup on this drive, or one we cannot read. The scan carries on
-    // and simply mints new identities, which is the old behaviour.
-  }
-  return local;
+  const drive = readDrive(rootUri, libraryId);
+  await seedRestoredIdentities(libraryId, drive.payload?.identity ?? []);
+  return loadPathKeyIndex(libraryId);
 }
 
-/**
- * Which library this root is.
- *
- * The drive's own answer wins. A drive carries its identity in `.dueback`, so
- * the same stick reached through a different mount — or picked again after
- * the app forgot it — is still the same library, and its books keep their
- * uuids. A drive that has never been asked is told, once; a drive that cannot
- * be written to simply keeps whatever this phone already had.
- */
-async function resolveLibraryId(rootUri: string): Promise<string> {
-  const mine = await ensureLibraryId();
-  const onDrive = readDriveLibrary(rootUri);
-  if (onDrive) {
-    if (onDrive.libraryId !== mine) await adoptLibraryId(onDrive.libraryId);
-    return onDrive.libraryId;
-  }
-  const written = writeDriveLibrary(rootUri, mine);
-  return written?.libraryId ?? mine;
-}
 
 export type ScanPhase = 'listing' | 'grouping' | 'reading' | 'saving' | 'done' | 'failed';
 
@@ -527,8 +498,8 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
   const freshlyFound: { id: string; title: string; folderRelPath: string }[] = [];
   /** Their shapes, so a vanished book can be matched without re-reading. */
   const scannedShapes = new Map<string, { shape: ReturnType<typeof shapeOf>; sampleHash: string | null }>();
-  const fingerprints = await existingFingerprints();
-  const claimed = await claimedDriveFolders();
+  const fingerprints = await existingFingerprints(libraryId);
+  const claimed = await claimedDriveFolders(libraryId);
   if (__DEV__) {
     console.log(
       `[scan] root=${options.rootUri} files=${listing.files.length} ` +

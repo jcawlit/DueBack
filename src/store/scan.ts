@@ -161,7 +161,7 @@ export const useScan = create<ScanState>((set, get) => ({
        * not hold the library screen.
        */
       if (result.completed && result.rootReadable) {
-        void useBackup.getState().run();
+        setTimeout(() => void useBackup.getState().run(), 0);
       }
     } catch (err) {
       set({ error: (err as Error)?.message ?? 'The scan failed.' });

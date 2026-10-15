@@ -14,3 +14,9 @@ export function safeLocalName(index: number, sourceName: string): string {
   const extension = match ? match[1].toLowerCase() : 'bin';
   return `${String(index).padStart(4, '0')}.${extension}`;
 }
+
+/** A migrated book keeps its existing directory; UUIDs are not filesystem addresses. */
+export function localFolderId(path: string, root: 'books' | 'imported'): string | null {
+  const parts = path.split('/');
+  return parts[0] === root && /^[a-zA-Z0-9_-]+$/.test(parts[1] ?? '') ? parts[1] : null;
+}

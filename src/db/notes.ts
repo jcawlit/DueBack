@@ -7,6 +7,7 @@
  * sync to carry, and for "undo" to have something to bring back.
  */
 
+import { readingDataChanged } from '@/lib/sync/changes';
 import type { Character, Note } from '@/data/notes';
 import { withLockRetry } from './books';
 import { getDb } from './schema';
@@ -134,6 +135,7 @@ export async function insertNote(note: {
       mutationId, device,
     ),
   );
+  readingDataChanged();
   return { ...note, createdAt: at, updatedAt: at, characterIds: [] };
 }
 
@@ -179,6 +181,7 @@ export async function saveNoteText(
       }
     }),
   );
+  readingDataChanged();
   return at;
 }
 
@@ -192,6 +195,7 @@ export async function softDeleteNote(noteId: string): Promise<void> {
       at, at, mutationId, device, noteId,
     ),
   );
+  readingDataChanged();
 }
 
 /** Brings a note back exactly as it was; its tags were never touched. */
@@ -207,6 +211,7 @@ export async function restoreNote(noteId: string): Promise<void> {
       at, mutationId, device, noteId,
     ),
   );
+  readingDataChanged();
 }
 
 export async function insertCharacter(character: {
@@ -231,6 +236,7 @@ export async function insertCharacter(character: {
       mutationId, device,
     ),
   );
+  readingDataChanged();
   return { ...character, ...row, createdAt: at, updatedAt: at };
 }
 
@@ -248,6 +254,7 @@ export async function saveCharacter(
       fields.name, fields.aliases, fields.bio, at, mutationId, device, characterId,
     ),
   );
+  readingDataChanged();
 }
 
 /**
@@ -275,6 +282,7 @@ export async function softDeleteCharacter(characterId: string): Promise<void> {
       );
     }),
   );
+  readingDataChanged();
 }
 
 /** How much a book would lose if it were forgotten. */

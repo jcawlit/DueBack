@@ -58,6 +58,20 @@ export type AudioEngine = {
   unload(): Promise<void>;
   /** Subscribes to status. Returns an unsubscribe function. */
   subscribe(listener: (status: EngineStatus) => void): () => void;
+  /**
+   * Told whenever the native player behind this engine may have changed, and
+   * given it — on load, and on every part change.
+   *
+   * Platform audio effects attach to a *session*, which belongs to the native
+   * player rather than to the engine. An effect left attached to a session
+   * that has been replaced is silently doing nothing, which is the one way
+   * this could fail that nobody would notice, so the target is handed over
+   * again every time it could have moved.
+   *
+   * Typed as `unknown` deliberately: this interface describes what a player
+   * does, and should not know what kind of native object implements it.
+   */
+  onSessionChange(listener: (nativePlayer: unknown) => void): () => void;
 };
 
 /** Playback speeds the UI offers. The API tops out at 2×. */

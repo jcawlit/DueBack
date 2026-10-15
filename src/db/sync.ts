@@ -30,7 +30,7 @@ export async function writerNow(): Promise<Writer> {
 }
 
 /** Everything this phone would put on the drive. */
-export async function collectPayload(): Promise<SyncPayload> {
+async function collectAllPayload(): Promise<SyncPayload> {
   const db = await getDb();
   const device = await ensureDeviceId();
 
@@ -77,7 +77,7 @@ export async function collectPayload(): Promise<SyncPayload> {
     `SELECT id, progress_sec, finished_at, progress_updated_at, progress_mutation_id,
             progress_writer_device, last_played_at
        FROM books
-      WHERE progress_sec > 0 OR finished_at IS NOT NULL`,
+      WHERE progress_updated_at IS NOT NULL OR progress_sec > 0 OR finished_at IS NOT NULL`,
   );
 
   const identity = await db.getAllAsync<{
@@ -228,7 +228,8 @@ export async function applyPayload(payload: SyncPayload): Promise<ApplyReport> {
              mutation_id = excluded.mutation_id,
              writer_device = excluded.writer_device,
              base_updated_at = excluded.base_updated_at,
-             conflict_of = excluded.conflict_of`,
+             conflict_of = excluded.conflict_of
+           WHERE (excluded.updated_at, excluded.writer_device, excluded.mutation_id) >= (notes.updated_at, COALESCE(notes.writer_device, ''), COALESCE(notes.mutation_id, ''))`,
           note.id, note.bookId, note.positionSec, note.chapterIndex, note.text,
           note.createdAt, note.updatedAt, note.deletedAt ?? null, note.mutationId,
           note.writerDevice, note.baseUpdatedAt ?? null, note.conflictOf ?? null,
@@ -251,7 +252,8 @@ export async function applyPayload(payload: SyncPayload): Promise<ApplyReport> {
              deleted_at = excluded.deleted_at,
              mutation_id = excluded.mutation_id,
              writer_device = excluded.writer_device,
-             base_updated_at = excluded.base_updated_at`,
+             base_updated_at = excluded.base_updated_at
+           WHERE (excluded.updated_at, excluded.writer_device, excluded.mutation_id) >= (characters.updated_at, COALESCE(characters.writer_device, ''), COALESCE(characters.mutation_id, ''))`,
           character.id, character.bookId, character.name, character.aliases, character.bio,
           character.createdAt, character.updatedAt, character.deletedAt ?? null,
           character.mutationId, character.writerDevice, character.baseUpdatedAt ?? null,
@@ -268,7 +270,8 @@ export async function applyPayload(payload: SyncPayload): Promise<ApplyReport> {
              updated_at = excluded.updated_at,
              deleted_at = excluded.deleted_at,
              mutation_id = excluded.mutation_id,
-             writer_device = excluded.writer_device`,
+             writer_device = excluded.writer_device
+           WHERE (excluded.updated_at, excluded.writer_device, excluded.mutation_id) >= (note_characters.updated_at, COALESCE(note_characters.writer_device, ''), COALESCE(note_characters.mutation_id, ''))`,
           tag.noteId, tag.characterId, tag.updatedAt, tag.deletedAt ?? null,
           tag.mutationId, tag.writerDevice,
         );
@@ -281,9 +284,10 @@ export async function applyPayload(payload: SyncPayload): Promise<ApplyReport> {
           `UPDATE books SET
              progress_sec = ?, finished_at = ?,
              progress_updated_at = ?, progress_mutation_id = ?, progress_writer_device = ?
-           WHERE id = ?`,
+           WHERE id = ? AND (progress_updated_at IS NULL OR
+             (progress_updated_at, COALESCE(progress_writer_device, ''), COALESCE(progress_mutation_id, '')) <= (?, ?, ?))`,
           entry.positionSec, entry.finishedAt ?? null, entry.updatedAt,
-          entry.mutationId, entry.writerDevice, entry.bookId,
+          entry.mutationId, entry.writerDevice, entry.bookId, entry.updatedAt, entry.writerDevice, entry.mutationId,
         );
         report.progress += 1;
       }
@@ -300,7 +304,8 @@ export async function applyPayload(payload: SyncPayload): Promise<ApplyReport> {
              updated_at = excluded.updated_at,
              deleted_at = excluded.deleted_at,
              mutation_id = excluded.mutation_id,
-             writer_device = excluded.writer_device`,
+             writer_device = excluded.writer_device
+           WHERE (excluded.updated_at, excluded.writer_device, excluded.mutation_id) >= (checkouts.updated_at, COALESCE(checkouts.writer_device, ''), COALESCE(checkouts.mutation_id, ''))`,
           event.id, event.bookId, event.outAt, event.backAt ?? null,
           event.updatedAt, event.deletedAt ?? null, event.mutationId, event.writerDevice,
         );
@@ -326,14 +331,14 @@ export async function markSynced(payload: SyncPayload): Promise<void> {
     db.withTransactionAsync(async () => {
       for (const note of payload.notes) {
         await db.runAsync(
-          'UPDATE notes SET base_updated_at = ? WHERE id = ? AND updated_at = ?',
-          note.updatedAt, note.id, note.updatedAt,
+          'UPDATE notes SET base_updated_at = ? WHERE id = ? AND updated_at = ? AND mutation_id = ?',
+          note.updatedAt, note.id, note.updatedAt, note.mutationId,
         );
       }
       for (const character of payload.characters) {
         await db.runAsync(
-          'UPDATE characters SET base_updated_at = ? WHERE id = ? AND updated_at = ?',
-          character.updatedAt, character.id, character.updatedAt,
+          'UPDATE characters SET base_updated_at = ? WHERE id = ? AND updated_at = ? AND mutation_id = ?',
+          character.updatedAt, character.id, character.updatedAt, character.mutationId,
         );
       }
     }),
@@ -363,4 +368,20 @@ export async function isBackupPending(lastBackupAt: string | null): Promise<bool
   if (!newest) return false;
   if (!lastBackupAt) return true;
   return newest > lastBackupAt;
+}
+
+/** A backup belongs to one library, even when the phone remembers several drives. */
+export async function collectPayload(libraryId?: string): Promise<SyncPayload> {
+  const payload = await collectAllPayload();
+  if (!libraryId) return payload;
+  const db = await getDb();
+  const ids = new Set((await db.getAllAsync<{ id: string }>('SELECT id FROM books WHERE library_id = ?', libraryId)).map((b) => b.id));
+  const notes = payload.notes.filter((n) => ids.has(n.bookId));
+  const characters = payload.characters.filter((c) => ids.has(c.bookId));
+  const noteIds = new Set(notes.map((n) => n.id));
+  const characterIds = new Set(characters.map((c) => c.id));
+  return { identity: payload.identity.filter((b) => ids.has(b.id)), notes, characters,
+    tags: payload.tags.filter((t) => noteIds.has(t.noteId) && characterIds.has(t.characterId)),
+    progress: payload.progress.filter((p) => ids.has(p.bookId)),
+    history: payload.history.filter((h) => ids.has(h.bookId)) };
 }

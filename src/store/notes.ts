@@ -12,6 +12,7 @@
  * taken while walking is exactly the one most likely to be interrupted.
  */
 
+import { readingDataChanged } from '@/lib/sync/changes';
 import { create } from 'zustand';
 import {
   bioWith,
@@ -79,13 +80,14 @@ type NotesState = {
 };
 
 export const useNotes = create<NotesState>((set, get) => {
+  const revisions = new Map<string, number>();
   /** Writes one note's pending text, with the tags read back out of it. */
   const writeNote = async (noteId: string, text: string) => {
     const characterIds = mentionedCharacterIds(text, get().characters);
     const at = await saveNoteText(noteId, text, characterIds);
     set((s) => ({
       notes: s.notes.map((n) =>
-        n.id === noteId ? { ...n, text, characterIds, updatedAt: at } : n,
+        n.id === noteId && n.text === text ? { ...n, characterIds, updatedAt: at } : n,
       ),
     }));
   };
@@ -107,7 +109,9 @@ export const useNotes = create<NotesState>((set, get) => {
       // Whatever is half-typed belongs to the book being left, not the one
       // being opened.
       await flushPending();
-      set({ bookId, loading: true, undoable: null });
+      const sameBook = get().bookId === bookId;
+      const atLoad = new Map(revisions);
+      set({ bookId, loading: true, ...(sameBook ? {} : { undoable: null }) });
       try {
         const [notes, characters] = await Promise.all([
           loadNotes(bookId),
@@ -115,7 +119,8 @@ export const useNotes = create<NotesState>((set, get) => {
         ]);
         // Another book may have been opened while this was reading.
         if (get().bookId !== bookId) return;
-        set({ notes, characters, loading: false });
+        const current = new Map(get().notes.map((n) => [n.id, n]));
+        set({ notes: notes.map((n) => revisions.get(n.id) !== atLoad.get(n.id) ? current.get(n.id) ?? n : n), characters, loading: false });
       } catch (err) {
         if (get().bookId === bookId) set({ loading: false });
         console.warn('[dueback] the margins could not be read:', err);
@@ -150,6 +155,8 @@ export const useNotes = create<NotesState>((set, get) => {
     },
 
     setNoteText: (noteId, text) => {
+      revisions.set(noteId, (revisions.get(noteId) ?? 0) + 1);
+      readingDataChanged();
       // On screen at once; on disk shortly. The note in the list is the one
       // the sheet renders from, so this cannot wait for SQLite.
       set((s) => ({ notes: s.notes.map((n) => (n.id === noteId ? { ...n, text } : n)) }));

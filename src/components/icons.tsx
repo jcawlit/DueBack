@@ -201,3 +201,13 @@ export function PencilIcon({ size = 20, stroke = color.muted }: IconProps) {
     </Svg>
   );
 }
+
+/** Three sliders on an amp, for the Sound panel. */
+export function SoundIcon({ size = 20, stroke = color.muted }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 20 20" fill="none">
+      <Path d="M4 3v6M4 13v4M10 3v3M10 10v7M16 3v8M16 15v2" stroke={stroke} strokeWidth={1.5} strokeLinecap="round" />
+      <Path d="M2 11h4M8 8h4M14 13h4" stroke={stroke} strokeWidth={1.5} strokeLinecap="round" />
+    </Svg>
+  );
+}
