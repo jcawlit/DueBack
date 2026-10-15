@@ -51,5 +51,11 @@
     "make:testlib": "node --experimental-strip-types --no-warnings scripts/make-testlib.ts",
     "make:fixtures": "node --experimental-strip-types --no-warnings scripts/make-fixtures.ts"
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "autolinking": {
+      "//": "Local native modules live here. Without this they are never linked, and the only sign is a module that quietly does not exist at runtime.",
+      "nativeModulesDir": "./modules"
+    }
+  }
 }
