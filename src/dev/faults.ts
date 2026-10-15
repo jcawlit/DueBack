@@ -1,18 +1,15 @@
 /**
- * Fault injection for the on-device suites.
+ * Hooks for pretending the phone is nearly full, or that a write fails.
  *
- * Some failures cannot honestly be provoked on an emulator. Filling a userdata
- * image to within a gigabyte of full takes minutes, needs gigabytes of junk
- * written and deleted, and risks taking the test run down with it. These hooks
- * let a test say "the phone is nearly full" or "the write fails on part two"
- * and then exercise the real recovery path — the same staging folder is
- * deleted, the same book goes back on the shelf, the same message is shown.
+ * Written for the on-device suites, which have since been removed. The
+ * setters now have no callers; the two readers are still wired into the real
+ * code — `diskFault()` in `src/lib/files/copy.ts` and
+ * `libraryOnDeviceOverride()` in `src/store/library.ts` — and both return
+ * "nothing set", so the app asks the filesystem and behaves normally.
  *
- * What is deliberately *not* faked is the recovery itself. Only the two facts
- * the filesystem reports are substituted; everything downstream is the
- * production code path.
- *
- * Inert unless a test sets something. No app code ever writes here.
+ * It is kept rather than torn out because removing it means editing the copy
+ * path and the library store to no end. If a way to provoke a full disk is
+ * ever wanted again, this is where it goes.
  */
 
 export type DiskFault = {

@@ -409,11 +409,6 @@ export default function SettingsScreen() {
             detail="Every book, its parts, timings and warnings"
             onPress={() => router.push('/dev/metadata')}
           />
-          <Row
-            label="Self-test"
-            detail="Runs the library, copy and import checks on this device"
-            onPress={() => router.push('/dev/selftest')}
-          />
         </View>
       </ScrollView>
     </View>

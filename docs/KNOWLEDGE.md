@@ -823,8 +823,8 @@ three plus an odd one out.
 ### What the user calls these things
 
 **Notes**, not margins. **Characters**, not Who's who. "Margins" survives in
-module and function names where it reads well as a collective — `countMarginsFor`,
-`marginsSuite` — but never on screen and never in the exported page.
+module and function names where it reads well as a collective —
+`countMarginsFor` — but never on screen and never in the exported page.
 
 *`src/components/NotesCard.tsx`, `src/components/CharactersCard.tsx`,
 `src/lib/notes/export.ts`*

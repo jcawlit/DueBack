@@ -5,8 +5,8 @@
  * Everything here is the pure half — the arithmetic of where a bookmark lands
  * and which chapter it belongs to, reading tags back out of typed text, and
  * the autosave that decides when writing reaches the database. The SQLite
- * round trip is covered on a device, in `src/dev/suites.ts`, because that is
- * the only place a real database exists.
+ * round trip is not covered here: expo-sqlite needs a device, so that half is
+ * checked by hand on the phone.
  */
 
 import { describe, it } from 'node:test';

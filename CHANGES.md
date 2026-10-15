@@ -1826,3 +1826,62 @@ after clearing app data. All passed. The backup-frequency bug above was the
 only thing it turned up, and only by looking at the drive.
 
 `docs/STATE.md` holds the detail, and what is still unverified.
+
+---
+
+# The self-test suites are gone
+
+Fourteen scripted suites, about 280 cases, a harness, three fixture
+generators and an emulator runbook. All removed.
+
+They were built when there was nothing else to test against: no real library
+indexed, no phone that could be trusted to hold one. That stopped being true.
+The library on the drive is hundreds of real books with naming no generator
+would invent, and testing against it by hand answers questions the fixtures
+never could.
+
+Three things decided it.
+
+**The fixture library was the thing being tested.** Twenty synthetic books
+with deliberately awkward names. Passing said the code handled the twenty
+cases someone thought of, which the unit tests already cover more cheaply.
+
+**The button was one tap away in a release build.** `Settings → Self-test`
+shipped with no `__DEV__` guard, pointed at a hardcoded fixture path that
+does not exist on a real phone. Running it re-pointed the library root at an
+empty folder. A reset added the day before — `wipeAppData()` followed by
+reconciliation — would have deleted every checked-out book and permanently
+dropped any book imported from the phone and never pushed to the drive,
+which exists in exactly one place. That change was never merged.
+
+**Nobody was running them.** Not in CI, not on the Pixel, not for weeks.
+
+`src/dev/faults.ts` stays. Its two readers are wired into `copy.ts` and the
+library store, and both now report "nothing set", so the app asks the
+filesystem as it always would. Tearing it out means editing the copy path to
+no purpose.
+
+What remains: `npm test`, `npm run lint`, `npm run typecheck` in CI on every
+push, and a person with a Pixel and a USB drive. `docs/STATE.md` says which
+answers which.
+
+## And one thing CI was never running
+
+`.gitignore` held a bare `fixtures/`, which git matches at any depth. It was
+meant for the generated library at the repository root; it also matched
+`tests/fixtures/`, the 644 KB of small audio files that
+`tests/parser.test.ts` opens by name — a file whose own header says they are
+"committed with the repo". They were not. CI had no way to pass that test.
+
+The rule is now anchored, `/fixtures/`, and the seven files are committed.
+
+`tests/fixtures-parse.test.ts` went with the generator: 12 cases against the
+101 MB library covering a DRM-flagged file, a container truncated before its
+`moov`, a megabyte of noise named `.mp3`, a zero-length file, and the
+255-chapter Nero ceiling. They passed on a machine that had generated the
+library and were skipped everywhere else, CI included.
+
+*Removed: `src/dev/harness.ts`, `suites.ts`, `identitySuite.ts`,
+`marginsSuite.ts`, `syncSuite.ts`, `src/app/dev/selftest.tsx`,
+`scripts/make-fixtures.ts`, `make-testlib.ts`, `verify-testlib.ts`,
+`docs/EMULATOR.md`, `tests/fixtures-parse.test.ts`*

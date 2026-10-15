@@ -9,11 +9,11 @@ and cross-platform behaviour.
   is deliberately not fixed, and which traps have already cost a day. Read it
   before auditing anything or proposing a direction; it is the current list,
   where `CHANGES.md` is history.
-- A fresh clone has no `android/`, no APK, no `fixtures/` and no `testlib/`.
-  All are generated and correctly ignored — `docs/STATE.md` says how.
+- A fresh clone has no `android/` and no APK. Both are generated —
+  `docs/STATE.md` says how.
 - `npm test`, `npm run lint` and `npm run typecheck` run in CI on every push
-  (`.github/workflows/ci.yml`). The on-device suites do not: they need a
-  device and a generated fixture library.
+  (`.github/workflows/ci.yml`). That is the whole automated suite: everything
+  else is tested by hand on a Pixel with a real drive.
 
 ## Read only what the task needs
 

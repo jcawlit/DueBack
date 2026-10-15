@@ -222,8 +222,7 @@ export function holdBytes(books: Book[]): number {
  * Puts the database back in step with the filesystem: a book counts as checked
  * out only if its files are really there. They might not be — the app was
  * killed mid-copy, or app storage was cleared.
- *
- * Exported for the dev self-test harness, which runs it on demand.
+
  */
 export async function reconcileLocalCopies() {
   try {

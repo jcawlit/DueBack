@@ -213,7 +213,6 @@ export default function RootLayout() {
         <Stack.Screen name="player/[id]" options={{ animation: 'slide_from_bottom' }} />
         <Stack.Screen name="settings" />
         <Stack.Screen name="dev/metadata" />
-        <Stack.Screen name="dev/selftest" />
       </Stack>
       <MiniPlayer />
       <GlobalSlip />

@@ -135,7 +135,7 @@ src/
   theme/tokens.ts     every colour, typeface and shadow
 tests/                Node unit tests + synthetic fixtures
 scripts/              fixture builders, the scan report, the kb search
-docs/                 KNOWLEDGE.md (what we learned), EMULATOR.md (the runbook)
+docs/                 STATE.md (where it is), KNOWLEDGE.md (what we learned)
 audiobooks/           real books for testing — git-ignored, never committed
 design/               the four original mockups, visual reference only
 ```
@@ -232,5 +232,4 @@ Known gaps:
 | `docs/STATE.md` | where the project actually is: what is verified, what has never run on hardware, and what is deliberately not fixed |
 | `docs/KNOWLEDGE.md` | platform quirks, invariants, and why odd-looking code is that way. Searchable with `npm run kb`. |
 | `CHANGES.md` | what changed in each pass, and what is still open |
-| `docs/EMULATOR.md` | running the on-device suite on an emulator |
 | `design/` | the four original mockups |

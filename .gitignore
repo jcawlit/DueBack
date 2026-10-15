@@ -49,9 +49,14 @@ audiobooks/
 # Locally built dev client
 dueback-dev.apk
 
-# Generated performance-test library
-testlib/
-fixtures/
+# Audio left over from the deleted fixture generators. Anchored on purpose:
+# an unanchored `fixtures/` also matched tests/fixtures/, which kept the small
+# committed set out of the repo while tests/parser.test.ts said it was
+# "committed with the repo".
+/fixtures/
+/testlib/
+
+# Built APK
 dueback.apk
 
 # Local native modules: gradle output, never source.

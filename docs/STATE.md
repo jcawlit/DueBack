@@ -27,31 +27,29 @@ All correctly ignored, none of it missing by accident:
 |---|---|
 | `android/` | `npx expo prebuild --platform android --clean` |
 | An APK | `README.md` → Development build |
-| `fixtures/`, `testlib/` | `npm run make:fixtures`, `npm run make:testlib` |
 | `node_modules/` | `npm ci` — **never** `npm install`, and never `expo install --fix` |
 
 ## What is actually verified, and by what
 
-This matters more than anything else in this file. The project has three tiers
-of test and they cover very different ground.
+This matters more than anything else in this file. There are two tiers of
+test, and they cover very different ground.
 
 **1. Node unit tests — `npm test`, ~300 cases, run in CI.**
 Pure logic only: grouping, identity, merge rules, the sound maths, note
 arithmetic, export, autosave, and the database migrations against `node:sqlite`.
 Fast, trustworthy, and the right place for anything that can live there.
 
-**2. On-device suites — `src/dev/suites.ts`, reached from Settings → Self-test.**
-Real SQLite, real files. Suites A1–A14 cover scanning, check-out, holds,
-imports, startup reconciliation, notes, identity and drive backup. They need a
-generated fixture library on a filesystem path, so in practice they run on the
-emulator (`docs/EMULATOR.md`). **Not in CI.** Known limitation: the suite is
-not idempotent — two runs back to back are worse than one from a clean slate,
-because checked-out books and imports survive. `wipeAppData()` exists in the
-harness but is not run automatically.
+**2. A Pixel with a real USB drive and a real library.** Everything the unit
+tests cannot reach: the Storage Access Framework, audio hardware, Android
+power management, and whether any of it behaves on hundreds of real books
+with names no generator would invent. Done by hand, and recorded below.
 
-**3. A Pixel with a real USB drive — the only thing that can answer anything
-involving the Storage Access Framework, audio hardware or Android power
-management.**
+There used to be a third tier — scripted suites A1–A14, run from a Settings
+button against a generated fixture library. They were removed on 15 October
+2026. The library they tested was synthetic, the real one was by then good
+enough to test against directly, and the button sat one tap away in a release
+build while doing destructive things to app storage. `git log` has them if
+they are ever wanted back.
 
 ### Passed on a Pixel with a real drive, 15 October 2026
 
@@ -138,17 +136,15 @@ Roughly in the order I would take them.
    committed and unit-tested but not in any APK. What proves it is watching the
    generation number advance about once per ten minutes of listening instead of
    every few seconds.
-2. **The device suite's lack of a reset step** makes every run after the first
-   misleading. A `wipeAppData()` at the start would fix it.
-3. **Four Expo patch bumps and a missing `expo-asset` peer.** `expo-doctor`
+2. **Four Expo patch bumps and a missing `expo-asset` peer.** `expo-doctor`
    reports 19/21 for these two reasons. Deliberately deferred to a branch,
    because the one time the advice was taken it broke the dependency tree.
-4. **Conflicted copies need a prior sync to fire.** The first-ever merge
+3. **Conflicted copies need a prior sync to fire.** The first-ever merge
    between two phones is last-write-wins, so one side's edit to a note can be
    lost. Deliberate — the alternative litters the margins with copies — but it
    is the weakest point in the sync design, and the one part of sync no
    hardware has exercised.
-5. **Reconnect questions are transient.** Held in the store, not a table. An
+4. **Reconnect questions are transient.** Held in the store, not a table. An
    unanswered question is re-asked on the next scan, which is self-healing but
    does not survive a force-stop.
 
@@ -183,7 +179,6 @@ Things that have already cost a day each.
 | Standing rules for agents | `AGENTS.md` |
 | Platform quirks and invariants | `npm run kb`, then `docs/KNOWLEDGE.md` |
 | What changed and why, chronologically | `CHANGES.md` |
-| Running the emulator suites | `docs/EMULATOR.md` |
 | The sound feature, and iOS notes | `docs/SOUND.md` |
 | Prompt shapes for delegated work | `docs/AGENT-WORKFLOW.md` |
 
