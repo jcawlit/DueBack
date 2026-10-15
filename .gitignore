@@ -57,3 +57,8 @@ dueback.apk
 # Local native modules: gradle output, never source.
 modules/*/android/build/
 modules/*/android/.cxx/
+
+# Scratch from device testing: logs pasted off the phone, and running notes.
+# Useful while debugging, never part of the project.
+crashlogs.txt
+findings.txt
