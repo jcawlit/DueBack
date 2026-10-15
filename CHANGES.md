@@ -462,8 +462,10 @@ counted as skipped files, and never offered as cover art. Counting them as
 
 # Hardware pass — what changed
 
-Driven by the List B findings written into `TESTING.md` against a real drive and
-a real Pixel. Everything here is JavaScript; no rebuild is needed.
+Driven by the List B findings from the first hardware round, against a real
+drive and a real Pixel. They were written up at the time in `TESTING.md`, a
+file since deleted as outdated and recoverable from git history. Everything
+here is JavaScript; no rebuild is needed.
 
 Settled by the phone and needing nothing: a copy survives switching apps and the
 screen going off (check 2), playback is clean for an hour (4), unplugging

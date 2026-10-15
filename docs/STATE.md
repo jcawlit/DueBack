@@ -183,7 +183,6 @@ Things that have already cost a day each.
 | Standing rules for agents | `AGENTS.md` |
 | Platform quirks and invariants | `npm run kb`, then `docs/KNOWLEDGE.md` |
 | What changed and why, chronologically | `CHANGES.md` |
-| What the phone did in the first hardware round | `TESTING.md` |
 | Running the emulator suites | `docs/EMULATOR.md` |
 | The sound feature, and iOS notes | `docs/SOUND.md` |
 | Prompt shapes for delegated work | `docs/AGENT-WORKFLOW.md` |
