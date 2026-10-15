@@ -14,7 +14,7 @@ import { duplicatesOf, folderLabel } from '@/lib/library/duplicates';
 import { bytes, hoursMinutes, hoursLeft, stampDate } from '@/lib/format';
 import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
 import { BookCover } from '@/components/BookCover';
-import { LibraryCard } from '@/components/LibraryCard';
+import { COMPACT_CARD_ESTIMATE, LibraryCard, LibraryCardSheet } from '@/components/LibraryCard';
 import { StatusTag } from '@/components/CoverBadges';
 import { NoteCard, NoteText } from '@/components/NoteCard';
 import { ChevronLeft } from '@/components/icons';
@@ -28,17 +28,75 @@ import { isPro } from '@/lib/pro';
 import { useBackup } from '@/store/backup';
 import type { Character, Note } from '@/data/notes';
 
+/** The cover's own pixel size at scale 1, from `CoverFace`'s "book" spec. */
+const COVER_BOOK_WIDTH = 168;
+const COVER_BOOK_HEIGHT = 248;
+/** The cover is scaled down to leave the card somewhere to sit. */
+const HERO_COVER_SCALE = 0.88;
+/** How far the card is sunk over the cover, and how far past its right edge. */
+const CARD_SINK = 40;
+const CARD_OVERHANG = 24;
+/**
+ * The page edge drawn beside the cover, passed to `BookCover` as `edgeWidth`.
+ *
+ * It is a sibling of the cover in a row, not part of it, so the book's right
+ * edge — the thing the card is positioned against — is the cover plus this.
+ * Fixed rather than scaled: `PageEdge` takes the number as given.
+ */
+const EDGE_WIDTH = 13;
+/**
+ * Title, meta, progress and the two actions: what the cover cannot have.
+ *
+ * Down from 560, which was the figure when the library card sat in the stack
+ * below. It does not any more — it is part of the hero, and `cardDrop` now
+ * accounts for it. Leaving 560 in place charged the cover for the card twice
+ * and shrank it to 0.71 on a Pixel, well under the 0.88 it is meant to be.
+ */
+const HERO_CHROME = 430;
+
 export default function BookScreen() {
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { id } = useLocalSearchParams<{ id: string }>();
 
-  // Leave room for the title block, progress, the library card and the two
-  // actions; the cover takes what is left of a screen shorter than the mockup's.
+  /*
+   * The hero is a cover with the library card laid over its lower corner.
+   *
+   * Two things changed the old sum. The cover is deliberately smaller — the
+   * card beside it is the other half of the composition, and a full-size
+   * cover leaves it nowhere to sit — and the card hangs below the cover by
+   * its own height less the overlap, which is vertical space the cover can
+   * no longer have. So the fit is measured against what is left after that
+   * drop, and then capped at HERO_COVER_SCALE rather than at 1.
+   *
+   * The floor stays at 0.6: below that the title on the artwork stops being
+   * legible, and a short screen is better served by scrolling.
+   */
+  const [cardHeight, setCardHeight] = useState(COMPACT_CARD_ESTIMATE);
+  const cardDrop = Math.max(0, cardHeight - CARD_SINK);
   const coverScale = Math.max(
     0.6,
-    Math.min(1, (windowHeight - insets.top - insets.bottom - 560) / 248),
+    Math.min(
+      HERO_COVER_SCALE,
+      (windowHeight - insets.top - insets.bottom - HERO_CHROME - cardDrop) / COVER_BOOK_HEIGHT,
+    ),
   );
+  const coverWidth = COVER_BOOK_WIDTH * coverScale;
+  const coverHeight = COVER_BOOK_HEIGHT * coverScale;
+
+  /*
+   * The card is as wide as a card, not as wide as the cover: it reaches past
+   * the cover's right edge and bleeds left over the artwork, which is what
+   * makes it read as laid on top rather than tucked beside. Clamped so it
+   * can never run off either side of the screen.
+   */
+  const heroWidth = windowWidth - space.xxl * 2;
+  const cardWidth = Math.round(
+    Math.min(windowWidth * 0.52, Math.max(windowWidth * 0.48, 150)),
+  );
+  const bookWidth = coverWidth + EDGE_WIDTH;
+  const cardRight = Math.min(bookWidth + CARD_OVERHANG, heroWidth);
+  const cardLeft = Math.max(cardRight - cardWidth, -(space.xxl - 4));
 
   const book = useLibrary(selectBook(id));
   const books = useLibrary((s) => s.books);
@@ -64,6 +122,7 @@ export default function BookScreen() {
   const [tab, setTab] = useState<BookTab>('notes');
   const [editing, setEditing] = useState<string | null>(null);
   const [openCharacter, setOpenCharacter] = useState<Character | null>(null);
+  const [showCard, setShowCard] = useState(false);
 
   const notes = useNotes((s) => s.notes);
   const notesBookId = useNotes((s) => s.bookId);
@@ -149,6 +208,23 @@ export default function BookScreen() {
    */
   const playable = book.files.length > 0 && book.durationSec > 0;
 
+  /*
+   * What the compact card says under its stamps. The state first, because
+   * that is the question the card is being glanced at to answer, then how to
+   * see the rest — a card with three of eleven stamps has to say so.
+   */
+  const cardStatus = `${
+    copying
+      ? 'CHECKING OUT'
+      : out
+        ? 'ON YOUR PHONE'
+        : onHold
+          ? 'ON HOLD'
+          : book.checkouts.length === 0
+            ? 'NEVER CHECKED OUT'
+            : 'ON THE SHELF'
+  } · tap for full card`;
+
   const backupLine = libraryOnDevice
     ? 'Saved on phone'
     : !backupEnabled
@@ -164,12 +240,12 @@ export default function BookScreen() {
     : null;
 
   /*
-   * Three faces of the same thing: your record of this book. Chapters used to
-   * sit here too and was dropped — the player's Contents sheet is the same
-   * list, and four tabs across a phone leaves none of them room to be read.
+   * Two faces of the same thing: your record of this book. Chapters used to
+   * sit here and was dropped — the player's Contents sheet is the same list.
+   * The library card left the stack when it moved into the hero, where it is
+   * a thing you see rather than a tab you have to think to open.
    */
   const tabs: StackTab<BookTab>[] = [
-    { key: 'card', label: 'Library card', hint: 'When this book went out and came back' },
     { key: 'notes', label: 'Notes', hint: 'What you wrote while listening' },
     ...(isPro()
       ? [{ key: 'characters' as const, label: 'Characters', hint: 'Who is in this book' }]
@@ -320,16 +396,61 @@ export default function BookScreen() {
         contentContainerStyle={{ paddingBottom: 36 }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={{ alignItems: 'center', paddingTop: 18 }}>
-          <BookCover
-            book={book}
-            size="book"
-            showTag={false}
-            showRibbon={false}
-            lean={-1.5}
-            edgeWidth={13}
-            scale={coverScale}
-          />
+        {/*
+          The cover and the card as one object: the cover left on the page's
+          own margin, the card laid across its lower corner at a slight angle,
+          the way one is actually pasted in. The card is the pressable — the
+          cover here is artwork, not a control.
+        */}
+        <View style={{ paddingTop: 18, paddingHorizontal: space.xxl }}>
+          <View style={{ height: coverHeight + cardDrop }}>
+            <BookCover
+              book={book}
+              size="book"
+              showTag={false}
+              showRibbon={false}
+              lean={-1.5}
+              edgeWidth={EDGE_WIDTH}
+              scale={coverScale}
+            />
+
+            <Pressable
+              onPress={() => setShowCard(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Library card — show full history"
+              style={({ pressed }) => ({
+                position: 'absolute',
+                left: cardLeft,
+                top: coverHeight - CARD_SINK,
+                width: cardWidth,
+                minHeight: TOUCH,
+                transform: [{ rotate: '2.5deg' }],
+                opacity: pressed ? 0.88 : 1,
+              })}
+            >
+              <View
+                onLayout={(e) => {
+                  const measured = Math.round(e.nativeEvent.layout.height);
+                  // Only when it actually differs: this feeds the height the
+                  // composition reserves, and a loop here would be a layout
+                  // that never settles.
+                  setCardHeight((current) => (current === measured ? current : measured));
+                }}
+                style={[
+                  {
+                    backgroundColor: color.paperCard,
+                    borderRadius: 2,
+                    paddingTop: space.md,
+                    paddingHorizontal: 14,
+                    overflow: 'hidden',
+                  },
+                  shadow(8, 0.45),
+                ]}
+              >
+                <LibraryCard bare compact checkouts={book.checkouts} statusLine={cardStatus} />
+              </View>
+            </Pressable>
+          </View>
         </View>
 
         <View style={{ paddingTop: 26, paddingHorizontal: space.xxl, gap: space.sm }}>
@@ -337,8 +458,8 @@ export default function BookScreen() {
             accessibilityRole="header"
             style={{
               fontFamily: font.serif,
-              fontSize: 28,
-              lineHeight: 28 * 1.05,
+              fontSize: 26,
+              lineHeight: 26 * 1.08,
               color: color.paper,
             }}
           >
@@ -434,8 +555,6 @@ export default function BookScreen() {
 
         <View style={{ marginTop: space.xxl }}>
           <CardStack tabs={tabs} active={tab} onChange={setTab}>
-            {tab === 'card' ? <LibraryCard bare checkouts={book.checkouts} /> : null}
-
             {tab === 'notes' ? (
               <>
                 {/*
@@ -504,7 +623,7 @@ export default function BookScreen() {
               marginTop: space.lg,
             }}
           >
-            <Text style={{ fontFamily: font.mono, fontSize: 10, color: color.faint }}>
+            <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.faint }}>
               {backupLine}
             </Text>
             <Pressable
@@ -628,6 +747,13 @@ export default function BookScreen() {
           setEditing(null);
           void flushNotes();
         }}
+      />
+
+      <LibraryCardSheet
+        visible={showCard}
+        checkouts={book.checkouts}
+        title={book.title}
+        onClose={() => setShowCard(false)}
       />
 
       <CharacterSheet

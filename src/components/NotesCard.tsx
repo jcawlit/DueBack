@@ -93,7 +93,7 @@ function CharacterChip({ name }: { name: string }) {
         borderColor: color.paperRule,
       }}
     >
-      <Text style={{ fontFamily: font.mono, fontSize: 10, color: color.inkOnPaper }}>{name}</Text>
+      <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.inkOnPaper }}>{name}</Text>
     </View>
   );
 }
@@ -111,7 +111,7 @@ function ChapterRule({ title }: { title: string }) {
     >
       <Text
         numberOfLines={1}
-        style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: '#5a4a32' }}
+        style={{ fontFamily: font.mono, fontSize: 11, letterSpacing: 1, color: '#5a4a32' }}
       >
         {title.toUpperCase()}
       </Text>

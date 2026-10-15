@@ -59,6 +59,10 @@ export const font = {
    * Names, times, tags and controls stay in the existing faces — the point is
    * that what someone wrote looks different from what the app wrote, which
    * only works if the app resists writing in it too.
+   *
+   * No longer the default. Notes and bios are set in `sans` unless the
+   * listener turns the handwriting on in Settings, because a page of Caveat
+   * is harder to re-read than it is charming to write. See `src/store/ui.ts`.
    */
   hand: 'Caveat_400Regular',
 } as const;

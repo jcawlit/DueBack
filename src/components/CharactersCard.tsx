@@ -78,7 +78,7 @@ export function CharactersCard({
                 {character.bio}
               </NoteText>
             ) : null}
-            <Text style={{ fontFamily: font.mono, fontSize: 10, color: color.stampFaded }}>
+            <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.stampFaded }}>
               {heardLabel(heard)} · {count} {count === 1 ? 'note' : 'notes'}
             </Text>
           </Pressable>
@@ -172,7 +172,7 @@ export function CharacterSheet({
               borderBottomColor: color.paperRule,
             }}
           >
-            <Text style={{ fontFamily: font.mono, fontSize: 10, color: color.wood }}>
+            <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.wood }}>
               {heardLabel(heard)}
             </Text>
             <Pressable onPress={commit} accessibilityRole="button" hitSlop={8} style={{ minHeight: TOUCH, justifyContent: 'center' }}>
@@ -215,7 +215,7 @@ export function CharacterSheet({
               }}
             />
 
-            <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.wood }}>
+            <Text style={{ fontFamily: font.mono, fontSize: 11, letterSpacing: 1, color: color.wood }}>
               WHO THEY ARE
             </Text>
             <TextInput
@@ -241,7 +241,7 @@ export function CharacterSheet({
             <Text
               style={{
                 fontFamily: font.mono,
-                fontSize: 10,
+                fontSize: 11,
                 letterSpacing: 1,
                 color: color.wood,
                 paddingTop: space.sm,

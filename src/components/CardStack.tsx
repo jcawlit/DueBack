@@ -1,11 +1,11 @@
 /**
  * The little stack of cards in the back of the book.
  *
- * Three cards, tabbed along the top the way an index box is: the library card
- * the book is stamped on, the notes written while listening, and the people
- * in it. One stock, one ink, one set of rules — because they are three faces
- * of the same thing, a record of *your* reading of this book, as distinct
- * from the book itself.
+ * Tabbed along the top the way an index box is: the notes written while
+ * listening, and the people in the book. One stock, one ink, one set of
+ * rules — because they are faces of the same thing, a record of *your*
+ * reading of this book, as distinct from the book itself. The library card
+ * was the third and now sits in the hero, over the cover it belongs to.
  *
  * The tabs are real tabs rather than an underlined bar: the active one is cut
  * from the same paper as the card below it and joins it, while the others sit
@@ -24,8 +24,8 @@ import { color, shadow, font, space } from '@/theme/tokens';
 /** Enough to read, short enough that three fit across a phone. */
 const TAB_HEIGHT = 34;
 
-/** The three faces of a book's record. */
-export type BookTab = 'card' | 'notes' | 'characters';
+/** The faces of a book's record that live in the stack. */
+export type BookTab = 'notes' | 'characters';
 
 export type StackTab<T extends string> = {
   key: T;
@@ -82,7 +82,7 @@ export function CardStack<T extends string>({
                 numberOfLines={1}
                 style={{
                   fontFamily: selected ? font.monoMedium : font.mono,
-                  fontSize: 10,
+                  fontSize: 11,
                   letterSpacing: 0.8,
                   color: selected ? color.inkOnPaper : color.stampFaded,
                 }}
@@ -152,7 +152,7 @@ export function CardHeading({ children }: { children: string }) {
     <Text
       style={{
         fontFamily: font.mono,
-        fontSize: 10,
+        fontSize: 11,
         letterSpacing: 1,
         color: color.stampFaded,
         paddingBottom: space.xs,

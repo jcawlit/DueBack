@@ -36,7 +36,7 @@ export function NoteCard({
       <Text
         style={{
           fontFamily: font.monoMedium,
-          fontSize: 10,
+          fontSize: 11,
           letterSpacing: 0.9,
           color: warn ? color.warning : color.muted,
         }}

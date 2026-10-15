@@ -93,7 +93,7 @@ export function NoteSheet({ visible, note, characters, canTag, justSaved,
                       {note ? timestamp(note.positionSec) : ''}
                     </Text>
                     {showSaved ? <>
-                      <Text style={{ fontFamily: font.mono, fontSize: 10, color: color.inkOnPaper }}>Bookmark saved</Text>
+                      <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.inkOnPaper }}>Bookmark saved</Text>
                       <SheetButton label="Undo" onPress={() => { setShowSaved(false); onUndo(); }} />
                     </> : null}
                   </View>
@@ -140,7 +140,7 @@ export function NoteSheet({ visible, note, characters, canTag, justSaved,
                       setNewName(mention.query.trim()); setNewBio(''); setCreateError('');
                     }} />}
                   </ScrollView>
-                ) : <Text style={{ fontFamily: font.mono, fontSize: 10, color: color.wood, paddingVertical: space.md }}>
+                ) : <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.wood, paddingVertical: space.md }}>
                   @ to tag a character · saved as you write
                 </Text>}
               </View>

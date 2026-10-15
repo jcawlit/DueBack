@@ -6,9 +6,11 @@
  * what the app did not write, which stops being true the moment the app
  * writes in it too.
  *
- * Caveat sits small for its point size, so a handwritten line is set larger
- * than the same line in Instrument Sans. Both are passed one `size`, meaning
- * "as big as body copy", and this decides what that costs in each face.
+ * Instrument Sans is the default; the handwriting is a setting. Caveat sits
+ * small for its point size, so a handwritten line is set larger than the same
+ * line in Sans. Both are passed one `size`, meaning "as big as body copy",
+ * and this decides what that costs in each face — the compensation applies
+ * to Caveat only, so Sans renders at exactly the size it was asked for.
  */
 
 import { Text, type StyleProp, type TextStyle } from 'react-native';

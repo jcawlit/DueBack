@@ -7,13 +7,27 @@
  * a small fixed rotation so the card looks hand-stamped over years.
  */
 
-import { Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Checkout } from '@/data/types';
-import { color, font, shadow, space } from '@/theme/tokens';
+import { color, font, shadow, space, TOUCH } from '@/theme/tokens';
 import { stampDate } from '@/lib/format';
+import { PaperCard } from './PaperCard';
 
 const ROW_HEIGHT = 26;
 const HEADER_OFFSET = 38;
+/** The last three stamps are what the compact card can show and still be read. */
+const COMPACT_ROWS = 3;
+/**
+ * What the compact card is expected to measure, for the first frame only.
+ *
+ * The hero has to reserve vertical space for a card that is absolutely
+ * positioned over the cover, and it cannot know the real height until the
+ * card has laid out. This is top padding, the headings, three rows, the
+ * status line and the bottom padding; `onLayout` corrects it, which is what
+ * keeps the composition right when the system font scale is turned up.
+ */
+export const COMPACT_CARD_ESTIMATE = 148;
 /** Deliberate wobble, so no two stamps line up perfectly. */
 const OUT_LEANS = [-2, 1, -1.5, 2.5, -1, 1.8];
 const BACK_LEANS = [1.5, -1.2, 2, -2, 1, -1.5];
@@ -31,12 +45,24 @@ type Props = {
    * cover can sit crooked, a stack holding a scrolling list cannot.
    */
   bare?: boolean;
+  /**
+   * The short form: headings, the last three stamps, and a line saying where
+   * the book is. For the hero on the Book screen, where the card is a lid
+   * over the cover rather than the page itself — it has to be readable at a
+   * glance and small enough not to bury the artwork.
+   */
+  compact?: boolean;
+  /** The line under the stamps, e.g. "ON YOUR PHONE · tap for full card". */
+  statusLine?: string;
 };
 
-export function LibraryCard({ checkouts, minRows = 4, bare = false }: Props) {
-  const rows = Math.max(minRows, checkouts.length);
-  // Newest at the bottom, the way a real card fills downwards.
-  const ordered = [...checkouts].sort((a, b) => a.out.localeCompare(b.out));
+export function LibraryCard({ checkouts, minRows, bare = false, compact = false, statusLine }: Props) {
+  const floor = minRows ?? (compact ? COMPACT_ROWS : 4);
+  // Newest at the bottom, the way a real card fills downwards — so the
+  // compact card keeps the *last* three, not the first.
+  const sorted = [...checkouts].sort((a, b) => a.out.localeCompare(b.out));
+  const ordered = compact ? sorted.slice(-COMPACT_ROWS) : sorted;
+  const rows = Math.max(floor, ordered.length);
 
   return (
     <View
@@ -86,10 +112,10 @@ export function LibraryCard({ checkouts, minRows = 4, bare = false }: Props) {
           borderBottomColor: '#7a6446',
         }}
       >
-        <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: '#5a4a32' }}>
+        <Text style={{ fontFamily: font.mono, fontSize: 11, letterSpacing: 1, color: '#5a4a32' }}>
           CHECKED OUT
         </Text>
-        <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: '#5a4a32' }}>
+        <Text style={{ fontFamily: font.mono, fontSize: 11, letterSpacing: 1, color: '#5a4a32' }}>
           RETURNED
         </Text>
       </View>
@@ -149,6 +175,104 @@ export function LibraryCard({ checkouts, minRows = 4, bare = false }: Props) {
           })}
         </View>
       )}
+
+      {statusLine ? (
+        <Text
+          style={{
+            fontFamily: font.mono,
+            fontSize: 11,
+            letterSpacing: 0.5,
+            color: '#5a4a32',
+            paddingTop: 8,
+          }}
+        >
+          {statusLine}
+        </Text>
+      ) : null}
     </View>
+  );
+}
+
+/**
+ * The whole card, lifted off the cover.
+ *
+ * The compact card on the Book screen shows the last three stamps; a book
+ * read over years has more, and this is where they are. Bare inside the
+ * sheet's own paper, because a card drawn on a card is one sheet too many.
+ */
+export function LibraryCardSheet({
+  visible,
+  checkouts,
+  title,
+  onClose,
+}: {
+  visible: boolean;
+  checkouts: Checkout[];
+  title: string;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(10,7,5,0.6)',
+          justifyContent: 'flex-end',
+          paddingTop: insets.top + space.md,
+          paddingBottom: Math.max(insets.bottom, space.md),
+          paddingHorizontal: space.lg,
+        }}
+      >
+        <Pressable
+          style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 }}
+          onPress={onClose}
+          accessibilityLabel="Close the library card"
+        />
+        <PaperCard style={{ maxHeight: '85%', flexShrink: 1 }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              paddingHorizontal: space.lg,
+              paddingTop: space.md,
+            }}
+          >
+            <Text
+              numberOfLines={1}
+              style={{
+                flexShrink: 1,
+                fontFamily: font.monoMedium,
+                fontSize: 11,
+                letterSpacing: 1,
+                color: color.stampOut,
+              }}
+            >
+              {title.toUpperCase()}
+            </Text>
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              hitSlop={10}
+              style={({ pressed }) => ({
+                minHeight: TOUCH,
+                justifyContent: 'center',
+                paddingLeft: space.md,
+                opacity: pressed ? 0.6 : 1,
+              })}
+            >
+              <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.stampBack }}>Done</Text>
+            </Pressable>
+          </View>
+          <ScrollView
+            style={{ flexShrink: 1 }}
+            contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.lg }}
+          >
+            <LibraryCard bare checkouts={checkouts} />
+          </ScrollView>
+        </PaperCard>
+      </View>
+    </Modal>
   );
 }
