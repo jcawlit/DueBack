@@ -1,28 +1,22 @@
 /**
- * The characters card: everyone in this book, and the card you get when you
- * turn one of them over.
+ * One person, turned over: the card you get when you tap About, or when you
+ * have just invented someone and they need a name.
  *
- * Ordered by when you first heard of them rather than alphabetically, because
- * the question this answers is "who was that again", and the answer is nearly
- * always someone met recently or met at the very start.
+ * It carries the same stock as the margins it came out of, so that turning a
+ * card over does not change what it is made of.
  *
- * The editor is a sheet of its own, and carries the same stock with it so
- * that turning a card over does not change what it is made of.
- *
- * `CharactersCard` — the list — has no caller since the margins became one
- * section with a medallion strip. It is left here rather than deleted
- * because it holds the only "+ Add character" affordance the app ever had;
- * characters are now made by typing @ in a note.
+ * The list that used to live here — everyone in the book, with a "+ Add
+ * character" at the bottom — is gone. The margins are one section now and
+ * the people are the medallion strip along its top; the strip's trailing
+ * disc is where someone new comes from.
  */
 
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  charactersByFirstHeard,
   firstHeardSec,
   isBookmark,
-  noteCountFor,
   notesForCharacter,
   type Character,
   type Note,
@@ -30,85 +24,11 @@ import {
 import { timestamp } from '@/lib/format';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 import { NoteText, useNoteFont } from './NoteText';
-import { CardEmpty, paperCardStyle } from './PaperCard';
+import { paperCardStyle } from './PaperCard';
 import { RowAction, TimeChip } from './NotesCard';
 
 function heardLabel(sec: number | null): string {
   return sec === null ? 'not heard yet' : `first heard ${timestamp(sec)}`;
-}
-
-export function CharactersCard({
-  characters,
-  notes,
-  onOpen,
-  onAdd,
-}: {
-  characters: Character[];
-  notes: Note[];
-  onOpen: (character: Character) => void;
-  onAdd: () => void;
-}) {
-  const ordered = charactersByFirstHeard(characters, notes);
-
-  return (
-    <View>
-      {ordered.length === 0 ? (
-        <CardEmpty>Nobody yet. Type @ in a note to tag someone, or add them here.</CardEmpty>
-      ) : null}
-
-      {ordered.map((character) => {
-        const heard = firstHeardSec(character.id, notes);
-        const count = noteCountFor(character.id, notes);
-        return (
-          <Pressable
-            key={character.id}
-            onPress={() => onOpen(character)}
-            accessibilityRole="button"
-            accessibilityHint="Opens their card"
-            style={({ pressed }) => ({
-              paddingVertical: space.sm,
-              gap: 3,
-              borderBottomWidth: 1,
-              borderBottomColor: color.paperRule,
-              opacity: pressed ? 0.6 : 1,
-            })}
-          >
-            <Text style={{ fontFamily: font.serif, fontSize: 17, color: color.inkOnPaper }}>
-              {character.name}
-            </Text>
-            {character.bio.trim().length > 0 ? (
-              <NoteText numberOfLines={2} size={14} style={{ color: color.inkOnPaper }}>
-                {character.bio}
-              </NoteText>
-            ) : null}
-            <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.stampFaded }}>
-              {heardLabel(heard)} · {count} {count === 1 ? 'note' : 'notes'}
-            </Text>
-          </Pressable>
-        );
-      })}
-
-      <Pressable
-        onPress={onAdd}
-        accessibilityRole="button"
-        style={({ pressed }) => ({
-          marginTop: space.md,
-          minHeight: TOUCH,
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderWidth: 1,
-          borderStyle: 'dashed',
-          borderColor: color.paperRule,
-          borderRadius: radius.button,
-          opacity: pressed ? 0.6 : 1,
-        })}
-      >
-        <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.stampOut }}>
-          + Add character
-        </Text>
-      </Pressable>
-    </View>
-  );
 }
 
 /**

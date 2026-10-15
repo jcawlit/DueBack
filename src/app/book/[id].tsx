@@ -20,7 +20,7 @@ import { NoteCard, NoteText } from '@/components/NoteCard';
 import { ChevronLeft, PlayIcon } from '@/components/icons';
 import { CardHeading, PaperCard } from '@/components/PaperCard';
 import { MarginsCard } from '@/components/MarginsCard';
-import { CharacterSheet } from '@/components/CharactersCard';
+import { CharacterSheet } from '@/components/CharacterSheet';
 import { NoteSheet } from '@/components/NoteSheet';
 import { useNotes } from '@/store/notes';
 import { exportNotes } from '@/lib/notes/export';
@@ -349,6 +349,22 @@ export default function BookScreen() {
   const editingNote: Note | null = editing
     ? (mine.find((n) => n.id === editing) ?? null)
     : null;
+
+  /*
+   * Someone new.
+   *
+   * The row is written straight away with a placeholder name, so the card
+   * that opens is editing a real character rather than holding a draft that
+   * might never be saved. They are selected in the strip at the same time,
+   * which is what makes the empty "No notes about them yet" state the thing
+   * you land on — the honest answer for someone just invented.
+   */
+  const addBlankCharacter = async () => {
+    const made = await addCharacter(book.id, 'New character');
+    if (!made) return;
+    setWhose(made.id);
+    setOpenCharacter(made);
+  };
 
   /** Opens the player and lands on a second — a note's time chip. */
   const playFrom = (sec: number) => {
@@ -753,6 +769,7 @@ export default function BookScreen() {
               onPlayFrom={playFrom}
               onOpenNote={(note) => setEditing(note.id)}
               onOpenCharacter={setOpenCharacter}
+              onAddCharacter={isPro() ? () => void addBlankCharacter() : undefined}
             />
           </PaperCard>
 
@@ -825,7 +842,10 @@ export default function BookScreen() {
           if (openCharacter) void updateCharacter(openCharacter.id, fields);
         }}
         onDelete={() => {
-          if (openCharacter) void deleteCharacter(openCharacter.id);
+          if (openCharacter) {
+            void deleteCharacter(openCharacter.id);
+            if (whose === openCharacter.id) setWhose(null);
+          }
           setOpenCharacter(null);
         }}
         onPlayFrom={(sec) => {

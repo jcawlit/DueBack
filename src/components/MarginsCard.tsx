@@ -60,20 +60,23 @@ function heardLabel(sec: number | null): string {
   return sec === null ? 'not heard yet' : `first heard ${timestamp(sec)}`;
 }
 
-/** One face in the strip, or the All disc that stands for the whole book. */
+/** One face in the strip, or the All and Add discs at either end of it. */
 function Medallion({
   label,
   caption,
   palette,
   selected,
+  dashed = false,
   accessibilityLabel,
   onPress,
 }: {
   label: string;
   caption: string;
-  /** Absent for All, which is an outline rather than a colour. */
+  /** Absent for All and Add, which are outlines rather than colours. */
   palette?: { bg: string; ink: string };
   selected: boolean;
+  /** Marks the disc as a thing to fill rather than a thing already there. */
+  dashed?: boolean;
   accessibilityLabel: string;
   onPress: () => void;
 }) {
@@ -113,6 +116,7 @@ function Medallion({
             justifyContent: 'center',
             backgroundColor: palette ? palette.bg : 'transparent',
             borderWidth: palette ? 0 : 1.5,
+            borderStyle: dashed ? 'dashed' : 'solid',
             borderColor: color.paperRule,
           }}
         >
@@ -120,7 +124,7 @@ function Medallion({
             numberOfLines={1}
             style={{
               fontFamily: font.monoMedium,
-              fontSize: palette ? 18 : 14,
+              fontSize: palette ? 18 : dashed ? 20 : 14,
               letterSpacing: palette ? 1 : 0.5,
               color: palette ? palette.ink : color.inkOnPaper,
             }}
@@ -152,6 +156,7 @@ export function MarginsCard({
   onPlayFrom,
   onOpenNote,
   onOpenCharacter,
+  onAddCharacter,
 }: {
   book: Book;
   notes: Note[];
@@ -162,6 +167,8 @@ export function MarginsCard({
   onPlayFrom: (sec: number) => void;
   onOpenNote: (note: Note) => void;
   onOpenCharacter: (character: Character) => void;
+  /** Makes someone new and opens their card. Only shown where tagging works. */
+  onAddCharacter?: () => void;
 }) {
   const ordered = charactersByFirstHeard(characters, notes);
   // A character deleted while their notes were on screen must not leave the
@@ -197,7 +204,47 @@ export function MarginsCard({
               onPress={() => onSelect(person?.id === character.id ? null : character.id)}
             />
           ))}
+
+          {/*
+            Last, not first: the strip is read left to right as the people in
+            the book, and a control at the head of it would be the first face
+            you see. It filters nothing, so it is never the selected one.
+          */}
+          {onAddCharacter ? (
+            <Medallion
+              label="+"
+              caption="Add"
+              dashed
+              selected={false}
+              accessibilityLabel="Add a character"
+              onPress={onAddCharacter}
+            />
+          ) : null}
         </ScrollView>
+      ) : null}
+
+      {/*
+        With nobody in the book there is no strip to hang the disc on, so the
+        same action is a line of text instead. Without this, a book you have
+        never tagged anyone in offers no way to start.
+      */}
+      {ordered.length === 0 && onAddCharacter ? (
+        <Pressable
+          onPress={onAddCharacter}
+          accessibilityRole="button"
+          accessibilityLabel="Add a character"
+          hitSlop={8}
+          style={({ pressed }) => ({
+            alignSelf: 'flex-start',
+            minHeight: TOUCH,
+            justifyContent: 'center',
+            opacity: pressed ? 0.6 : 1,
+          })}
+        >
+          <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.stampOut }}>
+            + Add character
+          </Text>
+        </Pressable>
       ) : null}
 
       {person ? (
