@@ -20,7 +20,13 @@ import { Ribbon } from './Ribbon';
 /** The ink a label takes on this stock. */
 const ON_PAPER_FAINT = '#5f4f38';
 
-/** A note on a slip, wide enough for two lines of it. */
+/**
+ * A note on a slip, wide enough for two lines of it.
+ *
+ * A bookmark gets a much smaller one: it has no text, so a slip the size
+ * of a note's was a large piece of paper saying nothing but a time. The
+ * ribbon and the time are the whole of it.
+ */
 function Slip({
   note,
   selected,
@@ -41,37 +47,39 @@ function Slip({
       }
       style={({ pressed }) => [
         {
-          width: mark ? 110 : 168,
-          minHeight: 76,
-          gap: 5,
-          paddingVertical: 9,
-          paddingHorizontal: 11,
+          width: mark ? 86 : 152,
+          gap: 3,
+          paddingVertical: 7,
+          paddingHorizontal: 9,
           borderRadius: 3,
           backgroundColor: color.paperCardAlt,
+          justifyContent: 'center',
           opacity: pressed ? 0.85 : 1,
         },
         selected
-          ? { borderWidth: 2, borderColor: color.accent, paddingVertical: 7, paddingHorizontal: 9 }
+          ? { borderWidth: 2, borderColor: color.accent, paddingVertical: 5, paddingHorizontal: 7 }
           : shadow(6, 0.4),
       ]}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        {mark ? <Ribbon width={7} height={13} notch={0.22} /> : null}
+        {mark ? <Ribbon width={6} height={12} notch={0.22} /> : null}
         <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.stampOut }}>
           {timestamp(note.positionSec)}
         </Text>
       </View>
-      <Text
-        numberOfLines={2}
-        style={{
-          fontFamily: font.sans,
-          fontSize: 13,
-          lineHeight: 18,
-          color: mark ? ON_PAPER_FAINT : color.inkOnPaper,
-        }}
-      >
-        {mark ? 'Bookmark' : note.text}
-      </Text>
+      {mark ? null : (
+        <Text
+          numberOfLines={2}
+          style={{
+            fontFamily: font.sans,
+            fontSize: 12.5,
+            lineHeight: 16,
+            color: color.inkOnPaper,
+          }}
+        >
+          {note.text}
+        </Text>
+      )}
     </Pressable>
   );
 }
@@ -89,7 +97,7 @@ export function ChapterNotes({
   if (notes.length === 0) return null;
 
   return (
-    <View style={{ paddingTop: 18, gap: 8 }}>
+    <View style={{ paddingTop: 14, gap: 6 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: space.xxl }}>
         <Text
           style={{

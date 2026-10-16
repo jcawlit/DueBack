@@ -38,8 +38,10 @@ type Props = {
   /**
    * What was written in this chapter, as seconds from its start.
    *
-   * A note is a purple dot and a bookmark is a small ribbon — the same two
-   * marks they carry everywhere else, so the track reads without a legend.
+   * All one mark: a small red ribbon, whether or not anything has been
+   * typed there yet. Two symbols on an 8px track asked the eye to tell
+   * apart a distinction it cannot act on — tapping either does the same
+   * thing, and the card that opens says which it is.
    */
   marks?: { atSec: number; kind: 'note' | 'bookmark'; id: string }[];
   /** Opens a marker rather than seeking to it. */
@@ -169,7 +171,6 @@ export function ChapterScrubber({
         ? marks.map((mark) => {
             const x = (Math.min(lengthSec, Math.max(0, mark.atSec)) / lengthSec) * width;
             const on = mark.id === selectedMark;
-            const dot = on ? 10 : 8;
             return (
               <Pressable
                 key={mark.id}
@@ -188,22 +189,7 @@ export function ChapterScrubber({
                   justifyContent: 'center',
                 }}
               >
-                {mark.kind === 'bookmark' ? (
-                  <Ribbon width={7} height={13} notch={0.22} />
-                ) : (
-                  <View
-                    style={{
-                      width: dot,
-                      height: dot,
-                      borderRadius: dot / 2,
-                      backgroundColor: color.mentionInk,
-                      // A ring in the page colour, so a dot over the filled
-                      // part of the track still reads as a dot.
-                      borderWidth: 2,
-                      borderColor: color.ground,
-                    }}
-                  />
-                )}
+                <Ribbon width={on ? 9 : 7} height={on ? 15 : 13} notch={0.22} />
               </Pressable>
             );
           })
