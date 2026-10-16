@@ -121,6 +121,12 @@ function Medallion({
             alignItems: 'center',
             justifyContent: 'center',
             backgroundColor: palette ? palette.bg : 'transparent',
+            /*
+             * Everyone not chosen sits back. At full strength a row of
+             * saturated discs is the loudest thing on a dark screen, and
+             * which one is selected stops being the question it answers.
+             */
+            opacity: selected ? 1 : 0.55,
             borderWidth: palette ? 0 : 1.5,
             borderStyle: dashed ? 'dashed' : 'solid',
             borderColor: color.border,
@@ -189,11 +195,12 @@ export function MarginsCard({
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ gap: space.xs, paddingBottom: space.sm }}
-          style={{ marginBottom: space.sm, borderBottomWidth: 1, borderBottomColor: color.line }}
+          style={{ marginBottom: space.md }}
         >
+          {/* Captioned like everyone else. The tally moved to the heading. */}
           <Medallion
             label="All"
-            caption={`${notes.length}`}
+            caption="All"
             selected={person === null}
             accessibilityLabel={`All notes, ${notes.length}`}
             onPress={() => onSelect(null)}
@@ -259,10 +266,8 @@ export function MarginsCard({
             flexDirection: 'row',
             alignItems: 'center',
             gap: space.md,
-            paddingBottom: space.sm,
+            paddingBottom: space.md,
             marginBottom: space.xs,
-            borderBottomWidth: 1,
-            borderBottomColor: color.line,
           }}
         >
           <View

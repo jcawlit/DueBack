@@ -16,8 +16,15 @@ import { PaperCard } from './PaperCard';
 
 const ROW_HEIGHT = 26;
 const HEADER_OFFSET = 38;
-/** The last three stamps are what the compact card can show and still be read. */
-const COMPACT_ROWS = 3;
+/**
+ * The compact card shows one pair of stamps: the latest time this book went
+ * out, and when it came back.
+ *
+ * Three rows made it nearly as tall as the cover it is tucked into, and the
+ * two older pairs answered a question nobody asks at a glance. The whole
+ * history is one tap away in the sheet.
+ */
+const COMPACT_ROWS = 1;
 /*
  * The compact card is tighter in every direction. Its rows are shorter, its
  * header sits closer to them, and its stamps are set a point smaller on one
@@ -43,11 +50,11 @@ function shortStamp(iso: string): string {
  *
  * The hero has to reserve vertical space for a card that is absolutely
  * positioned over the cover, and it cannot know the real height until the
- * card has laid out. This is top padding, the headings, three rows, the
+ * card has laid out. This is top padding, the headings, one row, the
  * status line and the bottom padding; `onLayout` corrects it, which is what
  * keeps the composition right when the system font scale is turned up.
  */
-export const COMPACT_CARD_ESTIMATE = 122;
+export const COMPACT_CARD_ESTIMATE = 82;
 /** Deliberate wobble, so no two stamps line up perfectly. */
 const OUT_LEANS = [-2, 1, -1.5, 2.5, -1, 1.8];
 const BACK_LEANS = [1.5, -1.2, 2, -2, 1, -1.5];

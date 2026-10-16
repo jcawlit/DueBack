@@ -7,7 +7,7 @@ import { Pressable, ScrollView, Share, Text, View, useWindowDimensions } from 'r
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useMemo, useState } from 'react';
-import { fractionAt, isCheckedOut } from '@/data/types';
+import { chapterAt, fractionAt, isCheckedOut } from '@/data/types';
 import { selectBook, useLibrary } from '@/store/library';
 import { usePlayer } from '@/store/player';
 import { duplicatesOf, folderLabel } from '@/lib/library/duplicates';
@@ -15,7 +15,6 @@ import { bytes, hoursMinutes, hoursLeft, stampDate } from '@/lib/format';
 import { color, font, shadow, space, TOUCH } from '@/theme/tokens';
 import { BookCover } from '@/components/BookCover';
 import { COMPACT_CARD_ESTIMATE, LibraryCard, LibraryCardSheet } from '@/components/LibraryCard';
-import { StatusTag } from '@/components/CoverBadges';
 import { NoteCard, NoteText } from '@/components/NoteCard';
 import { ChevronLeft, PauseIcon, PlayIcon, ReturnIcon } from '@/components/icons';
 import { MarginsCard } from '@/components/MarginsCard';
@@ -57,31 +56,33 @@ const CARD_WIDTH_FRACTION = 0.44;
 /**
  * The two actions in the top-right, as discs rather than slabs.
  *
- * Play is the biggest, brightest thing in the hero after the cover itself,
- * and carries no words: nobody should have to read to find out how to play
- * a book. Return is deliberately half its size and only an outline — it is
- * the one move here you cannot take back by tapping again.
+ * They are not in the hero any more. The hero is the object — the book and
+ * the card tucked into it — and transport belongs in the flow of the page,
+ * under the progress it acts on. Play is still the one loud thing: amber,
+ * and twice the size of anything near it. Return is an outline at the far
+ * end of the row, because it is the one move here you cannot take back by
+ * tapping again.
  */
 const PLAY_DIAMETER = 72;
-const RETURN_DIAMETER = 48;
-const ACTION_GAP = 14;
-const ACTION_STACK = PLAY_DIAMETER;
-const CARD_CLEARANCE = 12;
-/** Under this, the two discs and the air between them do not fit side by side. */
-const MIN_ACTION_COLUMN = PLAY_DIAMETER + ACTION_GAP + RETURN_DIAMETER;
+const RETURN_DIAMETER = 44;
 /**
- * What sits below the hero: the title block, the progress block and its
- * footnote, and enough of the card stack to show it is there.
+ * What sits below the hero: the title block, the progress, the transport
+ * row, and enough of the margins to show they are there.
  *
- * Down from 430, and from 560 before that. The full-width action slabs are
- * gone from the bottom of the screen — the actions are in the hero now — so
- * the cover is no longer charged for them.
+ * Back up from 300 now that transport has left the hero and always sits in
+ * the flow — a 72px disc and its two lines of text that the cover can no
+ * longer have. In practice width is what limits the cover on every phone
+ * size checked; this only binds on something very short.
  */
-const HERO_CHROME = 300;
+const HERO_CHROME = 390;
 
 type Action = {
-  /** The whole sentence. The disc carries no words, so this is all there is. */
+  /** The whole sentence, for a screen reader: the short form plus the size. */
   label: string;
+  /** What the row says beside the disc. */
+  sentence: string;
+  /** The quiet line under it: where you are, or what this would cost. */
+  context?: string;
   onPress?: () => void;
   /** A copy in flight: shown as a percentage in place of the glyph. */
   busy?: string;
@@ -167,8 +168,15 @@ function ReturnButton({ action, finished }: { action: Secondary; finished: boole
   );
 }
 
-/** The pair, in the one arrangement they ever take. */
-function ActionDiscs({
+/**
+ * Play, what pressing it does, and the way out — the one arrangement.
+ *
+ * The sentence is on the screen now rather than only in the accessibility
+ * label. A disc with no words is unambiguous for a book you are part way
+ * through and guesswork for one that is not on the phone yet, where the
+ * same disc means "copy a gigabyte and then play it".
+ */
+function TransportRow({
   primary,
   secondary,
   playing,
@@ -180,8 +188,20 @@ function ActionDiscs({
   finished: boolean;
 }) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: ACTION_GAP }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
       <PlayButton action={primary} playing={playing} />
+
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={{ fontFamily: font.sans, fontSize: 15, color: color.paper }}>
+          {primary.sentence}
+        </Text>
+        {primary.context ? (
+          <Text numberOfLines={1} style={{ fontFamily: font.sans, fontSize: 12, color: color.muted }}>
+            {primary.context}
+          </Text>
+        ) : null}
+      </View>
+
       {secondary ? <ReturnButton action={secondary} finished={finished} /> : null}
     </View>
   );
@@ -221,9 +241,6 @@ export default function BookScreen() {
    * beside the cover, the actions drop to a row under the progress bar —
    * still two compact buttons, never the full-width slabs they replaced.
    */
-  const actionLeft = centreX + 4;
-  const actionWidth = heroWidth - actionLeft;
-
   /*
    * The card's bottom sits on the cover's, always. That alignment is what
    * makes the two read as one object, so it is the thing that does not bend:
@@ -236,18 +253,6 @@ export default function BookScreen() {
   );
   const cardTop = Math.max(0, coverHeight - cardHeight);
   const heroHeight = Math.max(coverHeight, cardTop + cardHeight);
-
-  /*
-   * Which means the actions only stay in the top-right if they genuinely
-   * fit above the card. Two conditions, and the second is the one that
-   * bites: a narrow screen shrinks the cover by width, but the button
-   * stack is a fixed 102px, so on a 360dp phone there is no room for both
-   * above a card whose bottom is pinned to the cover. Forcing it anyway
-   * pushed the card 25px below the book, which is the composition coming
-   * apart. They drop to a row under the progress bar instead.
-   */
-  const actionsInHero =
-    actionWidth >= MIN_ACTION_COLUMN && cardTop >= ACTION_STACK + CARD_CLEARANCE;
 
   const book = useLibrary(selectBook(id));
   const books = useLibrary((s) => s.books);
@@ -455,16 +460,39 @@ export default function BookScreen() {
   const copyPercent = Math.round(
     (book.local.status === 'copying' ? book.local.progress : 0) * 100,
   );
+  const here = chapterAt(book, position);
+  /** Where you are, said the way you would say it out loud. */
+  const placeLine = started
+    ? `Chapter ${here.index + 1} · ${hoursLeft(Math.max(0, book.durationSec - position))} left`
+    : `${book.chapters.length || 1} chapters · ${hoursMinutes(book.durationSec)}`;
 
   const primary: Action = book.drmProtected
-    ? { label: "Can't play — protected by DRM", onPress: undefined }
+    ? {
+        label: "Can't play — protected by DRM",
+        sentence: "Can't play — protected by DRM",
+        context: 'Only the shop that sold it can open this file',
+        onPress: undefined,
+      }
     : !playable
-      ? { label: 'No audio that can be read', onPress: undefined }
+      ? {
+          label: 'No audio that can be read',
+          sentence: 'No audio that can be read',
+          context: 'Nothing in the folder could be opened',
+          onPress: undefined,
+        }
       : copying
-        ? { label: `Checking out… ${copyPercent}%`, onPress: undefined, busy: `${copyPercent}%` }
+        ? {
+            label: `Checking out… ${copyPercent}%`,
+            sentence: 'Checking out…',
+            context: `${copyPercent}% of ${bytes(book.sizeBytes)} copied`,
+            onPress: undefined,
+            busy: `${copyPercent}%`,
+          }
         : out
           ? {
               label: finished ? 'Listen again' : started ? 'Keep listening' : 'Start listening',
+              sentence: finished ? 'Listen again' : started ? 'Keep listening' : 'Start listening',
+              context: placeLine,
               onPress: () => openPlayer(book.id),
             }
           : libraryOnDevice
@@ -472,6 +500,8 @@ export default function BookScreen() {
                 // The library is already on the phone, so there is nothing to
                 // copy and nothing to wait for — just play it.
                 label: 'Play',
+                sentence: started ? 'Keep listening' : 'Start listening',
+                context: placeLine,
                 onPress: () => openPlayer(book.id),
               }
             : onHold
@@ -481,12 +511,20 @@ export default function BookScreen() {
                   // copy. Saying "waiting for the drive" with the drive plugged
                   // in reads as a bug.
                   label: driveConnected ? 'In the queue' : 'Waiting for the drive',
+                  sentence: driveConnected ? 'In the queue' : 'Waiting for the drive',
+                  context: driveConnected
+                    ? 'It will copy when the one ahead finishes'
+                    : 'It will copy as soon as the drive is connected',
                   onPress: undefined,
                 }
               : {
                   label: driveConnected
                     ? `Check out and play · ${bytes(book.sizeBytes)}`
                     : `Put on hold · ${bytes(book.sizeBytes)}`,
+                  sentence: driveConnected ? 'Check out and play' : 'Put on hold',
+                  context: driveConnected
+                    ? `Copies ${bytes(book.sizeBytes)} to your phone first`
+                    : `${bytes(book.sizeBytes)} · waiting for the drive`,
                   onPress: () =>
                     driveConnected
                       ? checkOutAndPlay(book.id, openPlayer)
@@ -505,12 +543,6 @@ export default function BookScreen() {
           kind: 'cancel',
           onPress: () => cancelHold(book.id),
         }
-      : null;
-
-  const tag = out
-    ? { label: 'CHECKED OUT', variant: 'solid' as const }
-    : onHold
-      ? { label: 'ON HOLD', variant: 'outline' as const }
       : null;
 
   return (
@@ -542,11 +574,6 @@ export default function BookScreen() {
             back to the library
           </Text>
         </Pressable>
-        {tag ? (
-          <View style={{ marginRight: space.md }}>
-            <StatusTag label={tag.label} variant={tag.variant} />
-          </View>
-        ) : null}
       </View>
 
       <ScrollView
@@ -574,17 +601,6 @@ export default function BookScreen() {
               edgeWidth={EDGE_WIDTH}
               scale={coverScale}
             />
-
-            {actionsInHero ? (
-              <View style={{ position: 'absolute', left: actionLeft, top: 0, width: actionWidth }}>
-                <ActionDiscs
-                  primary={primary}
-                  secondary={secondary}
-                  playing={playingThis}
-                  finished={finished}
-                />
-              </View>
-            ) : null}
 
             <Pressable
               onPress={() => setShowCard(true)}
@@ -641,7 +657,7 @@ export default function BookScreen() {
             {book.author} · {hoursMinutes(book.durationSec)} · {bytes(book.sizeBytes)}
           </Text>
           {book.narrator ? (
-            <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.faint }}>
+            <Text style={{ fontFamily: font.sans, fontSize: 13, color: color.muted }}>
               read by {book.narrator}
             </Text>
           ) : null}
@@ -672,20 +688,18 @@ export default function BookScreen() {
           </Text>
 
           {/*
-            Too narrow for the discs beside the cover, so they come down here.
-            The same two, the same sizes — a smaller screen does not get a
-            different design, only a different place to put it.
+            Under the progress, because that is what it acts on, and in one
+            arrangement on every screen size. There is no second layout to
+            get wrong.
           */}
-          {actionsInHero ? null : (
-            <View style={{ paddingTop: space.md }}>
-              <ActionDiscs
-                primary={primary}
-                secondary={secondary}
-                playing={playingThis}
-                finished={finished}
-              />
-            </View>
-          )}
+          <View style={{ paddingTop: space.lg }}>
+            <TransportRow
+              primary={primary}
+              secondary={secondary}
+              playing={playingThis}
+              finished={finished}
+            />
+          </View>
         </View>
 
         {book.drmProtected ? (
@@ -743,17 +757,31 @@ export default function BookScreen() {
 
         <View style={{ marginTop: space.xxl }}>
           <View style={{ paddingHorizontal: space.xxl }}>
-            <Text
+            {/* The tally belongs to the section, not to the All medallion. */}
+            <View
               style={{
-                fontFamily: font.mono,
-                fontSize: 11,
-                letterSpacing: 1,
-                color: color.faint,
-                paddingBottom: space.xs,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingBottom: space.sm,
               }}
             >
-              MARGINS
-            </Text>
+              <Text
+                style={{
+                  fontFamily: font.mono,
+                  fontSize: 11,
+                  letterSpacing: 1,
+                  color: color.faint,
+                }}
+              >
+                MARGINS
+              </Text>
+              {mine.length > 0 ? (
+                <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.faint }}>
+                  {mine.length} {mine.length === 1 ? 'note' : 'notes'}
+                </Text>
+              ) : null}
+            </View>
 
             {/*
               Undo lives on the card rather than in a slip: the slip has no

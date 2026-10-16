@@ -203,23 +203,31 @@ export function PencilIcon({ size = 20, stroke = color.muted }: IconProps) {
 }
 
 /**
- * A book going back onto a shelf: the shelf line, and an arrow down to it.
+ * A book lifting out of a tray: the tray, and an arrow rising from it.
  *
- * Returning is the one destructive move on the Book screen, so it gets a
- * glyph that says where the book is going rather than a generic cross.
+ * Pointing up, not down. The first version had the arrow going into the
+ * tray, which on a phone reads as a download — the opposite of what the
+ * button does. Returning is the one move here you cannot undo by tapping
+ * again, so the glyph has to say which way the book is going.
  */
 export function ReturnIcon({ size = 20, stroke = color.paper }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 20 20" fill="none">
-      <Path d="M10 3v8" stroke={stroke} strokeWidth={1.5} strokeLinecap="round" />
+      <Path d="M10 13V4.5" stroke={stroke} strokeWidth={1.5} strokeLinecap="round" />
       <Path
-        d="M6.5 8L10 11.5 13.5 8"
+        d="M6.5 8L10 4.5 13.5 8"
         stroke={stroke}
         strokeWidth={1.5}
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <Path d="M3.5 15.5h13" stroke={stroke} strokeWidth={1.5} strokeLinecap="round" />
+      <Path
+        d="M4 13.5v3h12v-3"
+        stroke={stroke}
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </Svg>
   );
 }
