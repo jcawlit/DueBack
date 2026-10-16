@@ -50,11 +50,20 @@ type Props = {
    * to the way out is a delete somebody will press on their way out.
    */
   onDelete: (note: Note) => void;
+  /**
+   * Write anything still pending, now.
+   *
+   * Called when the sheet goes away, whichever way it went: Done, the
+   * backdrop, the back button, or the screen moving on underneath it. The
+   * callers flush on close too, but that only covers the routes they know
+   * about — this covers the sheet existing and then not.
+   */
+  onFlush: () => void;
   onClose: () => void;
 };
 
 export function NoteSheet({ visible, note, chapterLabel, characters, canTag, justSaved,
-  onChangeText, onAddCharacter, onUndo, onDelete, onClose }: Props) {
+  onChangeText, onAddCharacter, onUndo, onDelete, onFlush, onClose }: Props) {
   const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
   const [selection, setSelection] = useState(0);
@@ -66,6 +75,22 @@ export function NoteSheet({ visible, note, chapterLabel, characters, canTag, jus
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
   const noteFont = useNoteFont(17);
+
+  /*
+   * Nothing written here is ever lost by leaving. The text is already in
+   * the store as it is typed and on its way to SQLite behind a debounce;
+   * this is what makes sure the debounce never outlives the sheet.
+   */
+  const flush = useRef(onFlush);
+  useEffect(() => {
+    flush.current = onFlush;
+  }, [onFlush]);
+  useEffect(() => {
+    if (!visible) return;
+    return () => {
+      flush.current();
+    };
+  }, [visible]);
 
   useEffect(() => {
     if (!justSaved) return;

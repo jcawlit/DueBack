@@ -13,7 +13,7 @@ import { useNotes } from '@/store/notes';
 import { isBookmark } from '@/data/notes';
 import { isPro } from '@/lib/pro';
 import { SLEEP_OPTIONS, SPEEDS, realSecondsLeft, usePlayer } from '@/store/player';
-import { clock, finishTime, hoursLeft, tidyChapterTitle } from '@/lib/format';
+import { clock, hoursLeft, tidyChapterTitle } from '@/lib/format';
 import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
 import { BookCover } from '@/components/BookCover';
 import { ChapterScrubber } from '@/components/ChapterScrubber';
@@ -25,6 +25,7 @@ import { useSound } from '@/store/sound';
 import { LampGlow } from '@/components/LampGlow';
 import {
   ChevronDown,
+  ChevronLeft,
   ContentsIcon,
   PencilIcon,
   SoundIcon,
@@ -184,7 +185,12 @@ export default function PlayerScreen() {
 
   const bookFraction = fractionAt(book, position);
   const secondsLeft = realSecondsLeft(book.durationSec, position, speed);
-  const bookLabel = `whole book ${Math.floor(bookFraction * 100)}% · ${hoursLeft(secondsLeft)} left at ${speed}× · done ${finishTime(secondsLeft)}`;
+  /*
+   * No "done by 10:20pm". It assumed listening straight through from now,
+   * which is not how anybody listens, so it was a wrong time on the screen
+   * rather than a useful one.
+   */
+  const bookLabel = `whole book ${Math.floor(bookFraction * 100)}% · ${hoursLeft(secondsLeft)} left at ${speed}×`;
 
   return (
     <View style={{ flex: 1, backgroundColor: color.ground, paddingTop: insets.top }}>
@@ -199,10 +205,15 @@ export default function PlayerScreen() {
           alignItems: 'center',
         }}
       >
+        {/*
+          Two ways out, going to different places. Back is the book this is
+          — its notes, its characters, its card — because that is where you
+          came from. Down is out of the book altogether, to the shelves.
+        */}
         <Pressable
-          onPress={() => router.back()}
+          onPress={() => router.push(`/book/${book.id}`)}
           accessibilityRole="button"
-          accessibilityLabel="Back to the library"
+          accessibilityLabel="Back to the book"
           style={({ pressed }) => ({
             flexDirection: 'row',
             alignItems: 'center',
@@ -212,25 +223,24 @@ export default function PlayerScreen() {
             opacity: pressed ? 0.6 : 1,
           })}
         >
-          <ChevronDown />
+          <ChevronLeft />
           <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.muted }}>
-            the library
+            to book
           </Text>
         </Pressable>
         <Pressable
-          onPress={() => router.push(`/book/${book.id}`)}
+          onPress={() => router.navigate('/')}
           accessibilityRole="button"
-          accessibilityLabel="Open the library card"
+          accessibilityLabel="Back to the shelves"
           style={({ pressed }) => ({
+            width: TOUCH,
             minHeight: TOUCH,
+            alignItems: 'center',
             justifyContent: 'center',
-            paddingHorizontal: 10,
             opacity: pressed ? 0.6 : 1,
           })}
         >
-          <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.muted }}>
-            library card
-          </Text>
+          <ChevronDown />
         </Pressable>
       </View>
 
@@ -575,6 +585,7 @@ export default function PlayerScreen() {
           setEditing(null);
         }}
         onDelete={(note) => void deleteNote(note.id)}
+        onFlush={() => void flushNotes()}
         onClose={closeSheet}
       />
 

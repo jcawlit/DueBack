@@ -791,6 +791,7 @@ export default function BookScreen() {
         onAddCharacter={(name, bio) => addCharacter(book.id, name, bio)}
         onUndo={() => setEditing(null)}
         onDelete={(note) => void deleteNote(note.id)}
+        onFlush={() => void flushNotes()}
         onClose={() => {
           setEditing(null);
           void flushNotes();

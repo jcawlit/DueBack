@@ -9,7 +9,7 @@ import { SORT_LABELS, type SortMode } from '@/data/types';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 import { DriveIcon, RefreshIcon, SearchIcon } from './icons';
 
-const SORTS: SortMode[] = ['length', 'author', 'color', 'dust'];
+const SORTS: SortMode[] = ['length', 'author'];
 
 /**
  * The chip row's height. Deliberately under the 44pt touch minimum: these are
@@ -330,11 +330,14 @@ export function LibraryHeader({
                 paddingHorizontal: 9,
                 borderRadius: radius.chip,
                 borderWidth: 1,
-                borderColor: color.borderSoft,
+                // The lamp, not the furniture. It sits in a row of filters
+                // and is not one: everything else there changes what you
+                // are looking at, this leaves the library altogether.
+                borderColor: color.accent,
                 opacity: pressed ? 0.7 : 1,
               })}
             >
-              <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>
+              <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>
                 settings
               </Text>
             </Pressable>

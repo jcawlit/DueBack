@@ -5,10 +5,6 @@
  */
 
 import type { Book, SortMode } from '@/data/types';
-// Explicit extension so this module loads under node for the unit tests, the
-// same convention the metadata parsers use.
-import { relativeTime } from './format.ts';
-
 export type Shelf = {
   key: string;
   label: string;
@@ -29,38 +25,10 @@ function hours(b: Book) {
   return b.durationSec / 3600;
 }
 
-/** Hue of the cover colour, so the "by colour" sort runs across the spectrum. */
-function hue(hex?: string): number {
-  if (!hex) return 0;
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return 0;
-  const n = parseInt(m[1], 16);
-  const r = ((n >> 16) & 255) / 255;
-  const g = ((n >> 8) & 255) / 255;
-  const b = (n & 255) / 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const d = max - min;
-  if (d === 0) return -1; // greys sort to the front
-  let h: number;
-  if (max === r) h = ((g - b) / d) % 6;
-  else if (max === g) h = (b - r) / d + 2;
-  else h = (r - g) / d + 4;
-  return ((h * 60) + 360) % 360;
-}
-
 /** Surnames that do not start with a Latin letter get their own ledge. */
 const OTHER_ALPHABETS = 'OTHER ALPHABETS';
 /** A book whose author could not be read has no letter to file it under. */
 const AUTHOR_UNKNOWN = 'AUTHOR UNKNOWN';
-
-const COLOR_BANDS = [
-  { label: 'GREYS & PAPER', max: 0 },
-  { label: 'REDS & RUST', max: 45 },
-  { label: 'GOLDS & OCHRE', max: 70 },
-  { label: 'GREENS', max: 170 },
-  { label: 'BLUES & INK', max: 360 },
-];
 
 function chunk(label: (index: number) => string, books: Book[], keyPrefix: string): Shelf[] {
   const out: Shelf[] = [];
@@ -139,32 +107,6 @@ export function buildShelves(books: Book[], sort: SortMode, now = Date.now()): S
       ]);
     }
 
-    case 'color': {
-      const sorted = [...books].sort((a, b) => hue(a.dominantColor) - hue(b.dominantColor));
-      const labelFor = (b: Book) => {
-        const h = hue(b.dominantColor);
-        if (h < 0) return COLOR_BANDS[0].label;
-        return COLOR_BANDS.slice(1).find((band) => h <= band.max)!.label;
-      };
-      return banded(sorted, labelFor, COLOR_BANDS.map((b) => b.label));
-    }
-
-    case 'dust': {
-      /** Never-played books are the dustiest of all. */
-      const age = (b: Book) =>
-        b.lastPlayedAt ? now - new Date(b.lastPlayedAt).getTime() : Number.MAX_SAFE_INTEGER;
-      const sorted = [...books].sort((a, b) => age(b) - age(a));
-      return chunk(
-        (i) => {
-          const first = sorted[i];
-          return first.lastPlayedAt
-            ? `UNTOUCHED SINCE ${relativeTime(first.lastPlayedAt, now).toUpperCase()}`
-            : 'NEVER OPENED';
-        },
-        sorted,
-        'dust',
-      );
-    }
   }
 }
 

@@ -87,7 +87,7 @@ describe('buildShelves across every sort', () => {
     }),
   ];
 
-  for (const sort of ['length', 'author', 'color', 'dust'] as const) {
+  for (const sort of ['length', 'author'] as const) {
     it(`loses no books sorting by ${sort}`, () => {
       assertNoneLost(books, buildShelves(books, sort));
     });

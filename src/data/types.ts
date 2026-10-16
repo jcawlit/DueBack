@@ -81,13 +81,18 @@ export type Book = {
   lastPlayedAt?: string;
 };
 
-export type SortMode = 'length' | 'author' | 'color' | 'dust';
+/**
+ * How the shelves are arranged.
+ *
+ * By colour and gathering dust are gone: a spectrum is a lovely thing to
+ * look at and no way to find a book, and "untouched since" sorted a
+ * library into a list of reproaches.
+ */
+export type SortMode = 'length' | 'author';
 
 export const SORT_LABELS: Record<SortMode, string> = {
   length: 'by length',
   author: 'by author',
-  color: 'by colour',
-  dust: 'gathering dust',
 };
 
 export const isCheckedOut = (b: Book) => b.local.status === 'checked-out';
