@@ -7,14 +7,14 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { chapterAt, fractionAt } from '@/data/types';
+import { chapterAt, fractionAt, isCheckedOut } from '@/data/types';
 import { selectBook, useLibrary } from '@/store/library';
 import { useNotes } from '@/store/notes';
 import { isPro } from '@/lib/pro';
 import { SLEEP_OPTIONS, SPEEDS, realSecondsLeft, usePlayer } from '@/store/player';
 import { clock, finishTime, hoursLeft } from '@/lib/format';
 import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
-import { BookCover } from '@/components/BookCover';
+import { BookObject, cardStatusFor } from '@/components/BookObject';
 import { ChapterScrubber } from '@/components/ChapterScrubber';
 import { ContentsSheet } from '@/components/ContentsSheet';
 import { NoteSheet } from '@/components/NoteSheet';
@@ -23,11 +23,7 @@ import { useSound } from '@/store/sound';
 import { LampGlow } from '@/components/LampGlow';
 import {
   ChevronDown,
-  ContentsIcon,
-  PencilIcon,
-  SoundIcon,
   Forward30,
-  LampIcon,
   PauseIcon,
   PlayIcon,
   Replay30,
@@ -44,14 +40,18 @@ export default function PlayerScreen() {
   /** The note the sheet is editing, and whether the pencil has just made it. */
   const [editing, setEditing] = useState<{ noteId: string; justSaved: boolean } | null>(null);
 
-  // Everything but the cover — header, chapter, scrubber, transport, book line
-  // and the control row — needs about this much height. The cover takes the
-  // rest, down to a floor where it is still recognisably a book.
-  const CHROME_HEIGHT = 468;
-  const coverScale = Math.max(
-    0.58,
-    Math.min(1, (windowHeight - insets.top - insets.bottom - CHROME_HEIGHT) / 282),
-  );
+  /*
+   * Everything below the object — the book and chapter block, the scrubber,
+   * the transport row, the whole-book line and the tray. `BookObject` fits
+   * the cover into what is left, though in practice width is what limits it
+   * on every phone size checked.
+   *
+   * The screen does not scroll, so this is also what keeps the tray on it.
+   * Measured against the new column: the play disc lost 16px and the tray
+   * became a line of words rather than five icon-and-label slabs, but the
+   * book title line and the transport row's padding took it back.
+   */
+  const CHROME_HEIGHT = 460;
 
   const book = useLibrary(selectBook(id));
 
@@ -178,7 +178,7 @@ export default function PlayerScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: color.ground, paddingTop: insets.top }}>
-      <LampGlow size={300 * coverScale} top={insets.top + 30} />
+      <LampGlow size={Math.min(300, windowHeight * 0.33)} top={insets.top + 30} />
 
       <View
         style={{
@@ -207,36 +207,27 @@ export default function PlayerScreen() {
             the library
           </Text>
         </Pressable>
-        <Pressable
-          onPress={() => router.push(`/book/${book.id}`)}
-          accessibilityRole="button"
-          accessibilityLabel="Open the library card"
-          style={({ pressed }) => ({
-            minHeight: TOUCH,
-            justifyContent: 'center',
-            paddingHorizontal: 10,
-            opacity: pressed ? 0.6 : 1,
-          })}
-        >
-          <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.muted }}>
-            library card
-          </Text>
-        </Pressable>
       </View>
 
-      <View style={{ alignItems: 'center', paddingTop: 14 }}>
-        <BookCover
+      {/* The same object the Book screen opens with, at the player's size. */}
+      <View style={{ paddingTop: 14 }}>
+        <BookObject
           book={book}
           size="player"
-          showTag={false}
-          showRibbon={false}
-          lean={-1.5}
-          edgeWidth={14}
-          scale={coverScale}
+          chrome={insets.top + insets.bottom + CHROME_HEIGHT}
+          status={cardStatusFor(book, isCheckedOut(book), book.local.status === 'copying', book.local.status === 'on-hold')}
         />
       </View>
 
-      <View style={{ paddingTop: 28, paddingHorizontal: space.xxl, gap: space.xs }}>
+      <View style={{ paddingTop: 22, paddingHorizontal: space.xxl, gap: space.xs }}>
+        {/*
+          Which book this is, said once and quietly. The chapter is the
+          heading here — it is what changes while you listen — but a chapter
+          title alone leaves nothing saying what you are in.
+        */}
+        <Text numberOfLines={1} style={{ fontFamily: font.sans, fontSize: 13, color: color.muted }}>
+          {book.title}
+        </Text>
         {chapter.part ? (
           <Text
             style={{
@@ -279,71 +270,33 @@ export default function PlayerScreen() {
         </View>
       </View>
 
+      {/*
+        One loud thing, on the left. The skips are ghosts beside it and the
+        chapter jumps are the quietest controls on the screen, at the far
+        end: they move you furthest, and are the ones you least often want.
+      */}
       <View
         style={{
-          paddingTop: 18,
+          paddingTop: 20,
+          paddingHorizontal: space.xxl,
           flexDirection: 'row',
           alignItems: 'center',
-          justifyContent: 'center',
-          gap: 14,
+          gap: space.md,
         }}
       >
-        <Pressable
-          onPress={() => skipChapter(-1)}
-          accessibilityRole="button"
-          accessibilityLabel="Previous chapter"
-          style={({ pressed }) => ({
-            width: 48,
-            height: 48,
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity: pressed ? 0.6 : 1,
-          })}
-        >
-          <SkipPreviousIcon />
-        </Pressable>
-
-        <Pressable
-          onPress={() => nudge(-30)}
-          accessibilityRole="button"
-          accessibilityLabel="Back 30 seconds"
-          style={({ pressed }) => ({
-            width: 52,
-            height: 52,
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity: pressed ? 0.6 : 1,
-          })}
-        >
-          <Replay30 />
-          <Text
-            style={{
-              position: 'absolute',
-              top: 22,
-              fontFamily: font.mono,
-              fontSize: 10,
-              color: color.paper,
-            }}
-          >
-            30
-          </Text>
-        </Pressable>
-
         <Pressable
           onPress={togglePlay}
           accessibilityRole="button"
           accessibilityLabel={playing ? 'Pause' : 'Play'}
           style={({ pressed }) => [
             {
-              width: 84,
-              height: 84,
-              borderRadius: radius.play,
+              width: 68,
+              height: 68,
+              borderRadius: 34,
               backgroundColor: color.accent,
               alignItems: 'center',
               justifyContent: 'center',
-              borderBottomWidth: 4,
-              borderBottomColor: 'rgba(0,0,0,0.2)',
-              transform: [{ rotate: '-2deg' }, { scale: pressed ? 0.96 : 1 }],
+              transform: [{ scale: pressed ? 0.96 : 1 }],
             },
             shadow(12, 0.3),
           ]}
@@ -357,46 +310,32 @@ export default function PlayerScreen() {
           )}
         </Pressable>
 
-        <Pressable
+        <GhostDisc
+          size={48}
+          onPress={() => nudge(-30)}
+          accessibilityLabel="Back 30 seconds"
+          numeral="30"
+        >
+          <Replay30 />
+        </GhostDisc>
+
+        <GhostDisc
+          size={48}
           onPress={() => nudge(30)}
-          accessibilityRole="button"
           accessibilityLabel="Forward 30 seconds"
-          style={({ pressed }) => ({
-            width: 52,
-            height: 52,
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity: pressed ? 0.6 : 1,
-          })}
+          numeral="30"
         >
           <Forward30 />
-          <Text
-            style={{
-              position: 'absolute',
-              top: 22,
-              fontFamily: font.mono,
-              fontSize: 10,
-              color: color.paper,
-            }}
-          >
-            30
-          </Text>
-        </Pressable>
+        </GhostDisc>
 
-        <Pressable
-          onPress={() => skipChapter(1)}
-          accessibilityRole="button"
-          accessibilityLabel="Next chapter"
-          style={({ pressed }) => ({
-            width: 48,
-            height: 48,
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity: pressed ? 0.6 : 1,
-          })}
-        >
-          <SkipNextIcon />
-        </Pressable>
+        <View style={{ flex: 1 }} />
+
+        <GhostDisc size={36} onPress={() => skipChapter(-1)} accessibilityLabel="Previous chapter">
+          <SkipPreviousIcon size={18} stroke={color.muted} />
+        </GhostDisc>
+        <GhostDisc size={36} onPress={() => skipChapter(1)} accessibilityLabel="Next chapter">
+          <SkipNextIcon size={18} stroke={color.muted} />
+        </GhostDisc>
       </View>
 
       {playbackError ? (
@@ -478,63 +417,51 @@ export default function PlayerScreen() {
 
       <View style={{ flex: 1 }} />
 
+      {/*
+        The tray, as a line of words. It was five icon-and-label slabs on a
+        ruled-off strip, which made the quietest things on the screen look
+        like the most structural. Same handlers, same states, no furniture.
+      */}
       <View
         style={{
           flexDirection: 'row',
-          paddingHorizontal: space.lg,
-          paddingTop: 10,
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          paddingHorizontal: space.xxl,
+          paddingTop: space.md,
           paddingBottom: Math.max(22, insets.bottom + 6),
-          gap: space.sm,
-          borderTopWidth: 1,
-          borderTopColor: color.line,
+          gap: space.lg,
         }}
       >
-        <TrayButton
+        <TrayAction
           label="note"
           onPress={() => void writeNote()}
           accessibilityLabel="Save a bookmark here and write a note"
-          icon={<PencilIcon />}
         />
-        <TrayButton
+        <TrayAction
           label="sound"
           onPress={() => setSoundOpen(true)}
           accessibilityLabel="Sound: presets and tone controls"
           active={soundSettings.preset !== 'off'}
-          icon={<SoundIcon stroke={soundSettings.preset !== 'off' ? color.accent : color.muted} />}
         />
-        <TrayButton
+        <TrayAction
           label="contents"
           onPress={() => setContentsOpen(true)}
           accessibilityLabel={`Contents, chapter ${index + 1} of ${book.chapters.length}`}
-          icon={<ContentsIcon />}
         />
-        <TrayButton
-          label="speed"
+        <TrayAction
+          label={`${speed}×`}
           onPress={cycleSpeed}
           accessibilityLabel={`Playback speed ${speed} times. Tap to change.`}
-          tone="bright"
-          icon={
-            <Text
-              style={{
-                fontFamily: font.serif,
-                fontSize: 17,
-                lineHeight: 20,
-                color: color.paper,
-              }}
-            >
-              {speed}×
-            </Text>
-          }
+          bright
         />
-        <TrayButton
+        <TrayAction
           label={sleepLabel}
           onPress={cycleSleep}
           accessibilityLabel={`Sleep timer: ${sleepLabel}. Tap to change.`}
           active={sleepOn}
-          icon={<LampIcon stroke={sleepOn ? color.accent : color.muted} />}
         />
       </View>
-
 
       <NoteSheet
         /*
@@ -587,44 +514,95 @@ export default function PlayerScreen() {
   );
 }
 
-/** One of the four controls in the Player's bottom row. */
-function TrayButton({
-  label,
-  icon,
+/**
+ * A skip or a chapter jump: the icon, an outline, and nothing else.
+ *
+ * Ghosts beside the play disc — same shape, none of the colour, so the one
+ * amber thing on the screen stays the one amber thing.
+ */
+function GhostDisc({
+  size,
   onPress,
   accessibilityLabel,
-  active = false,
-  tone = 'muted',
+  numeral,
+  children,
 }: {
-  label: string;
-  icon: React.ReactNode;
+  size: number;
   onPress: () => void;
   accessibilityLabel: string;
-  /** Amber, reserved for a running sleep timer. */
-  active?: boolean;
-  tone?: 'muted' | 'bright';
+  /** The number written across a 30-second skip. */
+  numeral?: string;
+  children: React.ReactNode;
 }) {
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
+      // The disc is drawn small; the touch target is not.
+      hitSlop={Math.max(0, Math.round((TOUCH - size) / 2))}
       style={({ pressed }) => ({
-        flex: 1,
-        minHeight: 56,
+        width: size,
+        height: size,
+        borderRadius: size / 2,
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 5,
+        borderWidth: 1,
+        borderColor: color.line,
         opacity: pressed ? 0.6 : 1,
       })}
     >
-      {icon}
+      {children}
+      {numeral ? (
+        <Text
+          style={{
+            position: 'absolute',
+            fontFamily: font.mono,
+            fontSize: 10,
+            color: color.paper,
+          }}
+        >
+          {numeral}
+        </Text>
+      ) : null}
+    </Pressable>
+  );
+}
+
+/** One word in the tray. Amber only when the thing it names is running. */
+function TrayAction({
+  label,
+  onPress,
+  accessibilityLabel,
+  active = false,
+  bright = false,
+}: {
+  label: string;
+  onPress: () => void;
+  accessibilityLabel: string;
+  /** A sound preset or a sleep timer actually doing something. */
+  active?: boolean;
+  /** The speed, which is always a value rather than a state. */
+  bright?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      hitSlop={10}
+      style={({ pressed }) => ({
+        minHeight: TOUCH,
+        justifyContent: 'center',
+        opacity: pressed ? 0.6 : 1,
+      })}
+    >
       <Text
         numberOfLines={1}
         style={{
-          fontFamily: font.mono,
-          fontSize: 11,
-          color: active ? color.accent : tone === 'bright' ? color.paper : color.muted,
+          fontFamily: active || bright ? font.monoMedium : font.mono,
+          fontSize: 12,
+          color: active ? color.accent : bright ? color.paper : color.muted,
         }}
       >
         {label}

@@ -3,7 +3,7 @@
  * checkout history, and the two moves available: keep listening, or return it.
  */
 
-import { Pressable, ScrollView, Share, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useMemo, useState } from 'react';
@@ -13,8 +13,7 @@ import { usePlayer } from '@/store/player';
 import { duplicatesOf, folderLabel } from '@/lib/library/duplicates';
 import { bytes, hoursMinutes, hoursLeft, stampDate } from '@/lib/format';
 import { color, font, shadow, space, TOUCH } from '@/theme/tokens';
-import { BookCover } from '@/components/BookCover';
-import { COMPACT_CARD_ESTIMATE, LibraryCard, LibraryCardSheet } from '@/components/LibraryCard';
+import { BookObject, cardStatusFor } from '@/components/BookObject';
 import { NoteCard, NoteText } from '@/components/NoteCard';
 import { ChevronLeft, PauseIcon, PlayIcon, ReturnIcon } from '@/components/icons';
 import { MarginsCard } from '@/components/MarginsCard';
@@ -26,43 +25,6 @@ import { isPro } from '@/lib/pro';
 import { useBackup } from '@/store/backup';
 import type { Character, Note } from '@/data/notes';
 
-/** The cover's own pixel size at scale 1, from `CoverFace`'s "book" spec. */
-const COVER_BOOK_WIDTH = 168;
-const COVER_BOOK_HEIGHT = 248;
-/**
- * The page edge drawn beside the cover, passed to `BookCover` as `edgeWidth`.
- *
- * A sibling of the cover in a row, not part of it, so the book's outer right
- * edge is the cover plus this. Fixed rather than scaled: `PageEdge` takes the
- * number as given.
- */
-const EDGE_WIDTH = 13;
-/**
- * How far the card crosses the hero's centre line onto the cover.
- *
- * Small on purpose. The card is laid down *beside* the book and catches its
- * lower corner; the first version draped it across the artwork, which left
- * the whole right half of the screen empty.
- */
-const CARD_OVERLAP = 18;
-/**
- * How wide the compact card is, as a share of the screen.
- *
- * Down from "the rest of the hero", which made it 200px on a Pixel and loud
- * enough to compete with the cover. Its left edge stays where it was, so the
- * overlap onto the book is unchanged and it is the right edge that comes in.
- */
-const CARD_WIDTH_FRACTION = 0.44;
-/**
- * The two actions in the top-right, as discs rather than slabs.
- *
- * They are not in the hero any more. The hero is the object — the book and
- * the card tucked into it — and transport belongs in the flow of the page,
- * under the progress it acts on. Play is still the one loud thing: amber,
- * and twice the size of anything near it. Return is an outline at the far
- * end of the row, because it is the one move here you cannot take back by
- * tapping again.
- */
 const PLAY_DIAMETER = 72;
 const RETURN_DIAMETER = 44;
 /**
@@ -209,50 +171,7 @@ function TransportRow({
 
 export default function BookScreen() {
   const insets = useSafeAreaInsets();
-  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { id } = useLocalSearchParams<{ id: string }>();
-
-  /*
-   * The hero is four quadrants, not an overlay.
-   *
-   * The cover fills the left half top to bottom. The two actions sit in the
-   * top-right, the library card in the bottom-right, and the card crosses
-   * the centre line by just enough to catch the book's lower corner — laid
-   * down beside it, not pasted over it.
-   *
-   * The cover is sized by *width* first, so that the book and its page edge
-   * come to the centre line. Sizing it by height alone is what left it at
-   * 40% of the screen with the right half empty.
-   */
-  const [cardHeight, setCardHeight] = useState(COMPACT_CARD_ESTIMATE);
-
-  const heroWidth = windowWidth - space.xxl * 2;
-  const centreX = heroWidth / 2;
-  const widthScale = (centreX - EDGE_WIDTH) / COVER_BOOK_WIDTH;
-  const heightScale =
-    (windowHeight - insets.top - insets.bottom - HERO_CHROME) / COVER_BOOK_HEIGHT;
-  // Never past full size, never below 0.6: under that the artwork's own
-  // title stops being readable and a short screen is better off scrolling.
-  const coverScale = Math.max(0.6, Math.min(1, widthScale, heightScale));
-  const coverHeight = COVER_BOOK_HEIGHT * coverScale;
-
-  /*
-   * The right column. On a screen too narrow to hold a readable button
-   * beside the cover, the actions drop to a row under the progress bar —
-   * still two compact buttons, never the full-width slabs they replaced.
-   */
-  /*
-   * The card's bottom sits on the cover's, always. That alignment is what
-   * makes the two read as one object, so it is the thing that does not bend:
-   * everything else gives way to it.
-   */
-  const cardLeft = centreX - CARD_OVERLAP;
-  const cardWidth = Math.min(
-    Math.round(windowWidth * CARD_WIDTH_FRACTION),
-    heroWidth - cardLeft,
-  );
-  const cardTop = Math.max(0, coverHeight - cardHeight);
-  const heroHeight = Math.max(coverHeight, cardTop + cardHeight);
 
   const book = useLibrary(selectBook(id));
   const books = useLibrary((s) => s.books);
@@ -281,7 +200,6 @@ export default function BookScreen() {
   const [whose, setWhose] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [openCharacter, setOpenCharacter] = useState<Character | null>(null);
-  const [showCard, setShowCard] = useState(false);
 
   const notes = useNotes((s) => s.notes);
   const notesBookId = useNotes((s) => s.bookId);
@@ -366,28 +284,6 @@ export default function BookScreen() {
    * files went bad — and both offered Play on a book with no parts at all.
    */
   const playable = book.files.length > 0 && book.durationSec > 0;
-
-  /*
-   * What the compact card says under its stamps. The state first, because
-   * that is the question the card is being glanced at to answer, then how to
-   * see the rest — a card with three of eleven stamps has to say so.
-   *
-   * Every one of these is short enough to render whole. At 11px mono in a
-   * 181px card there is room for about 23 characters, and the longest here
-   * ("NEVER OUT · FULL CARD") is 21. The first version ellipsised to "tap
-   * for…", which is a hint that stops before it says anything.
-   */
-  const cardStatus = `${
-    copying
-      ? 'COPYING'
-      : out
-        ? 'ON PHONE'
-        : onHold
-          ? 'ON HOLD'
-          : book.checkouts.length === 0
-            ? 'NEVER OUT'
-            : 'ON SHELF'
-  } · FULL CARD`;
 
   const backupLine = libraryOnDevice
     ? 'Saved on phone'
@@ -584,61 +480,13 @@ export default function BookScreen() {
         contentContainerStyle={{ paddingBottom: Math.max(36, insets.bottom + 28) }}
         showsVerticalScrollIndicator={false}
       >
-        {/*
-          The cover and the card as one object: the cover left on the page's
-          own margin, the card laid across its lower corner at a slight angle,
-          the way one is actually pasted in. The card is the pressable — the
-          cover here is artwork, not a control.
-        */}
-        <View style={{ paddingTop: 18, paddingHorizontal: space.xxl }}>
-          <View style={{ height: heroHeight }}>
-            <BookCover
-              book={book}
-              size="book"
-              showTag={false}
-              showRibbon={false}
-              lean={-1.5}
-              edgeWidth={EDGE_WIDTH}
-              scale={coverScale}
-            />
-
-            <Pressable
-              onPress={() => setShowCard(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Library card — show full history"
-              style={({ pressed }) => ({
-                position: 'absolute',
-                left: cardLeft,
-                top: cardTop,
-                width: cardWidth,
-                minHeight: TOUCH,
-                transform: [{ rotate: '2.5deg' }],
-                opacity: pressed ? 0.88 : 1,
-              })}
-            >
-              <View
-                onLayout={(e) => {
-                  const measured = Math.round(e.nativeEvent.layout.height);
-                  // Only when it actually differs: this feeds the height the
-                  // composition reserves, and a loop here would be a layout
-                  // that never settles.
-                  setCardHeight((current) => (current === measured ? current : measured));
-                }}
-                style={[
-                  {
-                    backgroundColor: color.paperCard,
-                    borderRadius: 2,
-                    paddingTop: 10,
-                    paddingHorizontal: 14,
-                    overflow: 'hidden',
-                  },
-                  shadow(8, 0.45),
-                ]}
-              >
-                <LibraryCard bare compact checkouts={book.checkouts} statusLine={cardStatus} />
-              </View>
-            </Pressable>
-          </View>
+        <View style={{ paddingTop: 18 }}>
+          <BookObject
+            book={book}
+            size="book"
+            chrome={insets.top + insets.bottom + HERO_CHROME}
+            status={cardStatusFor(book, out, copying, onHold)}
+          />
         </View>
 
         <View style={{ paddingTop: 26, paddingHorizontal: space.xxl, gap: space.sm }}>
@@ -879,13 +727,6 @@ export default function BookScreen() {
           setEditing(null);
           void flushNotes();
         }}
-      />
-
-      <LibraryCardSheet
-        visible={showCard}
-        checkouts={book.checkouts}
-        title={book.title}
-        onClose={() => setShowCard(false)}
       />
 
       <CharacterSheet
