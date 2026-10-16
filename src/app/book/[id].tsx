@@ -783,19 +783,18 @@ export default function BookScreen() {
             : null
         }
         characters={characters}
+        atSec={editingNote?.positionSec ?? 0}
         canTag={isPro()}
-        justSaved={false}
-        onChangeText={(text) => {
-          if (editingNote) setNoteText(editingNote.id, text);
+        onSave={(text) => {
+          if (editingNote) {
+            setNoteText(editingNote.id, text.trim());
+            void flushNotes();
+          }
+          setEditing(null);
         }}
         onAddCharacter={(name, bio) => addCharacter(book.id, name, bio)}
-        onUndo={() => setEditing(null)}
         onDelete={(note) => void deleteNote(note.id)}
-        onFlush={() => void flushNotes()}
-        onClose={() => {
-          setEditing(null);
-          void flushNotes();
-        }}
+        onClose={() => setEditing(null)}
       />
 
       <CharacterSheet

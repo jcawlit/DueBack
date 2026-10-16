@@ -1,17 +1,21 @@
 /**
  * Writing a note, on a slip of paper that rides the keyboard.
  *
- * The bookmark is already saved by the time this opens — the pencil writes
- * first and asks later — so nothing here is required. It is somewhere to
- * put a thought if there is one, and swiping it away unread is a perfectly
- * good outcome.
+ * **Nothing is written until Save.** The pencil used to save the bookmark
+ * first and ask afterwards, which meant a sheet opened by accident left a
+ * bookmark behind, and there was no way to change your mind except to find
+ * the thing and delete it. Save with nothing typed is a bookmark; Save with
+ * something typed is a note; anything else — the backdrop, the back button,
+ * the screen moving on — keeps nothing.
+ *
+ * The text is therefore held here, not in the store, until it is saved.
  *
  * The field is **not** focused on open, deliberately. A keyboard that
  * arrives uninvited while you are walking is a keyboard in the way of the
  * thing you wanted to read.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { KeyboardAvoidingView, KeyboardProvider } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,41 +38,40 @@ const ON_PAPER_RULE = '#d3c4a2';
 
 type Props = {
   visible: boolean;
+  /** The note being edited, or null when this is a new one. */
   note: Note | null;
-  /** The chapter this note sits in, for the header. */
+  /** Where a new one would land, for the header. */
+  atSec: number;
+  /** The chapter it sits in, for the header. */
   chapterLabel: string | null;
   characters: Character[];
   canTag: boolean;
-  justSaved: boolean;
-  onChangeText: (text: string) => void;
+  /** Commits it: empty text is a bookmark, anything else is a note. */
+  onSave: (text: string) => void;
   onAddCharacter: (name: string, bio: string) => Promise<Character | null>;
-  onUndo: () => void;
   /**
    * Throw this note away.
    *
-   * Behind the ⋯ and a confirmation, not beside Done. A delete sitting next
-   * to the way out is a delete somebody will press on their way out.
+   * Behind the ⋯ and a confirmation, not beside Save. A delete sitting next
+   * to the way out is a delete somebody will press on their way out. Only
+   * for a note that exists; a draft is discarded by leaving.
    */
   onDelete: (note: Note) => void;
-  /**
-   * Write anything still pending, now.
-   *
-   * Called when the sheet goes away, whichever way it went: Done, the
-   * backdrop, the back button, or the screen moving on underneath it. The
-   * callers flush on close too, but that only covers the routes they know
-   * about — this covers the sheet existing and then not.
-   */
-  onFlush: () => void;
   onClose: () => void;
 };
 
-export function NoteSheet({ visible, note, chapterLabel, characters, canTag, justSaved,
-  onChangeText, onAddCharacter, onUndo, onDelete, onFlush, onClose }: Props) {
+export function NoteSheet({ visible, note, atSec, chapterLabel, characters, canTag,
+  onSave, onAddCharacter, onDelete, onClose }: Props) {
   const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
   const [selection, setSelection] = useState(0);
   const [cursorTarget, setCursorTarget] = useState<{ start: number; end: number }>();
-  const [showSaved, setShowSaved] = useState(justSaved);
+  /*
+   * The draft lives here until Save. The component is keyed on the note it
+   * is editing, so a different note is a different component and this is
+   * initialised fresh rather than synchronised in an effect.
+   */
+  const [text, setText] = useState(note?.text ?? '');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [newName, setNewName] = useState<string | null>(null);
   const [newBio, setNewBio] = useState('');
@@ -76,29 +79,6 @@ export function NoteSheet({ visible, note, chapterLabel, characters, canTag, jus
   const [createError, setCreateError] = useState('');
   const noteFont = useNoteFont(17);
 
-  /*
-   * Nothing written here is ever lost by leaving. The text is already in
-   * the store as it is typed and on its way to SQLite behind a debounce;
-   * this is what makes sure the debounce never outlives the sheet.
-   */
-  const flush = useRef(onFlush);
-  useEffect(() => {
-    flush.current = onFlush;
-  }, [onFlush]);
-  useEffect(() => {
-    if (!visible) return;
-    return () => {
-      flush.current();
-    };
-  }, [visible]);
-
-  useEffect(() => {
-    if (!justSaved) return;
-    const id = setTimeout(() => setShowSaved(false), 4000);
-    return () => clearTimeout(id);
-  }, [justSaved]);
-
-  const text = note?.text ?? '';
   const mention = canTag ? mentionQueryAt(text, selection) : null;
   const matches = mention ? suggestCharacters(mention.query, characters) : [];
   const exact = matches.some((c) => c.name.toLowerCase() === mention?.query.trim().toLowerCase());
@@ -113,7 +93,7 @@ export function NoteSheet({ visible, note, chapterLabel, characters, canTag, jus
 
   const pick = (name: string) => {
     const next = insertMention(text, selection, name);
-    onChangeText(next.text);
+    setText(next.text);
     setSelection(next.cursor);
     setCursorTarget({ start: next.cursor, end: next.cursor });
     refocus();
@@ -135,7 +115,7 @@ export function NoteSheet({ visible, note, chapterLabel, characters, canTag, jus
     } finally { setCreating(false); }
   };
 
-  const header = [chapterLabel, note ? timestamp(note.positionSec) : null]
+  const header = [chapterLabel, timestamp(note?.positionSec ?? atSec)]
     .filter(Boolean)
     .join(' · ');
 
@@ -205,7 +185,9 @@ export function NoteSheet({ visible, note, chapterLabel, characters, canTag, jus
                   ) : null}
 
                   <Pressable
-                    onPress={newName === null ? onClose : () => void createAndPick()}
+                    onPress={
+                      newName === null ? () => onSave(text) : () => void createAndPick()
+                    }
                     disabled={newName !== null && (creating || !newName.trim())}
                     accessibilityRole="button"
                     style={({ pressed }) => ({
@@ -218,7 +200,7 @@ export function NoteSheet({ visible, note, chapterLabel, characters, canTag, jus
                     })}
                   >
                     <Text style={{ fontFamily: font.mono, fontSize: 13, color: color.paperCardAlt }}>
-                      {newName === null ? 'Done' : creating ? 'Adding…' : 'Add character'}
+                      {newName === null ? 'Save' : creating ? 'Adding…' : 'Add character'}
                     </Text>
                   </Pressable>
                 </View>
@@ -264,37 +246,11 @@ export function NoteSheet({ visible, note, chapterLabel, characters, canTag, jus
 
               {newName === null ? (
                 <>
-                  {showSaved ? (
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: space.md,
-                        paddingHorizontal: 18,
-                        paddingBottom: 4,
-                      }}
-                    >
-                      <Text style={{ fontFamily: font.mono, fontSize: 11, color: ON_PAPER_FAINT }}>
-                        Bookmark saved
-                      </Text>
-                      <Pressable
-                        onPress={() => { setShowSaved(false); onUndo(); }}
-                        accessibilityRole="button"
-                        hitSlop={8}
-                        style={{ minHeight: 32, justifyContent: 'center' }}
-                      >
-                        <Text style={{ fontFamily: font.monoMedium, fontSize: 11, color: color.stampOut }}>
-                          Undo
-                        </Text>
-                      </Pressable>
-                    </View>
-                  ) : null}
-
                   <TextInput
                     ref={inputRef}
                     value={text}
                     selection={cursorTarget}
-                    onChangeText={(value) => { setCursorTarget(undefined); onChangeText(value); }}
+                    onChangeText={(value) => { setCursorTarget(undefined); setText(value); }}
                     onSelectionChange={(e) => {
                       setSelection(e.nativeEvent.selection.start);
                       setCursorTarget(undefined);
@@ -469,7 +425,7 @@ export function NoteSheet({ visible, note, chapterLabel, characters, canTag, jus
                         paddingVertical: 12,
                       }}
                     >
-                      @ to tag a character · saved as you write
+                      @ to tag a character · nothing is kept until Save
                     </Text>
                   )}
                 </View>

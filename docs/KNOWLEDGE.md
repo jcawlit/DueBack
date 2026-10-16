@@ -679,12 +679,17 @@ fix every bug.
 
 *`src/data/notes.ts` (`isBookmark`)*
 
-### The pencil saves before it asks
+### Save is what writes a note, and nothing else is
 
-Tapping it writes the bookmark, *then* opens the sheet. The gesture is already
-finished by the time anything is on screen, so swiping the sheet away, being
-interrupted, or the app being killed all leave the mark in place. The sheet is
-an offer to say more, never the thing that commits.
+Tapping the pencil opens a draft and writes nothing. **Save** commits it: with
+nothing typed as a bookmark, with something typed as a note. The backdrop, the
+back button and the screen moving on all keep nothing.
+
+This is the reverse of how it worked, and the reversal was asked for. Writing
+the bookmark first meant every sheet opened by accident left one behind, and
+the only way to change your mind was to go and find the thing and delete it.
+The cost of the new way is the one the old way was avoiding: a tap, an
+interruption, and the mark is gone.
 
 Ten seconds are subtracted first, and the chapter is derived from where it
 lands rather than where the tap happened — by the time someone reaches for the

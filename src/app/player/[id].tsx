@@ -46,8 +46,12 @@ export default function PlayerScreen() {
   const [soundOpen, setSoundOpen] = useState(false);
   /** The note being read, before any decision to play from it or edit it. */
   const [reading, setReading] = useState<string | null>(null);
-  /** The note the sheet is editing, and whether the pencil has just made it. */
-  const [editing, setEditing] = useState<{ noteId: string; justSaved: boolean } | null>(null);
+  /**
+   * What the sheet is editing: an existing note, or a new one at a place.
+   *
+   * A new one is a draft and nothing else until Save — no row, no bookmark.
+   */
+  const [editing, setEditing] = useState<{ noteId: string | null; atSec: number } | null>(null);
 
   // Everything but the cover — header, chapter, scrubber, transport, book line
   // and the control row — needs about this much height. The cover takes the
@@ -156,24 +160,33 @@ export default function PlayerScreen() {
   }));
   const readingNote = reading ? (inChapterNotes.find((n) => n.id === reading) ?? null) : null;
 
-  const editingNote = editing ? (mine.find((n) => n.id === editing.noteId) ?? null) : null;
+  const editingNote = editing?.noteId ? (mine.find((n) => n.id === editing.noteId) ?? null) : null;
 
   /*
-   * The pencil saves first and asks later. The bookmark exists before the
-   * sheet opens, so a tap while walking has already done its job whatever
-   * happens next — including the sheet being swiped away unread.
+   * The pencil opens a draft at this second and writes nothing.
+   *
+   * It used to save the bookmark first and ask afterwards, which left one
+   * behind every time the sheet was opened by accident. Save is what makes
+   * it exist now — with no text as a bookmark, with text as a note.
    */
-  const writeNote = async () => {
-    const made = await addBookmark(book.id, position, book.chapters);
-    if (made) setEditing({ noteId: made.id, justSaved: true });
+  const writeNote = () => setEditing({ noteId: null, atSec: position });
+
+  const saveNote = async (text: string) => {
+    const trimmed = text.trim();
+    const id = editing?.noteId ?? null;
+    if (id) {
+      setNoteText(id, trimmed);
+      await flushNotes();
+      return;
+    }
+    const made = await addBookmark(book.id, editing?.atSec ?? position, book.chapters);
+    if (made && trimmed) {
+      setNoteText(made.id, trimmed);
+      await flushNotes();
+    }
   };
 
-  const closeSheet = () => {
-    setEditing(null);
-    // Everything half-typed goes to the database now, not after a pause: this
-    // is one of the two moments the autosave exists to survive.
-    void flushNotes();
-  };
+  const closeSheet = () => setEditing(null);
 
   const speed = SPEEDS[speedIndex];
   const sleep = SLEEP_OPTIONS[sleepIndex];
@@ -519,7 +532,7 @@ export default function PlayerScreen() {
       >
         <TrayButton
           label="note"
-          onPress={() => void writeNote()}
+          onPress={writeNote}
           accessibilityLabel="Save a bookmark here and write a note"
           icon={<PencilIcon />}
         />
@@ -569,23 +582,19 @@ export default function PlayerScreen() {
          * Keyed on the note so each one opens fresh — no confirmation line or
          * half-finished character form carried over from the last.
          */
-        key={editing?.noteId ?? 'none'}
-        visible={editingNote !== null}
+        key={editing?.noteId ?? (editing ? `new-${editing.atSec}` : 'none')}
+        visible={editing !== null}
         note={editingNote}
         characters={characters}
+        atSec={editing?.atSec ?? position}
         chapterLabel={book.chapters.length > 0 ? `CH. ${index + 1}` : null}
         canTag={isPro()}
-        justSaved={editing?.justSaved ?? false}
-        onChangeText={(text) => {
-          if (editingNote) setNoteText(editingNote.id, text);
+        onSave={(text) => {
+          void saveNote(text);
+          closeSheet();
         }}
         onAddCharacter={(name, bio) => addCharacter(book.id, name, bio)}
-        onUndo={() => {
-          if (editingNote) void deleteNote(editingNote.id);
-          setEditing(null);
-        }}
         onDelete={(note) => void deleteNote(note.id)}
-        onFlush={() => void flushNotes()}
         onClose={closeSheet}
       />
 
@@ -613,7 +622,7 @@ export default function PlayerScreen() {
         }}
         onEdit={(note) => {
           setReading(null);
-          setEditing({ noteId: note.id, justSaved: false });
+          setEditing({ noteId: note.id, atSec: note.positionSec });
         }}
         onClose={() => setReading(null)}
       />
