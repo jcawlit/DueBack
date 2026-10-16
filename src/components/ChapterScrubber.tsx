@@ -14,13 +14,20 @@ import { clock } from '@/lib/format';
 import { Ribbon } from './Ribbon';
 
 const TRACK_HEIGHT = 8;
-const ROW_HEIGHT = 22;
+/** Tall enough to hold the markers above the track as well as the track. */
+const ROW_HEIGHT = 34;
+const TRACK_TOP = 18;
 const RIBBON_WIDTH = 10;
 /** Vertical slop, so the thin track is comfortably grabbable. */
-const HIT_SLOP = { top: 12, bottom: 12, left: 0, right: 0 };
-const MARK_WIDTH = 3;
-/** Generous, because a 3px mark is not a target anyone can hit on a walk. */
-const MARK_HIT_SLOP = { top: 10, bottom: 10, left: 8, right: 8 };
+const HIT_SLOP = { top: 10, bottom: 10, left: 0, right: 0 };
+/**
+ * What a marker is to a thumb, as opposed to what it is to the eye.
+ *
+ * The dot is 8px. Nobody hits an 8px target on a walk, so every marker
+ * carries a 28×18 box and the dot is drawn in the middle of it.
+ */
+const MARK_HIT_WIDTH = 28;
+const MARK_HIT_HEIGHT = 18;
 
 type Props = {
   /** Seconds into the current chapter. */
@@ -28,11 +35,27 @@ type Props = {
   /** Length of the current chapter, in seconds. */
   lengthSec: number;
   onSeek: (positionSec: number) => void;
-  /** Notes in this chapter, as seconds from its start. Tappable. */
-  marks?: number[];
+  /**
+   * What was written in this chapter, as seconds from its start.
+   *
+   * A note is a purple dot and a bookmark is a small ribbon — the same two
+   * marks they carry everywhere else, so the track reads without a legend.
+   */
+  marks?: { atSec: number; kind: 'note' | 'bookmark'; id: string }[];
+  /** Opens a marker rather than seeking to it. */
+  onOpenMark?: (id: string) => void;
+  /** The marker currently open, drawn a size larger. */
+  selectedMark?: string | null;
 };
 
-export function ChapterScrubber({ positionSec, lengthSec, onSeek, marks = [] }: Props) {
+export function ChapterScrubber({
+  positionSec,
+  lengthSec,
+  onSeek,
+  marks = [],
+  onOpenMark,
+  selectedMark,
+}: Props) {
   const [width, setWidth] = useState(0);
   /** Non-null while a drag is in flight; it overrides the playing position. */
   const [dragSec, setDragSec] = useState<number | null>(null);
@@ -96,7 +119,7 @@ export function ChapterScrubber({ positionSec, lengthSec, onSeek, marks = [] }: 
           position: 'absolute',
           left: 0,
           right: 0,
-          top: 8,
+          top: TRACK_TOP,
           height: TRACK_HEIGHT,
           borderRadius: 1,
           backgroundColor: color.trough,
@@ -127,7 +150,10 @@ export function ChapterScrubber({ positionSec, lengthSec, onSeek, marks = [] }: 
               style={{
                 flex: 1,
                 borderLeftWidth: i === 0 ? 0 : 1,
-                borderLeftColor: 'rgba(27,20,16,0.75)',
+                // Background, not information. They say how long a chapter
+                // is; the markers above say what is in it, and two sets of
+                // marks at the same weight read as one confusing set.
+                borderLeftColor: 'rgba(27,20,16,0.45)',
               }}
             />
           ))}
@@ -140,25 +166,45 @@ export function ChapterScrubber({ positionSec, lengthSec, onSeek, marks = [] }: 
         the pan responder above claims a touch only if no child wants it.
       */}
       {width > 0 && lengthSec > 0
-        ? marks.map((at, i) => {
-            const x = (Math.min(lengthSec, Math.max(0, at)) / lengthSec) * width;
+        ? marks.map((mark) => {
+            const x = (Math.min(lengthSec, Math.max(0, mark.atSec)) / lengthSec) * width;
+            const on = mark.id === selectedMark;
+            const dot = on ? 10 : 8;
             return (
               <Pressable
-                key={`${at}-${i}`}
-                onPress={() => onSeek(at)}
+                key={mark.id}
+                onPress={() => (onOpenMark ? onOpenMark(mark.id) : onSeek(mark.atSec))}
                 accessibilityRole="button"
-                accessibilityLabel={`Note at ${clock(at)}`}
-                hitSlop={MARK_HIT_SLOP}
+                accessibilityLabel={
+                  `${mark.kind === 'bookmark' ? 'Bookmark' : 'Note'} at ${clock(mark.atSec)}`
+                }
                 style={{
                   position: 'absolute',
-                  left: x - MARK_WIDTH / 2,
-                  top: 2,
-                  width: MARK_WIDTH,
-                  height: 6,
-                  borderRadius: 1,
-                  backgroundColor: color.ribbon,
+                  left: x - MARK_HIT_WIDTH / 2,
+                  top: 0,
+                  width: MARK_HIT_WIDTH,
+                  height: MARK_HIT_HEIGHT,
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
-              />
+              >
+                {mark.kind === 'bookmark' ? (
+                  <Ribbon width={7} height={13} notch={0.22} />
+                ) : (
+                  <View
+                    style={{
+                      width: dot,
+                      height: dot,
+                      borderRadius: dot / 2,
+                      backgroundColor: color.mentionInk,
+                      // A ring in the page colour, so a dot over the filled
+                      // part of the track still reads as a dot.
+                      borderWidth: 2,
+                      borderColor: color.ground,
+                    }}
+                  />
+                )}
+              </Pressable>
             );
           })
         : null}
@@ -167,7 +213,7 @@ export function ChapterScrubber({ positionSec, lengthSec, onSeek, marks = [] }: 
         <View
           pointerEvents="none"
           style={[
-            { position: 'absolute', top: -2, left: fraction * width - RIBBON_WIDTH / 2 },
+            { position: 'absolute', top: TRACK_TOP - 6, left: fraction * width - RIBBON_WIDTH / 2 },
             shadow(2, 0.4),
           ]}
         >

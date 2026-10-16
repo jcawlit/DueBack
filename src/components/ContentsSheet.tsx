@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { FlatList, Modal, Pressable, Text, View } from 'react-native';
 import type { Book } from '@/data/types';
 import { color, font, space, TOUCH } from '@/theme/tokens';
-import { clock, hoursMinutes } from '@/lib/format';
+import { clock, hoursMinutes, tidyChapterTitle } from '@/lib/format';
 import { Ribbon } from './Ribbon';
 
 const ROW_HEIGHT = 56;
@@ -33,7 +33,7 @@ export function ContentsSheet({ visible, book, currentIndex, onSelect, onClose }
       const showPart = !!chapter.part && chapter.part !== book.chapters[index - 1]?.part;
       return {
         index,
-        title: chapter.title,
+        title: tidyChapterTitle(chapter.title),
         part: chapter.part,
         startSec: chapter.startSec,
         lengthSec: Math.max(0, end - chapter.startSec),

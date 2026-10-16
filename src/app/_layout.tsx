@@ -22,6 +22,7 @@ import { color } from '@/theme/tokens';
 import { GlobalConfirm } from '@/components/GlobalConfirm';
 import { GlobalReconnect } from '@/components/GlobalReconnect';
 import { GlobalSlip } from '@/components/GlobalSlip';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { MiniPlayer } from '@/components/MiniPlayer';
 import { usePlayer } from '@/store/player';
 import { useLibrary } from '@/store/library';
@@ -196,6 +197,16 @@ export default function RootLayout() {
   }
 
   return (
+    /*
+     * `KeyboardProvider` is what lets a sheet ride the keyboard.
+     *
+     * Android stopped resizing windows for the IME once the app went
+     * edge-to-edge, and `adjustResize` in the manifest has no effect there,
+     * so neither `KeyboardAvoidingView` nor a `keyboardDidShow` listener can
+     * put a sheet in the right place at the right time. This reads the
+     * keyboard's own animation through WindowInsetsAnimation instead.
+     */
+    <KeyboardProvider>
     <SafeAreaProvider>
       <StatusBar style="light" />
       <LibraryBootstrap />
@@ -219,5 +230,6 @@ export default function RootLayout() {
       <GlobalConfirm />
       <GlobalReconnect />
     </SafeAreaProvider>
+    </KeyboardProvider>
   );
 }

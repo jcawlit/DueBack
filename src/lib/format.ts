@@ -49,6 +49,17 @@ export function timestamp(seconds: number): string {
 }
 
 /**
+ * "Chapter 025" → "Chapter 25".
+ *
+ * Tags written by a ripper often pad the number so the files sort, which is
+ * a filesystem's problem and not a reader's. Only whole runs of digits are
+ * unpadded, so a title that happens to contain a number keeps it.
+ */
+export function tidyChapterTitle(title: string): string {
+  return title.replace(/\b0+(\d+)\b/g, '$1');
+}
+
+/**
  * "16:49" — a position in the book, to the minute.
  *
  * `timestamp` carries seconds, which is right beside a note you want to

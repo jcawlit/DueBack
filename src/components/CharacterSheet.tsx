@@ -11,7 +11,8 @@
  */
 
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, KeyboardProvider } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   firstHeardSec,
@@ -25,7 +26,6 @@ import { timestamp } from '@/lib/format';
 import { bioTextFrom } from './mentionText';
 import { color, font, shadow, space, TOUCH } from '@/theme/tokens';
 import { NoteText, useNoteFont } from './NoteText';
-import { useKeyboardInset } from './useKeyboardInset';
 import { PaperRules, RULE_PITCH } from './PaperCard';
 import { RowAction, TimeChip } from './NotesCard';
 
@@ -83,7 +83,6 @@ export function CharacterSheet({
 }) {
   const insets = useSafeAreaInsets();
   const bioFont = useNoteFont(16);
-  const keyboard = useKeyboardInset(creating || !!character);
   const [name, setName] = useState(character?.name ?? '');
   const [aliases, setAliases] = useState(character?.aliases ?? '');
   const [bio, setBio] = useState(character?.bio ?? '');
@@ -114,16 +113,15 @@ export function CharacterSheet({
   };
 
   return (
-    /*
-     * Edge-to-edge Android does not resize a window for the keyboard, so
-     * the height is read and applied as padding — the same arrangement as
-     * `NoteSheet`, which explains it.
-     */
     <Modal visible animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(10,7,5,.6)' }}
-      >
+      {/*
+        A provider of its own: a Modal is a separate window, and the one
+        wrapping the app cannot see this one's insets. The keyboard is read
+        from its own animation, because an edge-to-edge Android window is
+        never resized for it.
+      */}
+      <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
+      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(10,7,5,.6)' }}>
         {/*
           Pressing away from the sheet closes it and keeps nothing. It used
           to save, which made the backdrop a hidden second Save button — and
@@ -135,6 +133,7 @@ export function CharacterSheet({
           accessibilityLabel="Close without saving"
         />
 
+        <KeyboardAvoidingView behavior="padding">
         {/*
           A sheet on the app's own surface, with the form on paper inside
           it. The two are doing different jobs: the sheet is chrome and
@@ -149,7 +148,7 @@ export function CharacterSheet({
             borderTopRightRadius: 16,
             paddingTop: 10,
             paddingHorizontal: space.lg,
-            paddingBottom: Math.max(22, insets.bottom + 10) + keyboard,
+            paddingBottom: Math.max(22, insets.bottom + 10),
             gap: space.md,
             maxHeight: '92%',
           }}
@@ -408,7 +407,9 @@ export function CharacterSheet({
             </Text>
           ) : null}
         </View>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </View>
+      </KeyboardProvider>
     </Modal>
   );
 }

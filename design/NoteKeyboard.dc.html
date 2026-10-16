@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Note sheet above keyboard</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=Instrument+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#120d0a}
+a{color:#e8a23a}a:hover{color:#f3c071}
+textarea:focus-visible,button:focus-visible{outline:2px solid #5b3a8a;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #1b1410; color: #efe3cc; font-family: 'Instrument Sans', system-ui, sans-serif">
+
+  <div aria-hidden="true" style="padding: 58px 24px 0; display: flex; flex-direction: column; align-items: center; gap: 14px; opacity: .35">
+    <div style="width: 120px; height: 176px; background: #c9a24a; border-radius: 3px"></div>
+    <span style="align-self: flex-start; font-family: 'Young Serif', Georgia, serif; font-size: 26px">Chapter 51</span>
+  </div>
+  <div style="position: absolute; inset: 0; background: rgba(10,7,5,.55)"></div>
+
+  <section aria-label="Note" style="position: absolute; left: 0; right: 0; bottom: 296px; background: #ece0c4; color: #2f2416; border-radius: 14px 14px 0 0; box-shadow: 0 -14px 34px rgba(0,0,0,.55); display: flex; flex-direction: column">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 10px 4px 18px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500; letter-spacing: .04em; color: #4b2f74">CH. 51 · 14:02</span>
+      <div style="display: flex; align-items: center">
+        <button aria-label="More: delete note" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: transparent; border: 0; color: #5f4f38; cursor: pointer">
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="4" cy="10" r="1.6"></circle><circle cx="10" cy="10" r="1.6"></circle><circle cx="16" cy="10" r="1.6"></circle></svg>
+        </button>
+        <button style="min-height: 38px; padding: 0 16px; background: #2a1d10; color: #ece0c4; border: 0; border-radius: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; cursor: pointer">Done</button>
+      </div>
+    </div>
+
+    <label for="note" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Note</label>
+    <textarea id="note" rows="3" style="margin: 0 18px; padding: 0; resize: none; background: transparent; border: 0; color: #2a1d10; font-family: 'Instrument Sans', system-ui, sans-serif; font-size: 17px; line-height: 27px; background-image: repeating-linear-gradient(180deg, transparent 0 26px, #d3c4a2 26px 27px)">Lydgate finally admits the debts to @Ros</textarea>
+
+    <div style="display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 18px 0">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 4px 9px; border-radius: 12px; background: rgba(91,58,138,.14); color: #4b2f74">@ Lydgate</span>
+    </div>
+
+    <div role="listbox" aria-label="Tag a character" style="display: flex; gap: 6px; overflow-x: auto; padding: 10px 12px 10px; margin-top: 8px; border-top: 1px solid #d3c4a2; background: #e3d5b5">
+      <button role="option" aria-selected="false" style="flex-shrink: 0; min-height: 38px; padding: 0 12px; background: #2a1d10; color: #ece0c4; border: 0; border-radius: 19px; font-size: 14px; cursor: pointer">Rosamond Vincy</button>
+      <button role="option" aria-selected="false" style="flex-shrink: 0; min-height: 38px; padding: 0 12px; background: transparent; color: #2a1d10; border: 1px solid #a8916a; border-radius: 19px; font-size: 14px; cursor: pointer">Mrs Vincy</button>
+      <button style="flex-shrink: 0; min-height: 38px; padding: 0 12px; background: transparent; color: #4b2f74; border: 1px dashed #7a5aa8; border-radius: 19px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">+ New "Ros"</button>
+    </div>
+  </section>
+
+  <div aria-hidden="true" style="position: absolute; left: 0; right: 0; bottom: 0; height: 296px; background: #2b2420; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: .1em; color: #7d6f60; background-image: repeating-linear-gradient(90deg, transparent 0 34px, rgba(255,255,255,.03) 34px 38px)">SYSTEM KEYBOARD</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

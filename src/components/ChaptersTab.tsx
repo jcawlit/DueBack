@@ -11,7 +11,7 @@
 import { Pressable, Text, View } from 'react-native';
 import type { Book } from '@/data/types';
 import type { Note } from '@/data/notes';
-import { timestamp } from '@/lib/format';
+import { tidyChapterTitle, timestamp } from '@/lib/format';
 import { color, font, radius, space } from '@/theme/tokens';
 import { Aside } from './Aside';
 
@@ -50,7 +50,7 @@ export function ChaptersTab({
         const written = notes.filter(
           (n) => n.positionSec >= startSec && n.positionSec < endSec,
         ).length;
-        const title = chapter.title?.trim() || `Chapter ${index + 1}`;
+        const title = tidyChapterTitle(chapter.title?.trim() || `Chapter ${index + 1}`);
 
         return (
           <Pressable

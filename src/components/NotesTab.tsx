@@ -22,7 +22,7 @@ import {
   type Character,
   type Note,
 } from '@/data/notes';
-import { timestamp } from '@/lib/format';
+import { tidyChapterTitle, timestamp } from '@/lib/format';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 import { Aside } from './Aside';
 import { mentionSegments } from './mentionText';
@@ -201,7 +201,7 @@ export function NotesTab({
                 color: color.faint,
               }}
             >
-              {group.title.toUpperCase()}
+              {tidyChapterTitle(group.title).toUpperCase()}
             </Text>
             <View style={{ flex: 1, height: 1, backgroundColor: color.trough }} />
           </View>

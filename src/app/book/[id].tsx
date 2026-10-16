@@ -777,6 +777,11 @@ export default function BookScreen() {
         key={editing ?? 'none'}
         visible={editingNote !== null}
         note={editingNote}
+        chapterLabel={
+          editingNote && book.chapters.length > 0
+            ? `CH. ${chapterAt(book, editingNote.positionSec).index + 1}`
+            : null
+        }
         characters={characters}
         canTag={isPro()}
         justSaved={false}

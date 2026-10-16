@@ -10,14 +10,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { chapterAt, fractionAt } from '@/data/types';
 import { selectBook, useLibrary } from '@/store/library';
 import { useNotes } from '@/store/notes';
+import { isBookmark } from '@/data/notes';
 import { isPro } from '@/lib/pro';
 import { SLEEP_OPTIONS, SPEEDS, realSecondsLeft, usePlayer } from '@/store/player';
-import { clock, finishTime, hoursLeft } from '@/lib/format';
+import { clock, finishTime, hoursLeft, tidyChapterTitle } from '@/lib/format';
 import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
 import { BookCover } from '@/components/BookCover';
 import { ChapterScrubber } from '@/components/ChapterScrubber';
 import { ContentsSheet } from '@/components/ContentsSheet';
 import { NoteSheet } from '@/components/NoteSheet';
+import { ChapterNotes, NoteReader } from '@/components/ChapterNotes';
 import { SoundPanel } from '@/components/SoundPanel';
 import { useSound } from '@/store/sound';
 import { LampGlow } from '@/components/LampGlow';
@@ -41,6 +43,8 @@ export default function PlayerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [contentsOpen, setContentsOpen] = useState(false);
   const [soundOpen, setSoundOpen] = useState(false);
+  /** The note being read, before any decision to play from it or edit it. */
+  const [reading, setReading] = useState<string | null>(null);
   /** The note the sheet is editing, and whether the pencil has just made it. */
   const [editing, setEditing] = useState<{ noteId: string; justSaved: boolean } | null>(null);
 
@@ -141,9 +145,15 @@ export default function PlayerScreen() {
    */
   const mine = notesBookId === book.id ? notes : [];
   const chapterEnd = chapter.startSec + lengthSec;
-  const marks = mine
+  const inChapterNotes = mine
     .filter((n) => n.positionSec >= chapter.startSec && n.positionSec < chapterEnd)
-    .map((n) => n.positionSec - chapter.startSec);
+    .sort((a, b) => a.positionSec - b.positionSec);
+  const marks = inChapterNotes.map((n) => ({
+    id: n.id,
+    atSec: n.positionSec - chapter.startSec,
+    kind: isBookmark(n) ? ('bookmark' as const) : ('note' as const),
+  }));
+  const readingNote = reading ? (inChapterNotes.find((n) => n.id === reading) ?? null) : null;
 
   const editingNote = editing ? (mine.find((n) => n.id === editing.noteId) ?? null) : null;
 
@@ -258,7 +268,7 @@ export default function PlayerScreen() {
             color: color.paper,
           }}
         >
-          {chapter.title}
+          {tidyChapterTitle(chapter.title)}
         </Text>
       </View>
 
@@ -267,6 +277,8 @@ export default function PlayerScreen() {
           positionSec={inChapter}
           lengthSec={lengthSec}
           marks={marks}
+          selectedMark={reading}
+          onOpenMark={setReading}
           onSeek={(value) => seekTo(chapter.startSec + value)}
         />
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -398,6 +410,12 @@ export default function PlayerScreen() {
           <SkipNextIcon />
         </Pressable>
       </View>
+
+      <ChapterNotes
+        notes={inChapterNotes}
+        selectedId={reading}
+        onOpen={(note) => setReading(note.id)}
+      />
 
       {playbackError ? (
         <View
@@ -545,6 +563,7 @@ export default function PlayerScreen() {
         visible={editingNote !== null}
         note={editingNote}
         characters={characters}
+        chapterLabel={book.chapters.length > 0 ? `CH. ${index + 1}` : null}
         canTag={isPro()}
         justSaved={editing?.justSaved ?? false}
         onChangeText={(text) => {
@@ -571,6 +590,21 @@ export default function PlayerScreen() {
         onUseDefault={() => void resetSoundToDefault()}
         onMakeDefault={() => void makeSoundDefault()}
         onClose={() => setSoundOpen(false)}
+      />
+
+      <NoteReader
+        note={readingNote}
+        chapterLabel={book.chapters.length > 0 ? `CH. ${index + 1}` : null}
+        characters={characters}
+        onPlayFrom={(sec) => {
+          setReading(null);
+          seekTo(sec);
+        }}
+        onEdit={(note) => {
+          setReading(null);
+          setEditing({ noteId: note.id, justSaved: false });
+        }}
+        onClose={() => setReading(null)}
       />
 
       <ContentsSheet
