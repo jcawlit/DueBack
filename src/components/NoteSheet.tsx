@@ -6,6 +6,7 @@ import { insertMention, mentionQueryAt, suggestCharacters } from '@/lib/notes/me
 import { timestamp } from '@/lib/format';
 import { color, font, space, TOUCH } from '@/theme/tokens';
 import { useNoteFont } from './NoteText';
+import { useKeyboardInset } from './useKeyboardInset';
 import { PaperCard, PaperRules, RULE_PITCH } from './PaperCard';
 
 type Props = {
@@ -41,6 +42,8 @@ export function NoteSheet({ visible, note, characters, canTag, justSaved,
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
   const noteFont = useNoteFont(17);
+  /** How far up the keyboard has pushed; zero on iOS, which resizes itself. */
+  const keyboard = useKeyboardInset(visible);
 
   useEffect(() => {
     if (!justSaved) return;
@@ -78,28 +81,43 @@ export function NoteSheet({ visible, note, characters, canTag, justSaved,
 
   return (
     /*
-     * No `statusBarTranslucent`, deliberately.
+     * Fade, not slide.
      *
-     * It puts the modal's window into layout-no-limits, and an Android window
-     * laid out past its limits is never resized for the keyboard — which left
-     * the JavaScript `KeyboardAvoidingView` as the only thing able to lift the
-     * sheet. That runs a beat after the keyboard is already up, so the
-     * keyboard arrived first and the note followed about a second later.
+     * The sheet has two motions to make when it opens — its own, and the one
+     * that lifts it over the keyboard — and a 300ms slide up from the bottom
+     * runs against the keyboard coming up to meet it. Fading in means the
+     * only thing moving is the keyboard.
      *
-     * Without the flag the dialog resizes natively and instantly, and because
-     * the sheet is anchored to the bottom it is simply already there. The cost
-     * is that the dim backdrop stops at the status bar on Android.
+     * `statusBarTranslucent` is back. Taking it off was an attempt to get
+     * Android to resize this window for the keyboard; at this target SDK the
+     * app is edge-to-edge and no window resizes for the IME, so the flag
+     * never affected that — it only decided whether the dim backdrop reached
+     * the status bar. The keyboard is handled by `useKeyboardInset` now.
      */
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      {/*
-        iOS has no such resize, so it keeps the padding behaviour. On Android
-        this is a plain View: a second, slower adjustment on top of the
-        window's own is what caused the lag, not a missing one.
-      */}
+    <Modal
+      visible={visible}
+      animationType="fade"
+      transparent
+      statusBarTranslucent
+      onRequestClose={onClose}
+      /*
+       * Focus as the sheet appears, so the keyboard and the note arrive
+       * together rather than the keyboard being summoned later by a tap.
+       * `onShow` fires once the modal is actually on screen; focusing before
+       * that is dropped on Android.
+       */
+      onShow={() => {
+        if (newName === null) requestAnimationFrame(() => inputRef.current?.focus());
+      }}
+    >
+      {/* iOS resizes properly, so it keeps the padding behaviour. */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1, backgroundColor: 'rgba(10,7,5,0.6)' }}>
         <View style={{ flex: 1, justifyContent: 'flex-end', paddingTop: insets.top + space.md,
-          paddingBottom: Math.max(insets.bottom, space.md), paddingHorizontal: space.lg }}>
+          // The keyboard's own height when it is up: the sheet sits on it. The
+          // home-bar inset is inside that area, so the two never add together.
+          paddingBottom: keyboard > 0 ? keyboard : Math.max(insets.bottom, space.md),
+          paddingHorizontal: space.lg }}>
           <Pressable style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 }}
             onPress={onClose} accessibilityLabel="Close note" />
           <PaperCard style={{ maxHeight: '95%', flexShrink: 1, padding: 0, gap: 0 }}>

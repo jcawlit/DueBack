@@ -26,6 +26,7 @@ import {
 import { timestamp } from '@/lib/format';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 import { NoteText, useNoteFont } from './NoteText';
+import { useKeyboardInset } from './useKeyboardInset';
 import { RowAction, TimeChip } from './NotesCard';
 
 function heardLabel(sec: number | null): string {
@@ -59,6 +60,8 @@ export function CharacterSheet({
 }) {
   const insets = useSafeAreaInsets();
   const bioFont = useNoteFont(16);
+  /** The same inset the note sheet rides on; this one has fields too. */
+  const keyboard = useKeyboardInset(!!character);
   const [name, setName] = useState(character?.name ?? '');
   const [aliases, setAliases] = useState(character?.aliases ?? '');
   const [bio, setBio] = useState(character?.bio ?? '');
@@ -76,18 +79,18 @@ export function CharacterSheet({
 
   return (
     /*
-     * No `statusBarTranslucent`: it puts the window into layout-no-limits,
-     * and such a window is never resized for the keyboard, which leaves a
-     * JavaScript KeyboardAvoidingView to do it a beat late. See the same
-     * note in `NoteSheet`.
+     * Edge-to-edge Android does not resize a window for the keyboard, so the
+     * height is read and applied as padding — the same arrangement as
+     * `NoteSheet`, which explains it. This sheet keeps its slide: nothing is
+     * focused as it opens, so there is no keyboard motion to run against.
      */
-    <Modal visible animationType="slide" transparent onRequestClose={commit}>
+    <Modal visible animationType="slide" transparent statusBarTranslucent onRequestClose={commit}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{
           flex: 1,
           paddingTop: insets.top + space.md,
-          paddingBottom: Math.max(insets.bottom, space.md),
+          paddingBottom: keyboard > 0 ? keyboard : Math.max(insets.bottom, space.md),
           paddingHorizontal: space.lg,
           backgroundColor: 'rgba(10,7,5,0.6)',
         }}
