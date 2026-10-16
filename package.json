@@ -48,7 +48,8 @@
     "doctor": "npx expo-doctor",
     "test": "node --experimental-strip-types --no-warnings --test \"tests/**/*.test.ts\"",
     "kb": "node --experimental-strip-types --no-warnings scripts/kb.ts",
-    "report:books": "node --experimental-strip-types --no-warnings scripts/report.ts"
+    "report:books": "node --experimental-strip-types --no-warnings scripts/report.ts",
+    "apk:publish": "node --experimental-strip-types --no-warnings scripts/publish-apk.ts"
   },
   "private": true,
   "expo": {

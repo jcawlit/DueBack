@@ -99,6 +99,20 @@ architectures, compiling the native modules from source four times over: 22
 minutes and a 282 MB APK, versus a few minutes and a much smaller one. Modern
 phones — any recent Pixel — are `arm64-v8a`. Use `x86_64` for an emulator.
 
+A release build — the kind that goes on the phone for real testing — is
+`:app:assembleRelease` instead, and then:
+
+```sh
+npm run apk:publish
+```
+
+That copies it to `dueback.apk` at the repository root, and to the file
+server as both `dueback-<sha>.apk` and `dueback.apk`. The sha-stamped name
+is what makes "was this broken before that change?" answerable later; the
+plain one is always the newest, so the phone's bookmark never moves. Set
+`APK_SHARE` to point somewhere else, and the share is skipped rather than
+failed when it cannot be reached.
+
 Installing it on a phone over USB:
 
 ```sh
