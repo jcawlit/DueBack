@@ -13,6 +13,7 @@
  * to Caveat only, so Sans renders at exactly the size it was asked for.
  */
 
+import type { ReactNode } from 'react';
 import { Text, type StyleProp, type TextStyle } from 'react-native';
 import { color, font } from '@/theme/tokens';
 import { useUi } from '@/store/ui';
@@ -27,7 +28,11 @@ export function NoteText({
   numberOfLines,
   style,
 }: {
-  children: string;
+  /**
+   * Usually a string. The notes list passes spans too, so a character's
+   * name can be coloured and pressed inside the sentence it was written in.
+   */
+  children: ReactNode;
   size?: number;
   tone?: 'paper' | 'muted';
   numberOfLines?: number;

@@ -1,5 +1,5 @@
 /**
- * The margins as something to keep: a plain-text page of everything written
+ * The notes as something to keep: a plain-text page of everything written
  * about one book, for the share sheet.
  *
  * Markdown, because it reads perfectly well as plain text in a message and

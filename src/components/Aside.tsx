@@ -2,8 +2,8 @@
  * What a section says when there is nothing in it yet.
  *
  * On the screen's own ground rather than on paper. It replaced `CardEmpty`,
- * which was the same idea in on-paper ink, when the margins came off the
- * card and the last thing using it went with them.
+ * which was the same idea in on-paper ink, when the notes came off the card
+ * and the last thing using it went with them.
  */
 
 import { Text } from 'react-native';

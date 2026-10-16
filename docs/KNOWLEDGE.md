@@ -822,9 +822,11 @@ three plus an odd one out.
 
 ### What the user calls these things
 
-**Notes**, not margins. **Characters**, not Who's who. "Margins" survives in
-module and function names where it reads well as a collective —
-`countMarginsFor` — but never on screen and never in the exported page.
+**Chapters · Notes · Characters** are the Book screen's three sections, and
+those are the words everywhere a person can read them: on the tabs, in
+accessibility labels, in the exported page. Never "Margins", never "Who's
+who". "Margins" survives in one database helper, `countMarginsFor`, where it
+reads as a collective — and nowhere a user can see.
 
 *`src/components/NotesCard.tsx`, `src/components/CharactersCard.tsx`,
 `src/lib/notes/export.ts`*

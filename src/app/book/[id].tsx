@@ -12,11 +12,15 @@ import { selectBook, useLibrary } from '@/store/library';
 import { usePlayer } from '@/store/player';
 import { duplicatesOf, folderLabel } from '@/lib/library/duplicates';
 import { bytes, hoursMinutes, hoursLeft, stampDate } from '@/lib/format';
-import { color, font, shadow, space, TOUCH } from '@/theme/tokens';
-import { BookObject, cardStatusFor } from '@/components/BookObject';
+import { color, font, space, TOUCH } from '@/theme/tokens';
+import { BookCover } from '@/components/BookCover';
+import { LibraryCardSheet } from '@/components/LibraryCard';
+import { BookTabs, type BookTab } from '@/components/BookTabs';
+import { ChaptersTab } from '@/components/ChaptersTab';
+import { NotesTab } from '@/components/NotesTab';
+import { CharactersTab } from '@/components/CharactersTab';
 import { NoteCard, NoteText } from '@/components/NoteCard';
-import { ChevronLeft, PauseIcon, PlayIcon, ReturnIcon } from '@/components/icons';
-import { MarginsCard } from '@/components/MarginsCard';
+import { ChevronLeft, PauseIcon, PlayIcon } from '@/components/icons';
 import { CharacterSheet } from '@/components/CharacterSheet';
 import { NoteSheet } from '@/components/NoteSheet';
 import { useNotes } from '@/store/notes';
@@ -25,18 +29,14 @@ import { isPro } from '@/lib/pro';
 import { useBackup } from '@/store/backup';
 import type { Character, Note } from '@/data/notes';
 
-const PLAY_DIAMETER = 72;
-const RETURN_DIAMETER = 44;
 /**
- * What sits below the hero: the title block, the progress, the transport
- * row, and enough of the margins to show they are there.
+ * The cover beside the facts, at about 104pt wide.
  *
- * Back up from 300 now that transport has left the hero and always sits in
- * the flow — a 72px disc and its two lines of text that the cover can no
- * longer have. In practice width is what limits the cover on every phone
- * size checked; this only binds on something very short.
+ * Not a hero any more. This screen is about deciding what to do with the
+ * book, so the artwork identifies it and the column beside it carries what
+ * the decision is made on.
  */
-const HERO_CHROME = 390;
+const COVER_SCALE = 104 / 168;
 
 type Action = {
   /** The whole sentence, for a screen reader: the short form plus the size. */
@@ -57,15 +57,15 @@ type Action = {
 type Secondary = { label: string; kind: 'return' | 'cancel'; onPress: () => void };
 
 /**
- * The play disc. Amber, filled, and the only thing on this screen that size.
+ * The one action, as a bar across the page.
  *
- * It shows pause while this book is the one playing, so that coming back to
- * the Book screen mid-listen offers the move you actually want. The states
- * that cannot play — DRM, no readable audio, a hold waiting on the drive —
- * keep the disc but go flat and unpressable; what is wrong is said in the
- * status tag above and the progress line below, not crammed in here.
+ * It carries three things because all three are wanted at once: a glyph so
+ * it is findable without reading, what pressing it does, and where it would
+ * put you. The states that cannot play keep the bar and go flat — what is
+ * wrong is said in the stamp above and the line inside it, not by taking
+ * the control away and leaving a hole.
  */
-function PlayButton({ action, playing }: { action: Action; playing: boolean }) {
+function PrimaryAction({ action, playing }: { action: Action; playing: boolean }) {
   const live = !!action.onPress;
   return (
     <Pressable
@@ -74,98 +74,48 @@ function PlayButton({ action, playing }: { action: Action; playing: boolean }) {
       accessibilityRole="button"
       accessibilityLabel={action.label}
       accessibilityState={{ disabled: !live }}
-      style={({ pressed }) => [
-        {
-          width: PLAY_DIAMETER,
-          height: PLAY_DIAMETER,
-          borderRadius: PLAY_DIAMETER / 2,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: live ? color.accent : color.panel,
-          borderWidth: live ? 0 : 1,
-          borderColor: color.border,
-          opacity: pressed ? 0.85 : 1,
-        },
-        live ? shadow(10, 0.35) : null,
-      ]}
-    >
-      {action.busy ? (
-        <Text style={{ fontFamily: font.monoMedium, fontSize: 15, color: color.muted }}>
-          {action.busy}
-        </Text>
-      ) : playing ? (
-        <PauseIcon size={30} fill={live ? color.ground : color.faint} />
-      ) : (
-        <PlayIcon size={30} fill={live ? color.ground : color.faint} />
-      )}
-    </Pressable>
-  );
-}
-
-/** The return disc: smaller, outlined, and never the thing the eye lands on. */
-function ReturnButton({ action, finished }: { action: Secondary; finished: boolean }) {
-  const ink = finished ? color.accent : color.muted;
-  return (
-    <Pressable
-      onPress={action.onPress}
-      accessibilityRole="button"
-      accessibilityLabel={action.label}
       style={({ pressed }) => ({
-        width: RETURN_DIAMETER,
-        height: RETURN_DIAMETER,
-        borderRadius: RETURN_DIAMETER / 2,
+        minHeight: 54,
+        flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: finished ? color.accent : color.border,
-        opacity: pressed ? 0.7 : 1,
+        gap: 12,
+        paddingHorizontal: 18,
+        borderRadius: 10,
+        backgroundColor: live ? color.accent : color.panel,
+        borderWidth: live ? 0 : 1,
+        borderColor: color.border,
+        opacity: pressed ? 0.85 : 1,
       })}
     >
-      {action.kind === 'return' ? (
-        <ReturnIcon size={22} stroke={ink} />
+      {playing ? (
+        <PauseIcon size={18} fill={live ? color.ground : color.faint} />
       ) : (
-        <Text style={{ fontFamily: font.mono, fontSize: 11, color: ink }}>stop</Text>
+        <PlayIcon size={18} fill={live ? color.ground : color.faint} />
       )}
-    </Pressable>
-  );
-}
-
-/**
- * Play, what pressing it does, and the way out — the one arrangement.
- *
- * The sentence is on the screen now rather than only in the accessibility
- * label. A disc with no words is unambiguous for a book you are part way
- * through and guesswork for one that is not on the phone yet, where the
- * same disc means "copy a gigabyte and then play it".
- */
-function TransportRow({
-  primary,
-  secondary,
-  playing,
-  finished,
-}: {
-  primary: Action;
-  secondary: Secondary | null;
-  playing: boolean;
-  finished: boolean;
-}) {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
-      <PlayButton action={primary} playing={playing} />
-
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ fontFamily: font.sans, fontSize: 15, color: color.paper }}>
-          {primary.sentence}
+      <Text
+        style={{
+          fontFamily: font.serif,
+          fontSize: 18,
+          color: live ? color.ground : color.muted,
+        }}
+      >
+        {action.sentence}
+      </Text>
+      <View style={{ flex: 1 }} />
+      {action.context ? (
+        <Text
+          numberOfLines={1}
+          style={{
+            flexShrink: 1,
+            fontFamily: font.mono,
+            fontSize: 11,
+            color: live ? color.ground : color.faint,
+          }}
+        >
+          {action.context}
         </Text>
-        {primary.context ? (
-          <Text numberOfLines={1} style={{ fontFamily: font.sans, fontSize: 12, color: color.muted }}>
-            {primary.context}
-          </Text>
-        ) : null}
-      </View>
-
-      {secondary ? <ReturnButton action={secondary} finished={finished} /> : null}
-    </View>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -196,8 +146,10 @@ export default function BookScreen() {
   /** Playing *this* book: the disc shows pause rather than play. */
   const playingThis = usePlayer((s) => (book ? s.bookId === book.id && s.playing : false));
 
-  /** Whose notes the margins are narrowed to, or null for the whole book. */
+  const [tab, setTab] = useState<BookTab>('notes');
+  /** Whose notes the list is narrowed to, or null for the whole book. */
   const [whose, setWhose] = useState<string | null>(null);
+  const [showCard, setShowCard] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [openCharacter, setOpenCharacter] = useState<Character | null>(null);
 
@@ -293,7 +245,7 @@ export default function BookScreen() {
         ? 'Saved on phone · drive backup pending'
         : 'Saved on phone and on the drive';
 
-  /** Only this book's margins; the store holds one book at a time. */
+  /** Only this book's notes; the store holds one book at a time. */
   const mine = notesBookId === book.id ? notes : [];
   const editingNote: Note | null = editing
     ? (mine.find((n) => n.id === editing) ?? null)
@@ -357,6 +309,33 @@ export default function BookScreen() {
     (book.local.status === 'copying' ? book.local.progress : 0) * 100,
   );
   const here = chapterAt(book, position);
+  const chapterLabel = book.chapters.length > 0 ? `Ch. ${here.index + 1}` : null;
+
+  /*
+   * The state, stamped on beside the book with the date it changed. It
+   * replaces the tag that used to sit in the header, which said the same
+   * thing from as far from the book as the screen allows.
+   */
+  const lastOut = book.checkouts.length > 0 ? book.checkouts[book.checkouts.length - 1] : null;
+  const shelfStamp = copying
+    ? 'CHECKING OUT'
+    : out
+      ? `CHECKED OUT${lastOut ? ` · ${stampDate(lastOut.out)}` : ''}`
+      : onHold
+        ? 'ON HOLD'
+        : book.finishedAt
+          ? `FINISHED · ${stampDate(book.finishedAt)}`
+          : null;
+
+  /** The two ends of the progress line: how far in, and how far left. */
+  const progressLeft = finished
+    ? 'Finished'
+    : started
+      ? `${Math.round(fraction * 100)}%${chapterLabel ? ` · ${chapterLabel}` : ''}`
+      : 'Not started';
+  const progressRight = finished
+    ? hoursMinutes(book.durationSec)
+    : `${hoursLeft(Math.max(0, book.durationSec - position))} left`;
   /** Where you are, said the way you would say it out loud. */
   const placeLine = started
     ? `Chapter ${here.index + 1} · ${hoursLeft(Math.max(0, book.durationSec - position))} left`
@@ -467,86 +446,182 @@ export default function BookScreen() {
         >
           <ChevronLeft />
           <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.muted }}>
-            back to the library
+            Library
           </Text>
         </Pressable>
       </View>
 
       <ScrollView
         style={{ flex: 1 }}
-        // The screen used to end in a fixed action block that owned the
-        // bottom inset. Nothing is pinned down there now, so the scroll has
-        // to clear the gesture bar itself.
-        contentContainerStyle={{ paddingBottom: Math.max(36, insets.bottom + 28) }}
+        // Nothing is pinned to the bottom of this screen, so the scroll has
+        // to clear the gesture bar and the mini player itself.
+        contentContainerStyle={{ paddingBottom: Math.max(96, insets.bottom + 88) }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={{ paddingTop: 18 }}>
-          <BookObject
+        {/*
+          The book, said once: what it looks like, what it is, and where it
+          is. The cover is a thumbnail here rather than a hero — this screen
+          is about deciding what to do with the book, and the facts beside
+          it are what that decision is made on.
+        */}
+        <View
+          style={{
+            paddingTop: space.sm,
+            paddingHorizontal: space.xl,
+            flexDirection: 'row',
+            alignItems: 'flex-start',
+            gap: 18,
+          }}
+        >
+          <BookCover
             book={book}
             size="book"
-            chrome={insets.top + insets.bottom + HERO_CHROME}
-            status={cardStatusFor(book, out, copying, onHold)}
+            showTag={false}
+            showRibbon={false}
+            lean={0}
+            edgeWidth={10}
+            scale={COVER_SCALE}
           />
-        </View>
 
-        <View style={{ paddingTop: 26, paddingHorizontal: space.xxl, gap: space.sm }}>
-          <Text
-            accessibilityRole="header"
-            style={{
-              fontFamily: font.serif,
-              fontSize: 26,
-              lineHeight: 26 * 1.08,
-              color: color.paper,
-            }}
-          >
-            {book.title}
-          </Text>
-          <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.muted }}>
-            {book.author} · {hoursMinutes(book.durationSec)} · {bytes(book.sizeBytes)}
-          </Text>
-          {book.narrator ? (
-            <Text style={{ fontFamily: font.sans, fontSize: 13, color: color.muted }}>
-              read by {book.narrator}
+          <View style={{ flex: 1, minWidth: 0, gap: 6, paddingTop: 4 }}>
+            <Text
+              accessibilityRole="header"
+              style={{
+                fontFamily: font.serif,
+                fontSize: 25,
+                lineHeight: 25 * 1.05,
+                color: color.paper,
+              }}
+            >
+              {book.title}
             </Text>
-          ) : null}
+            <Text style={{ fontFamily: font.sans, fontSize: 14, color: color.paperCard }}>
+              {book.author}
+            </Text>
+            {book.narrator ? (
+              <Text style={{ fontFamily: font.sans, fontSize: 13, color: color.muted }}>
+                read by {book.narrator}
+              </Text>
+            ) : null}
+            <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.faint }}>
+              {hoursMinutes(book.durationSec)} · {bytes(book.sizeBytes)}
+            </Text>
+
+            {/*
+              Stamped on at a slight angle, the way a date is. It says the
+              state and when it changed, which together are what the old tag
+              in the header was saying from much further away.
+            */}
+            {shelfStamp ? (
+              <View
+                style={{
+                  alignSelf: 'flex-start',
+                  marginTop: 6,
+                  paddingHorizontal: 7,
+                  paddingVertical: 3,
+                  borderWidth: 1.5,
+                  borderColor: color.accent,
+                  transform: [{ rotate: '-2deg' }],
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: font.mono,
+                    fontSize: 10,
+                    letterSpacing: 0.8,
+                    color: color.accent,
+                  }}
+                >
+                  {shelfStamp}
+                </Text>
+              </View>
+            ) : null}
+          </View>
         </View>
 
-        <View style={{ paddingTop: space.lg, paddingHorizontal: space.xxl, gap: space.sm }}>
-          <View
-            style={{
-              height: 4,
-              borderRadius: 2,
-              backgroundColor: color.line,
-              overflow: 'hidden',
-            }}
-            accessible
-            accessibilityRole="progressbar"
-            accessibilityLabel={progressLabel}
-          >
+        <View style={{ paddingTop: space.xl, paddingHorizontal: space.xl, gap: 14 }}>
+          <View style={{ gap: 7 }}>
             <View
               style={{
-                width: `${Math.max(fraction * 100, started ? 2 : 0)}%`,
-                height: '100%',
-                backgroundColor: color.ribbon,
+                height: 4,
+                borderRadius: 2,
+                backgroundColor: color.line,
+                overflow: 'hidden',
               }}
-            />
+              accessible
+              accessibilityRole="progressbar"
+              accessibilityLabel={progressLabel}
+            >
+              <View
+                style={{
+                  width: `${Math.max(fraction * 100, started ? 2 : 0)}%`,
+                  height: '100%',
+                  backgroundColor: color.ribbon,
+                }}
+              />
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>
+                {progressLeft}
+              </Text>
+              <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>
+                {progressRight}
+              </Text>
+            </View>
           </View>
-          <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>
-            {progressLabel}
-          </Text>
 
-          {/*
-            Under the progress, because that is what it acts on, and in one
-            arrangement on every screen size. There is no second layout to
-            get wrong.
-          */}
-          <View style={{ paddingTop: space.lg }}>
-            <TransportRow
-              primary={primary}
-              secondary={secondary}
-              playing={playingThis}
-              finished={finished}
-            />
+          <PrimaryAction action={primary} playing={playingThis} />
+
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginTop: -6,
+            }}
+          >
+            {secondary ? (
+              <Pressable
+                onPress={secondary.onPress}
+                accessibilityRole="button"
+                accessibilityLabel={secondary.label}
+                style={({ pressed }) => ({
+                  minHeight: TOUCH,
+                  justifyContent: 'center',
+                  paddingHorizontal: 4,
+                  opacity: pressed ? 0.6 : 1,
+                })}
+              >
+                <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.muted }}>
+                  {secondary.label}
+                </Text>
+              </Pressable>
+            ) : (
+              <View />
+            )}
+
+            <Pressable
+              onPress={() => setShowCard(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Library card — when this book went out and came back"
+              style={({ pressed }) => ({
+                minHeight: TOUCH,
+                justifyContent: 'center',
+                paddingHorizontal: 4,
+                opacity: pressed ? 0.6 : 1,
+              })}
+            >
+              <Text
+                style={{
+                  fontFamily: font.mono,
+                  fontSize: 12,
+                  color: color.muted,
+                  textDecorationLine: 'underline',
+                }}
+              >
+                Library card
+              </Text>
+            </Pressable>
           </View>
         </View>
 
@@ -588,13 +663,7 @@ export default function BookScreen() {
                   opacity: pressed ? 0.6 : 1,
                 })}
               >
-                <Text
-                  style={{
-                    fontFamily: font.mono,
-                    fontSize: 11,
-                    color: color.accent,
-                  }}
-                >
+                <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>
                   {folderLabel(twin)}
                   {isCheckedOut(twin) ? ' · on your phone' : ''}
                 </Text>
@@ -603,112 +672,94 @@ export default function BookScreen() {
           </NoteCard>
         ) : null}
 
-        <View style={{ marginTop: space.xxl }}>
-          <View style={{ paddingHorizontal: space.xxl }}>
-            {/* The tally belongs to the section, not to the All medallion. */}
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                paddingBottom: space.sm,
-              }}
-            >
-              <Text
-                style={{
-                  fontFamily: font.mono,
-                  fontSize: 11,
-                  letterSpacing: 1,
-                  color: color.faint,
-                }}
-              >
-                MARGINS
-              </Text>
-              {mine.length > 0 ? (
-                <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.faint }}>
-                  {mine.length} {mine.length === 1 ? 'note' : 'notes'}
-                </Text>
-              ) : null}
-            </View>
+        <View style={{ marginTop: space.md }}>
+          <BookTabs
+            active={tab}
+            counts={{
+              chapters: book.chapters.length,
+              notes: mine.length,
+              characters: characters.length,
+            }}
+            onChange={setTab}
+          />
+        </View>
 
-            {/*
-              Undo lives on the card rather than in a slip: the slip has no
-              button, and a deletion is the one thing worth offering back
-              for longer than a message stays on screen.
-            */}
-            {undoable ? (
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingVertical: space.sm,
-                  borderBottomWidth: 1,
-                  borderBottomColor: color.line,
-                }}
-              >
-                <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.faint }}>
-                  Note deleted
-                </Text>
-                <Pressable
-                  onPress={() => void undoDelete()}
-                  accessibilityRole="button"
-                  hitSlop={10}
-                >
-                  <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>
-                    Undo
-                  </Text>
-                </Pressable>
-              </View>
-            ) : null}
-
-            <MarginsCard
-              book={book}
-              notes={mine}
-              characters={isPro() ? characters : []}
-              selected={whose}
-              onSelect={setWhose}
-              onPlayFrom={playFrom}
-              onOpenNote={(note) => setEditing(note.id)}
-              onOpenCharacter={setOpenCharacter}
-              onAddCharacter={isPro() ? () => void addBlankCharacter() : undefined}
-            />
-          </View>
-
-          {/*
-            Where this book's writing is. Said plainly rather than with an
-            icon: "pending" here means the phone has it and the drive does
-            not yet, which is a fact worth being able to read.
-          */}
+        {/*
+          Undo lives here rather than in a slip: the slip has no button, and
+          a deletion is the one thing worth offering back for longer than a
+          message stays on screen.
+        */}
+        {undoable && tab === 'notes' ? (
           <View
             style={{
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'space-between',
-              marginHorizontal: space.xxl,
-              marginTop: space.lg,
+              marginHorizontal: space.xl,
+              paddingVertical: space.sm,
+              borderBottomWidth: 1,
+              borderBottomColor: color.line,
             }}
           >
             <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.faint }}>
-              {backupLine}
+              Note deleted
             </Text>
-            <Pressable
-              onPress={() => void shareNotes()}
-              accessibilityRole="button"
-              hitSlop={10}
-              style={({ pressed }) => ({
-                minHeight: TOUCH,
-                justifyContent: 'center',
-                opacity: pressed ? 0.6 : 1,
-              })}
-            >
-              <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>
-                share notes
-              </Text>
+            <Pressable onPress={() => void undoDelete()} accessibilityRole="button" hitSlop={10}>
+              <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>Undo</Text>
             </Pressable>
           </View>
-        </View>
+        ) : null}
+
+        {tab === 'chapters' ? (
+          <ChaptersTab book={book} notes={mine} currentIndex={here.index} onPlayFrom={playFrom} />
+        ) : null}
+
+        {tab === 'notes' ? (
+          <NotesTab
+            book={book}
+            notes={mine}
+            characters={isPro() ? characters : []}
+            selected={whose}
+            onSelect={setWhose}
+            onPlayFrom={playFrom}
+            onOpenNote={(note) => setEditing(note.id)}
+            onExport={() => void shareNotes()}
+          />
+        ) : null}
+
+        {tab === 'characters' ? (
+          <CharactersTab
+            characters={characters}
+            notes={mine}
+            onOpen={setOpenCharacter}
+            onAdd={isPro() ? () => void addBlankCharacter() : undefined}
+          />
+        ) : null}
+
+        {/*
+          Where this book's writing is. Said plainly rather than with an
+          icon: "pending" here means the phone has it and the drive does not
+          yet, which is a fact worth being able to read.
+        */}
+        <Text
+          style={{
+            marginTop: space.xl,
+            marginHorizontal: space.xl,
+            fontFamily: font.mono,
+            fontSize: 11,
+            color: color.faint,
+          }}
+        >
+          {backupLine}
+        </Text>
       </ScrollView>
+
+      <LibraryCardSheet
+        visible={showCard}
+        checkouts={book.checkouts}
+        title={book.title}
+        onClose={() => setShowCard(false)}
+      />
 
       <NoteSheet
         key={editing ?? 'none'}

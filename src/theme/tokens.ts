@@ -30,6 +30,16 @@ export const color = {
   warning: '#d0553e',
   warningInk: '#b8402f',
   stampOut: '#5b3a8a',
+  /**
+   * A character's name where it appears inside a note.
+   *
+   * The same purple as the stamps, lifted far enough to read on the dark
+   * ground and washed behind so a name is visibly a thing you can press.
+   * The wash deepens for whoever the list is currently filtered to.
+   */
+  mentionInk: '#d9c2f5',
+  mentionWash: 'rgba(160,120,220,0.16)',
+  mentionWashOn: 'rgba(160,120,220,0.32)',
   stampBack: '#a8352a',
   stampFaded: '#8a7a5e',
   trough: '#2e2219',

@@ -1,5 +1,5 @@
 /**
- * The margins: bookmarks, notes, the people they are about, and the page of
+ * Notes and characters: bookmarks, what they are about, and the page of
  * writing a listener can take away with them.
  *
  * Everything here is the pure half — the arithmetic of where a bookmark lands
