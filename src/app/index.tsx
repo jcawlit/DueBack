@@ -23,6 +23,7 @@ import {
 } from '@/store/library';
 import { useScan } from '@/store/scan';
 import { useUi } from '@/store/ui';
+import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { buildShelves } from '@/lib/shelves';
 import { searchBooks } from '@/lib/library/search';
 import { daysOfListening, relativeTime, relativeTimeShort } from '@/lib/format';
@@ -40,6 +41,8 @@ export default function LibraryScreen() {
   const [checkingDrive, setCheckingDrive] = useState(false);
   const [search, setSearch] = useState('');
   const setBottomObstruction = useUi((s) => s.setBottomObstruction);
+  /** The docked player sits above the tray; the shelves clear both. */
+  const miniPlayerInset = useMiniPlayerInset();
 
   const ready = useLibrary((s) => s.ready);
   const startupError = useLibrary((s) => s.startupError);
@@ -279,7 +282,7 @@ export default function LibraryScreen() {
           data={shelves}
           keyExtractor={(shelf) => shelf.key}
           renderItem={renderShelf}
-          contentContainerStyle={{ paddingBottom: 28 }}
+          contentContainerStyle={{ paddingBottom: 28 + miniPlayerInset }}
           showsVerticalScrollIndicator={false}
           removeClippedSubviews={false}
           initialNumToRender={4}

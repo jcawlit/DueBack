@@ -20,15 +20,25 @@ import {
   type Character,
   type Note,
 } from '@/data/notes';
+import { chapterAt, type Book } from '@/data/types';
 import { timestamp } from '@/lib/format';
+import { bioTextFrom } from './mentionText';
 import { color, font, shadow, space, TOUCH } from '@/theme/tokens';
 import { NoteText, useNoteFont } from './NoteText';
 import { useKeyboardInset } from './useKeyboardInset';
 import { PaperRules, RULE_PITCH } from './PaperCard';
 import { RowAction, TimeChip } from './NotesCard';
 
-function heardLabel(sec: number | null): string {
-  return sec === null ? 'not heard yet' : `first heard ${timestamp(sec)}`;
+/**
+ * "first heard Ch. 11 · 4:31:55".
+ *
+ * The chapter first, because that is where someone remembers meeting a
+ * character; the time is what plays it back.
+ */
+function heardLabel(book: Book, sec: number | null): string {
+  if (sec === null) return 'not heard yet';
+  const chapter = book.chapters.length > 0 ? `Ch. ${chapterAt(book, sec).index + 1} · ` : '';
+  return `first heard ${chapter}${timestamp(sec)}`;
 }
 
 /**
@@ -40,7 +50,10 @@ function heardLabel(sec: number | null): string {
  * about a character becomes their description for ever.
  */
 export function CharacterSheet({
+  book,
   character,
+  creating = false,
+  characters,
   notes,
   onSave,
   onDelete,
@@ -48,7 +61,19 @@ export function CharacterSheet({
   onAddToBio,
   onClose,
 }: {
+  book: Book;
+  /** The character being edited, or null while one is being invented. */
   character: Character | null;
+  /**
+   * Making somebody new.
+   *
+   * Nothing is written until Save. The old flow created the row first with
+   * the placeholder name "New character", which meant backing out left one
+   * behind — and a book could end up with several of them.
+   */
+  creating?: boolean;
+  /** Everyone already in this book, so a name cannot be used twice. */
+  characters: Character[];
   notes: Note[];
   onSave: (fields: { name: string; aliases: string; bio: string }) => void;
   onDelete: () => void;
@@ -58,20 +83,33 @@ export function CharacterSheet({
 }) {
   const insets = useSafeAreaInsets();
   const bioFont = useNoteFont(16);
-  /** The same inset the note sheet rides on; this one has fields too. */
-  const keyboard = useKeyboardInset(!!character);
+  const keyboard = useKeyboardInset(creating || !!character);
   const [name, setName] = useState(character?.name ?? '');
   const [aliases, setAliases] = useState(character?.aliases ?? '');
   const [bio, setBio] = useState(character?.bio ?? '');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  if (!character) return null;
+  if (!creating && !character) return null;
 
-  const mine = notesForCharacter(character.id, notes);
-  const heard = firstHeardSec(character.id, notes);
+  const mine = character ? notesForCharacter(character.id, notes) : [];
+  const heard = character ? firstHeardSec(character.id, notes) : null;
+
+  /*
+   * Save is off until the name is both there and this book's own.
+   *
+   * Two characters with the same name cannot be told apart in a mention,
+   * in the strip, or in the list — the tag would be ambiguous at the exact
+   * moment it is supposed to be doing work.
+   */
+  const trimmed = name.trim();
+  const clash = characters.some(
+    (c) => c.id !== character?.id && c.name.trim().toLowerCase() === trimmed.toLowerCase(),
+  );
+  const canSave = trimmed.length > 0 && !clash;
 
   const commit = () => {
-    onSave({ name, aliases, bio });
+    if (!canSave) return;
+    onSave({ name: trimmed, aliases, bio });
     onClose();
   };
 
@@ -81,15 +119,20 @@ export function CharacterSheet({
      * the height is read and applied as padding — the same arrangement as
      * `NoteSheet`, which explains it.
      */
-    <Modal visible animationType="slide" transparent statusBarTranslucent onRequestClose={commit}>
+    <Modal visible animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(10,7,5,.6)' }}
       >
+        {/*
+          Pressing away from the sheet closes it and keeps nothing. It used
+          to save, which made the backdrop a hidden second Save button — and
+          a dangerous one, since it is what a thumb finds by accident.
+        */}
         <Pressable
           style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 }}
-          onPress={commit}
-          accessibilityLabel="Close"
+          onPress={onClose}
+          accessibilityLabel="Close without saving"
         />
 
         {/*
@@ -148,20 +191,22 @@ export function CharacterSheet({
                 color: color.faint,
               }}
             >
-              CHARACTER
+              {creating ? 'NEW CHARACTER' : 'CHARACTER'}
             </Text>
 
             <Pressable
               onPress={commit}
+              disabled={!canSave}
               accessibilityRole="button"
               accessibilityLabel="Save this character"
+              accessibilityState={{ disabled: !canSave }}
               style={({ pressed }) => ({
                 minHeight: 40,
                 justifyContent: 'center',
                 paddingHorizontal: 16,
                 borderRadius: 8,
                 backgroundColor: color.accent,
-                opacity: pressed ? 0.85 : 1,
+                opacity: !canSave ? 0.35 : pressed ? 0.85 : 1,
               })}
             >
               <Text style={{ fontFamily: font.monoMedium, fontSize: 13, color: color.ground }}>
@@ -207,10 +252,20 @@ export function CharacterSheet({
                     color: color.inkOnPaper,
                   }}
                 />
-                <Text style={{ fontFamily: font.mono, fontSize: 11, color: ON_PAPER_FAINT }}>
-                  {heard === null
-                    ? 'Not heard yet · tag them in a note to mark where they appear'
-                    : heardLabel(heard)}
+                <Text
+                  style={{
+                    fontFamily: font.mono,
+                    fontSize: 11,
+                    color: clash ? color.warningInk : ON_PAPER_FAINT,
+                  }}
+                >
+                  {clash
+                    ? 'Somebody in this book already has that name'
+                    : trimmed.length === 0
+                      ? 'A name is needed before this can be saved'
+                      : heard === null
+                        ? 'Not heard yet · tag them in a note to mark where they appear'
+                        : heardLabel(book, heard)}
                 </Text>
               </View>
 
@@ -288,13 +343,17 @@ export function CharacterSheet({
                     <RowAction
                       label="+ add to bio"
                       onPress={() => {
+                        // As prose, not as the note was typed: mentions
+                        // become names and a half-written one is dropped.
+                        const clean = bioTextFrom(note.text, characters);
+                        if (!clean) return;
                         const next = bio.trim().length === 0
-                          ? note.text.trim()
-                          : bio.includes(note.text.trim())
+                          ? clean
+                          : bio.includes(clean)
                             ? bio
-                            : `${bio.trim()}\n\n${note.text.trim()}`;
+                            : `${bio.trim()}\n\n${clean}`;
                         setBio(next);
-                        onAddToBio(note.text);
+                        onAddToBio(clean);
                       }}
                     />
                   </>
@@ -315,12 +374,13 @@ export function CharacterSheet({
               {mine.length} {mine.length === 1 ? 'note' : 'notes'}
             </Text>
 
-            {confirmingDelete ? (
+            {!character ? null : confirmingDelete ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
                 <RowAction label="really remove" tone="warning" onPress={onDelete} />
                 <RowAction label="keep" onPress={() => setConfirmingDelete(false)} />
               </View>
             ) : (
+              /* Nothing to delete while somebody is still being invented. */
               <Pressable
                 onPress={() => setConfirmingDelete(true)}
                 accessibilityRole="button"

@@ -11,7 +11,7 @@ import { chapterAt, fractionAt, isCheckedOut } from '@/data/types';
 import { selectBook, useLibrary } from '@/store/library';
 import { usePlayer } from '@/store/player';
 import { duplicatesOf, folderLabel } from '@/lib/library/duplicates';
-import { bytes, hoursMinutes, hoursLeft, stampDate } from '@/lib/format';
+import { bytes, hoursClock, hoursMinutes, hoursLeft, stampDate } from '@/lib/format';
 import { color, font, space, TOUCH } from '@/theme/tokens';
 import { BookCover } from '@/components/BookCover';
 import { LibraryCardSheet } from '@/components/LibraryCard';
@@ -23,6 +23,7 @@ import { NoteCard, NoteText } from '@/components/NoteCard';
 import { ChevronLeft, PauseIcon, PlayIcon } from '@/components/icons';
 import { CharacterSheet } from '@/components/CharacterSheet';
 import { NoteSheet } from '@/components/NoteSheet';
+import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { useNotes } from '@/store/notes';
 import { exportNotes } from '@/lib/notes/export';
 import { isPro } from '@/lib/pro';
@@ -150,6 +151,9 @@ export default function BookScreen() {
   /** Whose notes the list is narrowed to, or null for the whole book. */
   const [whose, setWhose] = useState<string | null>(null);
   const [showCard, setShowCard] = useState(false);
+  /** Somebody is being invented: the editor is open with nothing written. */
+  const [makingCharacter, setMakingCharacter] = useState(false);
+  const miniPlayerInset = useMiniPlayerInset();
   const [editing, setEditing] = useState<string | null>(null);
   const [openCharacter, setOpenCharacter] = useState<Character | null>(null);
 
@@ -252,19 +256,20 @@ export default function BookScreen() {
     : null;
 
   /*
-   * Someone new.
+   * Someone new, written only when it is saved.
    *
-   * The row is written straight away with a placeholder name, so the card
-   * that opens is editing a real character rather than holding a draft that
-   * might never be saved. They are selected in the strip at the same time,
-   * which is what makes the empty "No notes about them yet" state the thing
-   * you land on — the honest answer for someone just invented.
+   * This used to create the row first, named "New character", so that the
+   * editor had something real to edit. Backing out left one behind, and a
+   * book could collect several — all of them unnameable in a mention,
+   * because they shared a name.
    */
-  const addBlankCharacter = async () => {
-    const made = await addCharacter(book.id, 'New character');
+  const saveNewCharacter = async (fields: { name: string; aliases: string; bio: string }) => {
+    const made = await addCharacter(book.id, fields.name, fields.bio);
     if (!made) return;
+    if (fields.aliases.trim()) {
+      await updateCharacter(made.id, { name: fields.name, aliases: fields.aliases, bio: fields.bio });
+    }
     setWhose(made.id);
-    setOpenCharacter(made);
   };
 
   /** Opens the player and lands on a second — a note's time chip. */
@@ -310,6 +315,12 @@ export default function BookScreen() {
   );
   const here = chapterAt(book, position);
   const chapterLabel = book.chapters.length > 0 ? `Ch. ${here.index + 1}` : null;
+  /*
+   * Where pressing the bar would put you: the chapter, and the position to
+   * the minute. Seconds were three characters of precision nobody asked
+   * for, and they pushed the line past the end of the button.
+   */
+  const placeNow = [chapterLabel, hoursClock(position)].filter(Boolean).join(' · ');
 
   /*
    * The state, stamped on beside the book with the date it changed. It
@@ -338,7 +349,7 @@ export default function BookScreen() {
     : `${hoursLeft(Math.max(0, book.durationSec - position))} left`;
   /** Where you are, said the way you would say it out loud. */
   const placeLine = started
-    ? `Chapter ${here.index + 1} · ${hoursLeft(Math.max(0, book.durationSec - position))} left`
+    ? placeNow
     : `${book.chapters.length || 1} chapters · ${hoursMinutes(book.durationSec)}`;
 
   const primary: Action = book.drmProtected
@@ -454,8 +465,8 @@ export default function BookScreen() {
       <ScrollView
         style={{ flex: 1 }}
         // Nothing is pinned to the bottom of this screen, so the scroll has
-        // to clear the gesture bar and the mini player itself.
-        contentContainerStyle={{ paddingBottom: Math.max(96, insets.bottom + 88) }}
+        // to clear the gesture bar and the docked player itself.
+        contentContainerStyle={{ paddingBottom: insets.bottom + 36 + miniPlayerInset }}
         showsVerticalScrollIndicator={false}
       >
         {/*
@@ -729,10 +740,11 @@ export default function BookScreen() {
 
         {tab === 'characters' ? (
           <CharactersTab
+            book={book}
             characters={characters}
             notes={mine}
             onOpen={setOpenCharacter}
-            onAdd={isPro() ? () => void addBlankCharacter() : undefined}
+            onAdd={isPro() ? () => setMakingCharacter(true) : undefined}
           />
         ) : null}
 
@@ -781,11 +793,15 @@ export default function BookScreen() {
       />
 
       <CharacterSheet
-        key={openCharacter?.id ?? 'none'}
+        key={openCharacter?.id ?? (makingCharacter ? 'new' : 'none')}
+        book={book}
         character={openCharacter}
+        creating={makingCharacter}
+        characters={characters}
         notes={mine}
         onSave={(fields) => {
           if (openCharacter) void updateCharacter(openCharacter.id, fields);
+          else void saveNewCharacter(fields);
         }}
         onDelete={() => {
           if (openCharacter) {
@@ -793,6 +809,7 @@ export default function BookScreen() {
             if (whose === openCharacter.id) setWhose(null);
           }
           setOpenCharacter(null);
+          setMakingCharacter(false);
         }}
         onPlayFrom={(sec) => {
           setOpenCharacter(null);
@@ -801,7 +818,10 @@ export default function BookScreen() {
         onAddToBio={(text) => {
           if (openCharacter) void addToBio(openCharacter.id, text);
         }}
-        onClose={() => setOpenCharacter(null)}
+        onClose={() => {
+          setOpenCharacter(null);
+          setMakingCharacter(false);
+        }}
       />
     </View>
   );

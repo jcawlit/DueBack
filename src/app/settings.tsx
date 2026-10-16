@@ -16,6 +16,7 @@ import { removeCover } from '@/lib/files/covers';
 import { useScan } from '@/store/scan';
 import { bytes as formatBytes, relativeTime } from '@/lib/format';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
+import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { ChevronLeft } from '@/components/icons';
 import { ScanProgressBar } from '@/components/FirstRun';
 
@@ -75,6 +76,7 @@ function Row({
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
+  const miniPlayerInset = useMiniPlayerInset();
   const handwritten = useUi((s) => s.handwritten);
   const setHandwritten = useUi((s) => s.setHandwritten);
   const backupEnabled = useBackup((s) => s.enabled);
@@ -224,7 +226,7 @@ export default function SettingsScreen() {
       <ScrollView
         contentContainerStyle={{
           padding: space.xl,
-          paddingBottom: insets.bottom + 40,
+          paddingBottom: insets.bottom + 40 + miniPlayerInset,
           gap: space.lg,
         }}
       >

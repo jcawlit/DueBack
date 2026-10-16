@@ -263,6 +263,37 @@ export const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
     await db.runAsync('INSERT OR IGNORE INTO settings VALUES (?, ?)', `library.rootIdentity.${root.value}`, id);
     await db.runAsync('UPDATE books SET library_id = ? WHERE library_id IS NULL', id);
   },
+  async (db) => {
+    /*
+     * Sweep up the characters the old "add" button left behind.
+     *
+     * It wrote a row named "New character" before the editor opened, so
+     * that the editor had something real to edit. Backing out left one
+     * there, and a book could collect several — all of them unnameable in
+     * a mention, because they shared a name. The editor writes nothing
+     * until Save now; this clears what the old one made.
+     *
+     * Only the untouched ones: no notes tagged, no description written.
+     * Anything somebody actually used is somebody's character, whatever it
+     * is called.
+     *
+     * Tombstoned rather than deleted, the way `softDeleteCharacter` does
+     * it. A row removed outright comes back from the drive on the next
+     * merge, because the other side has never heard that it went.
+     */
+    const at = new Date().toISOString();
+    await db.runAsync(
+      `UPDATE characters
+          SET deleted_at = ?, updated_at = ?
+        WHERE deleted_at IS NULL
+          AND lower(trim(name)) = 'new character'
+          AND trim(bio) = ''
+          AND id NOT IN (
+            SELECT character_id FROM note_characters WHERE deleted_at IS NULL
+          )`,
+      at, at,
+    );
+  },
 ];
 
 export async function migrate(db: SQLite.SQLiteDatabase) {

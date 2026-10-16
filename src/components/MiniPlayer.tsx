@@ -1,5 +1,5 @@
 /**
- * The floating player that follows you around the app.
+ * The player docked to the foot of every screen but its own.
  *
  * Playback belongs to the app, not to the Player screen, so once something is
  * playing it should be pausable from anywhere and reachable in one tap —
@@ -14,16 +14,33 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLibrary, selectBook } from '@/store/library';
 import { usePlayer } from '@/store/player';
 import { useUi } from '@/store/ui';
-import { color, font, radius, shadow, space } from '@/theme/tokens';
+import { chapterAt } from '@/data/types';
+import { hoursClock } from '@/lib/format';
+import { color, font, shadow, space } from '@/theme/tokens';
 import { CoverFace } from './CoverFace';
 import { PauseIcon, PlayIcon } from './icons';
 
 /**
- * The pill's drawn height: 6px of padding top and bottom around a 38px play
- * button. Exported so anything that has to stack above it does not have to
- * measure it — see `GlobalSlip`.
+ * The bar's own height, above the home inset. Exported so anything that
+ * has to clear it — every scrolling screen, and `GlobalSlip` — does not
+ * have to measure it.
  */
-export const MINI_PLAYER_HEIGHT = 52;
+export const MINI_PLAYER_HEIGHT = 72;
+
+/**
+ * How much room a scrolling screen must leave at its foot.
+ *
+ * Zero when nothing is playing, or on the Player itself, where the bar is
+ * not drawn. Every screen that scrolls adds this to its bottom padding, so
+ * the last line of a list is readable rather than parked behind the bar.
+ */
+export function useMiniPlayerInset(): number {
+  const pathname = usePathname();
+  const insets = useSafeAreaInsets();
+  const bookId = usePlayer((s) => s.bookId);
+  if (!bookId || pathname.startsWith('/player')) return 0;
+  return MINI_PLAYER_HEIGHT + (pathname === '/' ? 0 : insets.bottom);
+}
 
 export function MiniPlayer() {
   const insets = useSafeAreaInsets();
@@ -42,27 +59,51 @@ export function MiniPlayer() {
   // Nothing loaded, or we are already looking at the full player.
   if (!bookId || !book || pathname.startsWith('/player')) return null;
 
-  // Only the Library pins anything tall to the bottom; everywhere else the
-  // pill just clears the home indicator. Reading the route avoids every other
-  // screen having to remember to reset the obstruction.
+  /*
+   * Docked, not floating.
+   *
+   * It was a pill hovering over the bottom-right corner, which meant it
+   * covered whatever happened to be under it and had to be small enough
+   * not to cover much. A bar across the foot of the screen owns its space
+   * instead: screens pad themselves by MINI_PLAYER_HEIGHT and nothing is
+   * ever hidden behind it.
+   *
+   * The Library still pins its checked-out tray to the bottom, so there
+   * the bar sits on top of that rather than on the screen's edge.
+   */
   const onLibrary = pathname === '/';
-  const bottom = (onLibrary ? bottomObstruction : insets.bottom) + space.md;
+  const bottom = onLibrary ? bottomObstruction : 0;
 
   const fraction =
     book.durationSec > 0 ? Math.min(1, Math.max(0, positionSec / book.durationSec)) : 0;
 
+  const chapter = book.chapters.length > 0 ? chapterAt(book, positionSec) : null;
+  const place = [chapter ? `Ch. ${chapter.index + 1}` : null, hoursClock(positionSec)]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <View
-      // Sits above whatever the current screen pins to the bottom.
       style={{
         position: 'absolute',
-        right: space.lg,
+        left: 0,
+        right: 0,
         bottom,
         zIndex: 40,
-        elevation: 24,
+        backgroundColor: color.panel,
+        borderTopWidth: 1,
+        borderTopColor: color.borderSoft,
+        // The home inset is only ours to clear when we are sitting on the
+        // screen's edge; on the Library the tray below us has already done it.
+        paddingBottom: onLibrary ? 0 : insets.bottom,
+        ...shadow(14, 0.45),
       }}
-      pointerEvents="box-none"
     >
+      {/* How far through the book, drawn on the bar's own top edge. */}
+      <View style={{ height: 2, backgroundColor: color.troughDeep }}>
+        <View style={{ width: `${fraction * 100}%`, height: 2, backgroundColor: color.accent }} />
+      </View>
+
       <Pressable
         onPress={() => router.push(`/player/${book.id}`)}
         // The only way to stop entirely and release the audio engine.
@@ -71,86 +112,50 @@ export function MiniPlayer() {
         accessibilityRole="button"
         accessibilityLabel={`Now playing ${book.title}. Open the player.`}
         accessibilityHint="Long press to stop playing"
-        style={({ pressed }) => [
-          {
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: space.sm,
-            paddingLeft: 6,
-            paddingRight: 6,
-            paddingVertical: 6,
-            borderRadius: radius.button + 4,
-            backgroundColor: color.panel,
-            borderWidth: 1,
-            borderColor: color.border,
-            maxWidth: 260,
-            opacity: pressed ? 0.85 : 1,
-          },
-          shadow(16, 0.55),
-        ]}
+        style={({ pressed }) => ({
+          height: MINI_PLAYER_HEIGHT - 2,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: space.md,
+          paddingLeft: space.lg,
+          paddingRight: space.md,
+          opacity: pressed ? 0.85 : 1,
+        })}
       >
-        <View style={{ borderRadius: 3, overflow: 'hidden' }}>
+        <View style={{ borderRadius: 2, overflow: 'hidden' }}>
           <CoverFace book={book} size="tray" scale={0.52} />
         </View>
 
-        <View style={{ flexShrink: 1, gap: 2, minWidth: 90 }}>
+        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
           <Text
             numberOfLines={1}
-            style={{ fontFamily: font.sans, fontSize: 12, color: color.paper }}
+            style={{ fontFamily: font.sans, fontSize: 15, color: color.paper }}
           >
             {book.title}
           </Text>
-          {/* A hairline of progress, so the pill says where you are. */}
-          <View
-            style={{
-              height: 2,
-              borderRadius: 1,
-              backgroundColor: color.troughDeep,
-              overflow: 'hidden',
-            }}
-          >
-            <View
-              style={{ width: `${fraction * 100}%`, height: '100%', backgroundColor: color.accent }}
-            />
-          </View>
+          <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>
+            {buffering ? 'loading…' : place}
+          </Text>
         </View>
 
         <Pressable
           onPress={togglePlay}
           accessibilityRole="button"
           accessibilityLabel={playing ? 'Pause' : 'Play'}
-          hitSlop={10}
+          hitSlop={8}
           style={({ pressed }) => ({
-            width: 38,
-            height: 38,
-            borderRadius: 10,
+            width: 48,
+            height: 48,
+            borderRadius: 12,
             backgroundColor: color.accent,
             alignItems: 'center',
             justifyContent: 'center',
             opacity: pressed ? 0.8 : 1,
           })}
         >
-          {playing ? (
-            <PauseIcon size={17} />
-          ) : (
-            <PlayIcon size={17} />
-          )}
+          {playing ? <PauseIcon size={18} /> : <PlayIcon size={18} />}
         </Pressable>
       </Pressable>
-
-      {buffering ? (
-        <Text
-          style={{
-            fontFamily: font.mono,
-            fontSize: 9,
-            color: color.faint,
-            textAlign: 'right',
-            paddingTop: 2,
-          }}
-        >
-          loading…
-        </Text>
-      ) : null}
     </View>
   );
 }

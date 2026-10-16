@@ -22,68 +22,15 @@ import {
   type Character,
   type Note,
 } from '@/data/notes';
-import { namesFor } from '@/lib/notes/mentions';
 import { timestamp } from '@/lib/format';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 import { Aside } from './Aside';
+import { mentionSegments } from './mentionText';
 import { NoteText } from './NoteText';
 import { Ribbon } from './Ribbon';
 
 /** The time column, wide enough for `12:34:56` and the same on every row. */
 const TIME_COLUMN = 72;
-
-type Segment = { text: string; characterId?: string };
-
-/**
- * Splits a note into plain text and the names written into it.
- *
- * The same rule `mentionedCharacterIds` matches by — longest name first, so
- * a name containing another is matched whole; case folded, because dictation
- * capitalises as it pleases; and the name must end where a word ends, or
- * `@Ann` would light up inside "@Anne".
- */
-export function mentionSegments(text: string, characters: Character[]): Segment[] {
-  const candidates: { id: string; name: string }[] = [];
-  for (const character of characters) {
-    for (const name of namesFor(character)) {
-      candidates.push({ id: character.id, name: name.toLowerCase() });
-    }
-  }
-  candidates.sort((a, b) => b.name.length - a.name.length);
-
-  const lower = text.toLowerCase();
-  const out: Segment[] = [];
-  let plain = '';
-
-  for (let i = 0; i < text.length; ) {
-    const atStart = lower[i] === '@' && (i === 0 || /\s/.test(lower[i - 1]));
-    const hit = atStart
-      ? candidates.find((candidate) => {
-          if (!lower.startsWith(candidate.name, i + 1)) return false;
-          const after = lower[i + 1 + candidate.name.length];
-          return after === undefined || !/[\w'-]/.test(after);
-        })
-      : undefined;
-
-    if (!hit) {
-      plain += text[i];
-      i += 1;
-      continue;
-    }
-
-    if (plain) {
-      out.push({ text: plain });
-      plain = '';
-    }
-    const end = i + 1 + hit.name.length;
-    // Written without the @: the colour is what says it is a name now.
-    out.push({ text: text.slice(i + 1, end), characterId: hit.id });
-    i = end;
-  }
-
-  if (plain) out.push({ text: plain });
-  return out;
-}
 
 function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] || name;

@@ -48,6 +48,20 @@ export function timestamp(seconds: number): string {
   return `${h}:${String(m).padStart(2, '0')}:${rest}`;
 }
 
+/**
+ * "16:49" — a position in the book, to the minute.
+ *
+ * `timestamp` carries seconds, which is right beside a note you want to
+ * play from and too long for a button, where "16:49:11" is three words of
+ * precision nobody asked for and the line gets cut off instead.
+ */
+export function hoursClock(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `${h}:${String(m).padStart(2, '0')}`;
+}
+
 /** "3h 04m" — whole-book remaining time. */
 export function hoursLeft(seconds: number): string {
   const s = Math.max(0, seconds);

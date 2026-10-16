@@ -18,6 +18,7 @@ import { useLibrary } from '@/store/library';
 import { useScan } from '@/store/scan';
 import { DEFAULT_BLOCK_SIZE } from '@/lib/metadata/reader';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
+import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { ChevronLeft } from '@/components/icons';
 import { ScanProgressBar } from '@/components/FirstRun';
 
@@ -51,6 +52,7 @@ function Line({ children, dim }: { children: React.ReactNode; dim?: boolean }) {
 
 export default function ScanReportScreen() {
   const insets = useSafeAreaInsets();
+  const miniPlayerInset = useMiniPlayerInset();
   const [books, setBooks] = useState<DevBook[]>([]);
   const [copied, setCopied] = useState(false);
 
@@ -232,7 +234,7 @@ export default function ScanReportScreen() {
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: space.lg,
-          paddingBottom: insets.bottom + 40,
+          paddingBottom: insets.bottom + 40 + miniPlayerInset,
           gap: space.md,
         }}
       >

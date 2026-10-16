@@ -67,6 +67,15 @@ export function ChevronDown({ size = 16, stroke = color.muted }: IconProps) {
   );
 }
 
+/** Points into a row that opens something. */
+export function ChevronRight({ size = 14, stroke = color.faint }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+      <Path d="M6 3l5 5-5 5" stroke={stroke} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
 export function ChevronLeft({ size = 16, stroke = color.muted }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 16 16" fill="none">
