@@ -1108,3 +1108,43 @@ text when the devices disagree about their common revision. Failed drive writes
 never advance that base. Conflict copies keep their deterministic ids.
 
 *`src/lib/sync/records.ts`, `tests/audit-regressions.test.ts`*
+
+## Testing against an Audiobookshelf server
+
+### Git Bash path conversion is wanted everywhere except container paths
+
+Git Bash rewrites Unix-looking arguments *and environment values* into Windows
+paths on the way into a native binary. That is what makes `curl -o /dev/null`
+work at all — it becomes `NUL` — and what lets ffmpeg open a `/c/Users/...`
+path. Setting `MSYS_NO_PATHCONV=1` globally breaks both.
+
+The exception is a path that belongs to a container rather than the host.
+Telling Audiobookshelf to scan `/audiobooks` sends it
+`/app/C:/Program Files/Git/audiobooks`; the scan then succeeds and finds
+nothing, which reads exactly like a broken bind mount. Scope
+`MSYS_NO_PATHCONV=1` to that one call.
+
+Renaming the variable does not help — the conversion is on the value, not the
+name. Nor does the mount need checking: `docker exec … ls /audiobooks` is
+converted the same way, so it reports on a path that was never there.
+
+*`tools/abs-test/lib.sh`, `tools/abs-test/seed.sh`*
+
+### Audiobookshelf owns `progress`; a client owns `currentTime`
+
+`PATCH /api/me/progress/:itemId` stores `currentTime` and `isFinished` and
+ignores `progress` — sending it, sending it alone, or sending none of it all
+leave the stored value where the last playback session put it. Only
+`POST /api/session/:id/sync` and `/close` move it. A client that treats
+`progress` as its own field reads back a number it did not write.
+
+The server also decides `isFinished` for itself when little enough of a book
+is left, setting `finishedAt` with it. Fixtures therefore have to be minutes
+long: on a twenty-second book that rule covers most of the book, and a
+progress check at the halfway mark fails for reasons that have nothing to do
+with the client.
+
+Verified against 2.37.1. `/api/status` does not exist on that version; the
+public one is `/status`.
+
+*`tools/abs-test/verify.sh`, `tools/abs-test/sample-item.json`*

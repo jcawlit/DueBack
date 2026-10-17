@@ -1,0 +1,5 @@
+# core.autocrlf is on, so a checkout on Windows rewrites text files to CRLF.
+# A shell script cannot survive that: bash reads the carriage return as part
+# of the interpreter name and reports "bad interpreter: no such file or
+# directory", which says nothing about line endings. Keep them as they are.
+*.sh text eol=lf

@@ -1,0 +1,30 @@
+# A throwaway Audiobookshelf server, for testing Due Back's Pro work against.
+#
+# Everything automated or destructive happens here. The real server on the
+# LAN is read-only for automation — manual device checks only, never a write
+# from a script.
+#
+#   docker compose up -d && ./seed.sh && ./verify.sh
+#
+# The version is pinned on purpose. "latest" moving underneath the harness
+# would turn somebody else's API change into a flaky test, and the point of
+# this server is to be the fixed thing the client is written against. Bump it
+# deliberately, then re-run verify.sh and read what changed.
+
+services:
+  audiobookshelf:
+    image: advplyr/audiobookshelf:2.37.1
+    container_name: dueback-abs-test
+    ports:
+      # 13378 is Audiobookshelf's own convention for a local instance. Inside
+      # the container it always listens on 80.
+      - "13378:80"
+    volumes:
+      # The library. seed.sh writes generated books here from the host.
+      - ./data/audiobooks:/audiobooks
+      # The server's SQLite database and its cached covers. Both are state,
+      # both are disposable: `docker compose down && rm -rf data/` is the
+      # supported way back to a clean server.
+      - ./data/config:/config
+      - ./data/metadata:/metadata
+    restart: unless-stopped

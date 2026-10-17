@@ -67,3 +67,8 @@ modules/*/android/.cxx/
 # Useful while debugging, never part of the project.
 crashlogs.txt
 findings.txt
+
+# Local Audiobookshelf test server (tools/abs-test). The data volumes are
+# a running server's state, and .env holds its logins.
+tools/abs-test/data/
+tools/abs-test/.env
