@@ -45,6 +45,7 @@
       ],
       "expo-sqlite",
       "./plugins/withBackupExclusion",
+      "./plugins/withCleartextTraffic",
       [
         "expo-audio",
         {
