@@ -103,6 +103,41 @@ Treat these as open questions, not as working features:
   re-prompt were seen on hardware in an earlier session. A retry reclaiming
   that folder has not been repeated since the chunked-write change.
 
+### Audiobookshelf, which is mid-build and on `feat/pro`
+
+A testing stage, not a feature. The app can connect to a server, sign in,
+list its book libraries and remember which one was picked; the Library's
+source pill can switch to it. Bringing the catalogue across is step 2, so
+switching to a server currently shows a placeholder saying so.
+
+Verified only against the Docker server in `tools/abs-test`, from Node —
+login, refresh, authorize and libraries all answer correctly on 2.37.1. None
+of it has run on a phone, against a real server, or over a real network.
+
+- **`android.usesCleartextTraffic` is on, for the whole app.** DEV-STAGE.
+  An Audiobookshelf server on a LAN is reached over plain http and Android
+  blocks that by default, so without this a connect attempt dies at the
+  socket with nothing useful to show. Before release this must become a
+  network security config that permits cleartext only for private address
+  ranges — the app config carries the same note beside the flag.
+- **The connect form is in Settings under "Audiobookshelf (testing)".**
+  Plain fields and square buttons on purpose. It is not meant to survive
+  into Settings looking like that.
+- **The source pill is unchanged until a server exists.** With no
+  Audiobookshelf source configured the Library header shows exactly the
+  drive button it always has. The switcher only appears once there is
+  something to switch to, so the USB path is untouched for anyone who never
+  opens this.
+- **No Pro gating yet**, deliberately, while it is being tested.
+
+Secrets: the access and refresh tokens live in SecureStore keyed by the
+source's id, never in SQLite — the database is copied to the drive by the
+backup, so a token in it would be a token on a USB stick. The password is
+never stored at all. That is also why a failed token refresh marks the
+source "Sign in again" and stops: there is nothing to retry with, and a
+client that keeps trying against a server that keeps refusing is how an
+account gets locked.
+
 ## Known, and deliberately not fixed
 
 Do not report these as findings. Report them as findings only with new

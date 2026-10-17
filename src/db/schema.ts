@@ -121,4 +121,9 @@ export const SETTING_KEYS = {
   backupEnabled: 'backup.enabled',
   /** When the drive last took a complete copy. */
   backupAt: 'backup.at',
+  /**
+   * Which configured source the Library is showing. Absent, or the string
+   * 'usb', means the drive — which is the default and stays the default.
+   */
+  activeSourceId: 'library.activeSourceId',
 } as const;

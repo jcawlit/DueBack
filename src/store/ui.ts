@@ -9,6 +9,7 @@
 
 import { create } from 'zustand';
 import { SETTING_KEYS, getSetting, setSetting } from '@/db/schema';
+import { USB_SOURCE_ID } from '@/db/sources';
 
 type UiState = {
   /** Height of whatever is pinned to the bottom of the current screen. */
@@ -26,6 +27,17 @@ type UiState = {
    */
   handwritten: boolean;
   setHandwritten: (value: boolean) => void;
+
+  /**
+   * Which source the Library is showing.
+   *
+   * `USB_SOURCE_ID` is the default and what every existing install starts
+   * on. It is a preference rather than a navigation state because the
+   * answer to "which library am I in" should survive closing the app.
+   */
+  activeSourceId: string;
+  setActiveSourceId: (id: string) => void;
+
   /** Reads the stored preferences. Called once, at startup. */
   loadPreferences: () => Promise<void>;
 };
@@ -40,7 +52,19 @@ export const useUi = create<UiState>((set) => ({
     set({ handwritten: value });
     void setSetting(SETTING_KEYS.handwrittenNotes, value ? '1' : '0').catch(() => {});
   },
+  activeSourceId: USB_SOURCE_ID,
+  setActiveSourceId: (id) => {
+    set({ activeSourceId: id });
+    void setSetting(SETTING_KEYS.activeSourceId, id).catch(() => {});
+  },
+
   loadPreferences: async () => {
+    try {
+      const source = await getSetting(SETTING_KEYS.activeSourceId);
+      if (source) set({ activeSourceId: source });
+    } catch {
+      // The drive is the default, and the default is fine.
+    }
     try {
       const stored = await getSetting(SETTING_KEYS.handwrittenNotes);
       /*

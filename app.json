@@ -19,6 +19,8 @@
     },
     "android": {
       "package": "com.dueback.app",
+      "//usesCleartextTraffic": "DEV-STAGE, must be scoped before release. An Audiobookshelf server on the LAN is reached over plain http, and Android blocks cleartext by default, so a connect attempt fails at the socket with no useful error. This opens it for the whole app, which is more than release should ship: the release version is a network security config that permits cleartext only for private address ranges. Tracked in docs/STATE.md.",
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#1b1410",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -49,7 +51,8 @@
           "enableBackgroundPlayback": true,
           "recordAudioAndroid": false
         }
-      ]
+      ],
+      "expo-secure-store"
     ]
   }
 }

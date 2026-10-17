@@ -19,6 +19,8 @@ import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { ChevronLeft } from '@/components/icons';
 import { ScanProgressBar } from '@/components/FirstRun';
+import { AbsTestingSection } from '@/components/AbsTesting';
+import { useSources } from '@/store/sources';
 
 /** "3 notes", "1 character" — the plural done once. */
 function countLabel(n: number, word: string): string {
@@ -96,6 +98,7 @@ export default function SettingsScreen() {
   const books = useLibrary((s) => s.books);
   const refresh = useLibrary((s) => s.refresh);
   const budgetBytes = useLibrary((s) => s.budgetBytes);
+  const loadSources = useSources((s) => s.load);
 
   const scanning = useScan((s) => s.running);
   const preparing = useScan((s) => s.preparing);
@@ -112,6 +115,11 @@ export default function SettingsScreen() {
   useEffect(() => {
     void checkDrive();
   }, [checkDrive]);
+
+  // Configured servers, for the testing section below.
+  useEffect(() => {
+    void loadSources();
+  }, [loadSources]);
 
   const missing = books.filter((b) => b.missingFromDrive).length;
 
@@ -401,6 +409,8 @@ export default function SettingsScreen() {
             onPress={() => setBackupEnabled(!backupEnabled)}
           />
         </View>
+
+        <AbsTestingSection />
 
         <View style={{ gap: space.sm }}>
           <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}>

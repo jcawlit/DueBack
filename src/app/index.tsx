@@ -23,6 +23,8 @@ import {
 } from '@/store/library';
 import { useScan } from '@/store/scan';
 import { useUi } from '@/store/ui';
+import { switchableSources, useSources } from '@/store/sources';
+import { USB_SOURCE_ID } from '@/db/sources';
 import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { buildShelves } from '@/lib/shelves';
 import { searchBooks } from '@/lib/library/search';
@@ -41,6 +43,11 @@ export default function LibraryScreen() {
   const [checkingDrive, setCheckingDrive] = useState(false);
   const [search, setSearch] = useState('');
   const setBottomObstruction = useUi((s) => s.setBottomObstruction);
+  const activeSourceId = useUi((s) => s.activeSourceId);
+  const setActiveSourceId = useUi((s) => s.setActiveSourceId);
+  const sources = useSources((s) => s.sources);
+  const bookCounts = useSources((s) => s.bookCounts);
+  const loadSources = useSources((s) => s.load);
   /** The docked player sits above the tray; the shelves clear both. */
   const miniPlayerInset = useMiniPlayerInset();
 
@@ -109,6 +116,20 @@ export default function LibraryScreen() {
       ],
     );
   }, [pendingDriveImports, pushImportsToDrive, dismissDriveImportOffer]);
+
+  // Which libraries exist to switch between. Just the drive, until a server
+  // is configured in Settings.
+  useEffect(() => {
+    void loadSources();
+  }, [loadSources]);
+
+  const switchable = useMemo(() => switchableSources(sources), [sources]);
+  /*
+   * A removed source leaves its id behind in the stored preference. Falling
+   * back to the drive is better than an empty screen that cannot be left.
+   */
+  const activeSource = sources.find((s) => s.id === activeSourceId) ?? null;
+  const onRemote = activeSourceId !== USB_SOURCE_ID && activeSource !== null;
 
   const openBook = useCallback((book: Book) => router.push(`/book/${book.id}`), []);
 
@@ -212,6 +233,59 @@ export default function LibraryScreen() {
     );
   }
 
+  /*
+   * A server source, which has nothing in it yet.
+   *
+   * The header stays, because the switcher lives in it and this screen must
+   * be leavable. Everything below it is a placeholder until step 2 brings
+   * the catalogue across.
+   */
+  if (onRemote && activeSource) {
+    const count = bookCounts[activeSource.id] ?? 0;
+    return (
+      <View style={{ flex: 1, backgroundColor: color.ground, paddingTop: insets.top }}>
+        <LibraryHeader
+          title="Library"
+          subtitle={activeSource.config.absLibraryName ?? activeSource.config.serverUrl}
+          connected={false}
+          onCheckDrive={recheckDrive}
+          onOpenSettings={() => router.push('/settings')}
+          sources={switchable}
+          activeSourceId={activeSourceId}
+          onSelectSource={setActiveSourceId}
+        />
+        <View
+          style={{
+            flex: 1,
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: space.xxl,
+            gap: space.sm,
+          }}
+        >
+          <Text style={{ fontFamily: font.serif, fontSize: 22, color: color.paper }}>
+            {activeSource.label}
+          </Text>
+          <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.muted }}>
+            {count > 0 ? `${count} ${count === 1 ? 'book' : 'books'}` : 'No books here yet'}
+          </Text>
+          <Text
+            style={{
+              fontFamily: font.mono,
+              fontSize: 12,
+              color: color.faint,
+              textAlign: 'center',
+            }}
+          >
+            {activeSource.config.needsSignIn
+              ? 'Sign in again in Settings.'
+              : 'Catalogue arrives in step 2.'}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   // Nothing has been indexed yet: ask for the folder.
   if (!libraryRoot || (books.length === 0 && !scanBusy)) {
     return (
@@ -223,6 +297,9 @@ export default function LibraryScreen() {
           onCheckDrive={recheckDrive}
           checking={checkingDrive}
           onOpenSettings={libraryRoot ? () => router.push('/settings') : undefined}
+          sources={switchable}
+          activeSourceId={activeSourceId}
+          onSelectSource={setActiveSourceId}
         />
         {scanProgress && scanBusy ? <ScanProgressBar progress={scanProgress} /> : null}
         <FirstRun onPick={() => void chooseFolderAndScan()} busy={scanBusy} />
@@ -253,6 +330,9 @@ export default function LibraryScreen() {
         onSort={setSort}
         search={search}
         onSearch={setSearch}
+        sources={switchable}
+        activeSourceId={activeSourceId}
+        onSelectSource={setActiveSourceId}
       />
 
       {scanProgress && scanBusy ? <ScanProgressBar progress={scanProgress} /> : null}

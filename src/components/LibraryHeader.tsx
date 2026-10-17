@@ -63,6 +63,60 @@ function SpinningRefresh({ spinning, stroke }: { spinning: boolean; stroke: stri
   );
 }
 
+/**
+ * The source switcher, which only exists once there is something to switch to.
+ *
+ * With no server configured this is never rendered and the drive button is
+ * exactly what it has always been — one tap, "look for the drive". That is
+ * deliberate: the USB library is the app, and it should not grow a chooser
+ * with one item in it to serve a feature nobody has turned on.
+ *
+ * Once a server is there, the pill becomes the current source's name and
+ * tapping it cycles. Cycling rather than opening a menu because there are
+ * two or three of these, and a sheet for that is more furniture than choice.
+ */
+export function SourceSwitcher({
+  sources,
+  activeId,
+  onSelect,
+}: {
+  sources: { id: string; label: string }[];
+  activeId: string;
+  onSelect: (id: string) => void;
+}) {
+  const index = Math.max(0, sources.findIndex((s) => s.id === activeId));
+  const active = sources[index] ?? sources[0];
+  const next = sources[(index + 1) % sources.length];
+
+  return (
+    <Pressable
+      onPress={() => onSelect(next.id)}
+      accessibilityRole="button"
+      accessibilityLabel={`Library source: ${active.label}. Tap to switch to ${next.label}.`}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        minHeight: TOUCH,
+        paddingHorizontal: space.md,
+        borderRadius: radius.button,
+        backgroundColor: color.panel,
+        borderWidth: 1,
+        borderColor: color.border,
+        opacity: pressed ? 0.7 : 1,
+      })}
+    >
+      <DriveIcon size={20} stroke={color.paper} />
+      <Text numberOfLines={1} style={{ fontFamily: font.mono, fontSize: 11, color: color.paper }}>
+        {active.label.toUpperCase()}
+      </Text>
+      <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>
+        {sources.length > 1 ? '⇄' : ''}
+      </Text>
+    </Pressable>
+  );
+}
+
 export function DriveStatusButton({
   connected,
   onPress,
@@ -203,6 +257,9 @@ export function LibraryHeader({
   onOpenSettings,
   search,
   onSearch,
+  sources,
+  activeSourceId,
+  onSelectSource,
 }: {
   title: string;
   subtitle: string;
@@ -215,6 +272,13 @@ export function LibraryHeader({
   onSort?: (next: SortMode) => void;
   search?: string;
   onSearch?: (next: string) => void;
+  /**
+   * Every place a library can come from. One entry means the drive alone,
+   * which is the normal state and renders the drive button unchanged.
+   */
+  sources?: { id: string; label: string }[];
+  activeSourceId?: string;
+  onSelectSource?: (id: string) => void;
 }) {
   return (
     <View
@@ -249,12 +313,20 @@ export function LibraryHeader({
             {subtitle}
           </Text>
         </View>
-        <DriveStatusButton
-          connected={connected}
-          onPress={onCheckDrive}
-          lastSeenLabel={lastSeenLabel}
-          checking={checking}
-        />
+        {sources && sources.length > 1 && activeSourceId && onSelectSource ? (
+          <SourceSwitcher
+            sources={sources}
+            activeId={activeSourceId}
+            onSelect={onSelectSource}
+          />
+        ) : (
+          <DriveStatusButton
+            connected={connected}
+            onPress={onCheckDrive}
+            lastSeenLabel={lastSeenLabel}
+            checking={checking}
+          />
+        )}
       </View>
 
       {onSearch ? (

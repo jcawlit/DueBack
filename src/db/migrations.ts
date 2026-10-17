@@ -294,6 +294,43 @@ export const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
       at, at,
     );
   },
+  async (db) => {
+    /*
+     * Where a book came from, now that it is not always the drive.
+     *
+     * One row per place the app can read a library: an Audiobookshelf server
+     * today, something else later. The USB library deliberately has no row.
+     * It is the implicit source — `books.source_id IS NULL` means "the
+     * drive", which is what every existing row already says and what every
+     * existing query already assumes. Giving it a row would mean
+     * backfilling every book and teaching every query about a column, for a
+     * library that has worked without one since the first commit.
+     *
+     * `config` is JSON and holds only what is safe to read out of a stolen
+     * phone's database: the server address, the username, which of its
+     * libraries was picked. The access token lives in SecureStore under the
+     * source's id. The password is not stored at all — it is used to log in
+     * and discarded in the same function.
+     *
+     * `remote_id` is the server's own id for a book, which is how a book
+     * stays the same book when the local id is a uuid minted here.
+     */
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS sources (
+        id           TEXT PRIMARY KEY NOT NULL,
+        kind         TEXT NOT NULL,
+        label        TEXT NOT NULL,
+        config       TEXT NOT NULL DEFAULT '{}',
+        created_at   TEXT NOT NULL,
+        last_seen_at TEXT
+      );
+
+      ALTER TABLE books ADD COLUMN source_id TEXT;
+      ALTER TABLE books ADD COLUMN remote_id TEXT;
+
+      CREATE INDEX IF NOT EXISTS idx_books_source ON books(source_id, remote_id);
+    `);
+  },
 ];
 
 export async function migrate(db: SQLite.SQLiteDatabase) {
