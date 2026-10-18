@@ -13,6 +13,7 @@ import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { migrate } from '../src/db/migrations.ts';
 import { chooseProgress } from '../src/lib/abs/progress.ts';
 import type { AbsCatalogueEntry } from '../src/lib/abs/map.ts';
+import { DRIVE_BOOKS } from '../src/db/scope.ts';
 
 /**
  * `upsertCatalogue` reaches for the app's database handle, which does not
@@ -272,5 +273,68 @@ describe('whose position is newer', () => {
       chooseProgress(server(500, 1000), local(100, 'not a date')),
       { take: 'server', positionSec: 500 },
     );
+  });
+});
+
+describe('a drive scan speaks only for the drive', () => {
+  /*
+   * The bug this guards against, found on the phone: a USB scan marked
+   * every server book missing, and "Forget missing books" — the most
+   * destructive write in the app — then deleted them, taking their
+   * progress and notes with them.
+   *
+   * The predicate is imported, not copied, so dropping it from the real
+   * queries fails here.
+   */
+  function seed() {
+    raw.exec(`
+      INSERT INTO books(id, folder_rel_path, raw_folder_name, title)
+        VALUES ('usb1','A','A','On The Drive');
+      INSERT INTO books(id, folder_rel_path, raw_folder_name, title, source_kind, on_drive)
+        VALUES ('imp1','','','Imported','imported',0);
+      INSERT INTO sources (id, kind, label, config, created_at)
+        VALUES ('s1','abs','server','{}','2026-10-18T00:00:00.000Z');
+      INSERT INTO books(id, folder_rel_path, raw_folder_name, title, source_id, remote_id, progress_sec)
+        VALUES ('srv1','','','From The Server','s1','r1',321);
+    `);
+  }
+
+  /** The sweep from markMissingExcept, with nothing found on the drive. */
+  const sweep = () =>
+    raw.exec(
+      `UPDATE books SET missing = 1
+        WHERE ${DRIVE_BOOKS}
+          AND NOT (COALESCE(source_kind, 'library') = 'imported' AND COALESCE(on_drive, 1) = 0)`,
+    );
+
+  it('does not mark a server book missing', () => {
+    seed();
+    sweep();
+    const row = (id: string) => raw.prepare('SELECT * FROM books WHERE id = ?').get(id)!;
+    assert.equal(row('usb1').missing, 1, 'a drive book that vanished is missing');
+    assert.equal(row('imp1').missing, 0, 'an import never on the drive is not');
+    assert.equal(row('srv1').missing, 0, 'and a server book is none of its business');
+  });
+
+  it('does not count or forget a server book', () => {
+    seed();
+    sweep();
+    // Both server and drive books flagged, however they got that way.
+    raw.exec("UPDATE books SET missing = 1 WHERE id = 'srv1'");
+
+    const count = raw
+      .prepare(`SELECT COUNT(*) AS n FROM books WHERE missing = 1 AND ${DRIVE_BOOKS}`)
+      .get()!.n;
+    assert.equal(count, 1, 'only the drive book is offered up');
+
+    const doomed = raw
+      .prepare(`SELECT id FROM books WHERE missing = 1 AND ${DRIVE_BOOKS}`)
+      .all()
+      .map((r) => r.id);
+    assert.deepEqual(doomed, ['usb1']);
+
+    for (const id of doomed) raw.prepare('DELETE FROM books WHERE id = ?').run(id);
+    const survivor = raw.prepare("SELECT * FROM books WHERE id = 'srv1'").get()!;
+    assert.equal(survivor.progress_sec, 321, 'the server book and its place survive');
   });
 });

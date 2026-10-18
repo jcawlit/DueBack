@@ -261,11 +261,14 @@ export default function LibraryScreen() {
   }
 
   /*
-   * A server source, which has nothing in it yet.
+   * A server source: the same shelves, built from that library's books.
    *
-   * The header stays, because the switcher lives in it and this screen must
-   * be leavable. Everything below it is a placeholder until step 2 brings
-   * the catalogue across.
+   * The checked-out tray is at the bottom here too, and deliberately shows
+   * the same books as on the drive. What is on the phone is on the phone,
+   * whichever library it came from — and the tray is what the mini player
+   * measures itself against. Leaving it out stranded the player in the
+   * middle of the screen, floating over nothing, because the obstruction
+   * it had been told about belonged to a screen that was no longer showing.
    */
   if (onRemote && activeSource) {
     const busy = refreshingSource[activeSource.id] === true;
@@ -338,6 +341,19 @@ export default function LibraryScreen() {
             windowSize={7}
           />
         )}
+
+        <View onLayout={(e) => setBottomObstruction(e.nativeEvent.layout.height)}>
+          <CheckedOutTray
+            books={checkedOut}
+            usedBytes={used}
+            holdBytes={heldBytes}
+            budgetBytes={budgetBytes}
+            onPressBook={openBook}
+            onLongPressBook={onMoveBook}
+            showRuler
+          />
+          <View style={{ height: insets.bottom, backgroundColor: color.panel }} />
+        </View>
       </View>
     );
   }

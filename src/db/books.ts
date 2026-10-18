@@ -11,6 +11,7 @@ import { fallbackPalette } from '@/lib/library/palette';
 import { fingerprintKey } from '@/lib/library/grouping';
 import { newUuid } from '@/lib/library/ids';
 import { ensureDeviceId, getDb, getSetting, SETTING_KEYS } from './schema';
+import { DRIVE_BOOKS } from './scope';
 
 export type BookRow = {
   id: string;
@@ -295,9 +296,16 @@ export async function markMissingExcept(
     // never on the drive, so a drive scan cannot be evidence that they have
     // gone from it. Sweeping them up marked every fresh import "NOT ON DRIVE"
     // the moment anything triggered a scan.
+    //
+    // Books from a server are excluded for the same reason, one step
+    // further out: walking a USB drive says nothing whatever about what is
+    // on an Audiobookshelf server. Without the `source_id IS NULL` a scan
+    // marked every server book missing, and "Forget missing books" — which
+    // is the most destructive write in the app — then deleted the lot.
     await txn.runAsync(
       `UPDATE books SET missing = 1
-       WHERE NOT (COALESCE(source_kind, 'library') = 'imported' AND COALESCE(on_drive, 1) = 0)`,
+        WHERE ${DRIVE_BOOKS}
+          AND NOT (COALESCE(source_kind, 'library') = 'imported' AND COALESCE(on_drive, 1) = 0)`,
     );
     // Chunked so a very large library cannot exceed SQLite's variable limit.
     const CHUNK = 400;
@@ -649,11 +657,17 @@ export async function closeCheckout(id: string, backAt: string) {
   readingDataChanged();
 }
 
-/** How many indexed books are no longer on the drive. */
+/**
+ * How many indexed books are no longer on the drive.
+ *
+ * The drive, specifically. A book missing from a server is also flagged
+ * `missing`, and it is not this count's business — the drive's own
+ * housekeeping must never offer to delete somebody else's library.
+ */
 export async function countMissing(): Promise<number> {
   const db = await getDb();
   const row = await db.getFirstAsync<{ n: number }>(
-    'SELECT COUNT(*) AS n FROM books WHERE missing = 1',
+    `SELECT COUNT(*) AS n FROM books WHERE missing = 1 AND ${DRIVE_BOOKS}`,
   );
   return row?.n ?? 0;
 }
@@ -665,11 +679,14 @@ export async function countMissing(): Promise<number> {
  * Only ever called from an explicit, confirmed action: a missing book still
  * holds its listening progress and library-card history, which is exactly why
  * a scan flags rather than deletes.
+ *
+ * Drive books only. This is reached from "Forget missing books" under THE
+ * DRIVE, and a server's books are not the drive's to forget.
  */
 export async function forgetMissingBooks(): Promise<string[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<{ id: string }>(
-    'SELECT id FROM books WHERE missing = 1',
+    `SELECT id FROM books WHERE missing = 1 AND ${DRIVE_BOOKS}`,
   );
   const ids = rows.map((r) => r.id);
   if (ids.length === 0) return [];

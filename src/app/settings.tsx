@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { isRemote } from '@/data/types';
 import { useLibrary } from '@/store/library';
 import { forgetMissingBooks } from '@/db/books';
 import { countMarginsFor } from '@/db/notes';
@@ -121,7 +122,10 @@ export default function SettingsScreen() {
     void loadSources();
   }, [loadSources]);
 
-  const missing = books.filter((b) => b.missingFromDrive).length;
+  // Drive books only: a book missing from a server is counted and forgotten
+  // by that source, not by the drive's housekeeping.
+  const onDrive = books.filter((b) => !isRemote(b));
+  const missing = onDrive.filter((b) => b.missingFromDrive).length;
 
   /**
    * Switching folders re-indexes everything, so books from the old one end up
@@ -157,7 +161,7 @@ export default function SettingsScreen() {
    */
   const confirmForgetMissing = () => {
     void (async () => {
-      const ids = books.filter((b) => b.missingFromDrive).map((b) => b.id);
+      const ids = onDrive.filter((b) => b.missingFromDrive).map((b) => b.id);
       let margins = { notes: 0, characters: 0 };
       try {
         margins = await countMarginsFor(ids);
@@ -277,7 +281,7 @@ export default function SettingsScreen() {
             LIBRARY
           </Text>
           <Row
-            label={`${books.length} ${books.length === 1 ? 'book' : 'books'} indexed`}
+            label={`${onDrive.length} ${onDrive.length === 1 ? 'book' : 'books'} indexed`}
             detail={
               missing > 0
                 ? `${missing} no longer on the drive`
