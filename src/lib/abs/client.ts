@@ -74,6 +74,39 @@ export type AbsLibrary = {
   mediaType: string;
 };
 
+/**
+ * The address of one audio file.
+ *
+ * Per file, and never `GET /api/items/:id/download` — that endpoint returns
+ * a ZIP of the whole item, which cannot be resumed, cannot be played until
+ * it is complete, and would have to be unpacked.
+ *
+ * No token in it. Audiobookshelf accepts `?token=`, and this app never uses
+ * it: a URL carrying a credential ends up in logs and crash reports.
+ * Authorization is a header, here as everywhere.
+ */
+export function fileDownloadUrl(serverUrl: string, itemId: string, ino: string): string {
+  return `${serverUrl.replace(/\/+$/, '')}/api/items/${encodeURIComponent(itemId)}` +
+    `/file/${encodeURIComponent(ino)}/download`;
+}
+
+/**
+ * A file's ino no longer resolves.
+ *
+ * Its own type because the answer is specific: re-read the expanded item
+ * and try once more. An ino is the server's inode number and changes
+ * whenever a file is rewritten or the library is rescanned, so this is a
+ * routine event rather than a fault.
+ */
+export class StaleInoError extends Error {
+  readonly partIndex: number;
+  constructor(partIndex: number, name: string) {
+    super(`${name} is no longer where the server said it was.`);
+    this.name = 'StaleInoError';
+    this.partIndex = partIndex;
+  }
+}
+
 /** How long to wait before calling a server unreachable. */
 const TIMEOUT_MS = 12_000;
 
@@ -393,6 +426,11 @@ export type AbsClient = {
   cover(itemId: string, width?: number): Promise<Uint8Array>;
   /** Where the server thinks the listener is, or null if it has no record. */
   progress(itemId: string): Promise<AbsProgress | null>;
+  /** Tells the server where the listener now is. */
+  pushProgress(
+    itemId: string,
+    place: { currentTime: number; duration: number; isFinished: boolean },
+  ): Promise<void>;
   /** The tokens as they now stand, after any renewal. */
   currentAuth(): AbsAuth;
 };
@@ -566,6 +604,33 @@ export function createClient(options: ClientOptions): AbsClient {
         isFinished: body.isFinished === true,
         duration: Number.isFinite(Number(body.duration)) ? Number(body.duration) : 0,
       };
+    },
+
+    async pushProgress(itemId, place) {
+      /*
+       * Three fields, and deliberately not a fourth.
+       *
+       * Step 0 proved against 2.37.1 that the server stores `currentTime`
+       * and `isFinished` from a PATCH and ignores `progress` entirely —
+       * sending it, sending it alone, or sending none of it all leave the
+       * stored fraction where the last playback session put it. That
+       * fraction is the server's own bookkeeping. Sending it anyway would
+       * read as though we expected it to land.
+       *
+       * `isFinished` goes honestly. The server also decides for itself that
+       * a book is finished when little enough is left, setting `finishedAt`
+       * with it, and there is nothing to be gained by arguing with that.
+       */
+      const response = await send(`/api/me/progress/${encodeURIComponent(itemId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentTime: place.currentTime,
+          duration: place.duration,
+          isFinished: place.isFinished,
+        }),
+      });
+      if (!response.ok) await fail(response, 'Save the place');
     },
 
     currentAuth() {

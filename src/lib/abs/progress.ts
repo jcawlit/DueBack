@@ -11,7 +11,16 @@
  * reading back a number we never wrote.
  */
 
-export type ServerPlace = { currentTime: number; lastUpdate: number };
+export type ServerPlace = {
+  currentTime: number;
+  lastUpdate: number;
+  /**
+   * Whether the server considers the book finished. It decides this for
+   * itself when little enough is left to play, so it is reported back
+   * rather than inferred from the position.
+   */
+  isFinished?: boolean;
+};
 export type LocalPlace = { positionSec: number; updatedAt: string | null };
 
 /**

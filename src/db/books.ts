@@ -528,7 +528,7 @@ export async function updateProgress(id: string, positionSec: number, finishedAt
    * read-merge-write-validate cycle on the drive, in synchronous file calls,
    * for the whole length of a book.
    */
-  readingDataChanged('progress');
+  readingDataChanged('progress', id);
 }
 
 /** Records where each part's local copy landed after a successful copy. */

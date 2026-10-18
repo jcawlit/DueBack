@@ -1183,3 +1183,42 @@ from the ID3 tags rather than the file names. A single file with no chapter
 marks gets none, and the app does not invent one spanning the whole book.
 
 *`src/lib/abs/map.ts`, `tools/abs-test/sample-item-multi.json`*
+
+### Check a book out file by file, never through the item's ZIP
+
+`GET /api/items/:id/download` exists and answers 200 with
+`application/zip` — the whole item, in one archive. It cannot be resumed,
+cannot be played until it is complete, and would have to be unpacked. The
+per-file route is `GET /api/items/:id/file/:ino/download`, and it honours
+`Range` with a 206, which is what makes a transfer resumable.
+
+**An ino is volatile.** It is the server's inode number and changes when a
+file is rewritten or the library is rescanned, so one must never be stored
+and reused — re-fetch the expanded item at checkout time. A stale ino
+answers 404. Because it is not certain that `DownloadTask` rejects on a
+non-2xx rather than writing the error body to the file, a downloaded file
+whose size does not match the one the server reported is treated as a stale
+ino: re-read the item, try once, then fail plainly.
+
+`permissions.download` on the signed-in user says whether any of this is
+allowed. With it off the server answers **403** on the file route, so the
+gate is checked up front from the authorize payload rather than discovered
+after a transfer starts.
+
+*`src/lib/abs/download.ts`, `src/lib/abs/checkout.ts`*
+
+### One channel per book for reporting a position
+
+A downloaded book reports only through `PATCH /api/me/progress/:itemId`.
+No playback session is opened for a local file and no session is uploaded
+afterwards. Streaming, when it arrives, is the opposite rule: it reports
+through its session and never through the PATCH. Two channels for one
+position is how a position gets written twice and read back wrong.
+
+Before sending, re-read the server's record and compare `lastUpdate` with
+the local `progress_updated_at`. The re-read is not redundant: between the
+last comparison and now the same account may have listened elsewhere, and a
+blind PATCH overwrites a newer position with an older one — the one failure
+here that loses something waiting cannot recover.
+
+*`src/lib/abs/sync.ts`, `src/store/absProgress.ts`*

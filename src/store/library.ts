@@ -10,7 +10,7 @@
 import { localFolderId } from '@/lib/files/localNames';
 import { create } from 'zustand';
 import type { Book, SortMode } from '@/data/types';
-import { occupiesBudget } from '@/data/types';
+import { isRemote, occupiesBudget } from '@/data/types';
 import { bytes as formatBytes, gigabytes } from '@/lib/format';
 import {
   recordCheckoutComplete,
@@ -50,7 +50,11 @@ import { SETTING_KEYS, getSetting, setSetting } from '@/db/schema';
 import { isPresent, isReachable } from '@/lib/files/access';
 import { isDeviceStorage } from '@/lib/files/safNames';
 import { waitForScanToFinish } from '@/lib/scanBusy';
-import { setCatalogueListener } from './sources';
+import { setCatalogueListener, useSources } from './sources';
+import { checkoutRemoteBook } from '@/lib/abs/checkout';
+import { loadTokens } from '@/lib/abs/tokens';
+import { setRemoteParts } from '@/db/remoteBooks';
+import { getSource } from '@/db/sources';
 
 const GB = 1024 * 1024 * 1024;
 
@@ -313,7 +317,8 @@ export const useLibrary = create<LibraryState>((set, get) => {
     }
     copiesInFlight.add(book.id);
     try {
-      await runCopy(book, onCheckedOut);
+      if (isRemote(book)) await runDownload(book, onCheckedOut);
+      else await runCopy(book, onCheckedOut);
     } catch (err) {
       // Anything thrown here used to leave the book pinned at "copying" for
       // the rest of the session: nothing else ever resets that state, and it
@@ -338,6 +343,110 @@ export const useLibrary = create<LibraryState>((set, get) => {
     patch(id, (b) => ({ ...b, local: { status: 'on-hold', since } }));
     void setLocalState(id, { status: 'on-hold', since });
     if (slip) flashSlip(slip);
+  };
+
+  /**
+   * The server half of a checkout.
+   *
+   * Everything after the bytes land is deliberately identical to the drive
+   * path: the same `recordCheckoutComplete`, the same state, the same slip.
+   * What differs is where the bytes come from and that the parts have to be
+   * written here, because a remote book has none until now.
+   */
+  const runDownload = async (book: Book, onCheckedOut?: (id: string) => void) => {
+    cancelledCopies.delete(book.id);
+    patch(book.id, (b) => ({ ...b, local: { status: 'copying', progress: 0 } }));
+    const started = new Date().toISOString();
+
+    const fail = (text: string) => {
+      patch(book.id, (b) => ({ ...b, local: { status: 'on-shelf' } }));
+      void setLocalState(book.id, { status: 'on-shelf' }).catch(() => {});
+      flashSlip({ kind: 'wont-fit', text });
+    };
+
+    const sourceId = book.sourceId!;
+    const source = await getSource(sourceId).catch(() => null);
+    const client = await useSources.getState().clientFor(sourceId).catch(() => null);
+    const tokens = await loadTokens(sourceId).catch(() => null);
+    if (!source || !client || !tokens) {
+      fail(`${book.title} needs you to sign in to ${source?.label ?? 'the server'} again.`);
+      return;
+    }
+
+    let lastPercent = -1;
+    let outcome;
+    let parts;
+    try {
+      const result = await checkoutRemoteBook(
+        client,
+        source.config.serverUrl,
+        book.id,
+        book.remoteId!,
+        tokens.accessToken,
+        {
+          onProgress: (fraction) => {
+            // Only when the number on screen would change: every patch
+            // rebuilds the books array and re-renders the shelves.
+            const percent = Math.round(fraction * 100);
+            if (percent === lastPercent) return;
+            lastPercent = percent;
+            patch(book.id, (b) =>
+              b.local.status === 'copying'
+                ? { ...b, local: { status: 'copying', progress: fraction } }
+                : b,
+            );
+          },
+          onControls: (controls) => remoteControls.set(book.id, controls),
+        },
+      );
+      outcome = result.outcome;
+      parts = result.parts;
+    } catch (error) {
+      remoteControls.delete(book.id);
+      const message = (error as Error)?.message ?? '';
+      // 401 at any point means the session is gone; the source has already
+      // been marked by the client, so point at the fix rather than the fault.
+      if (/401|sign in/i.test(message)) {
+        fail(`${book.title} could not be fetched — sign in to ${source.label} again.`);
+      } else if (/403|not allowed/i.test(message)) {
+        fail(`${source.label} does not allow this account to download books.`);
+      } else {
+        fail(`${book.title} could not be fetched. ${message}`);
+      }
+      return;
+    } finally {
+      cancelledCopies.delete(book.id);
+    }
+    remoteControls.delete(book.id);
+
+    if (!outcome.ok) {
+      patch(book.id, (b) => ({ ...b, local: { status: 'on-shelf' } }));
+      await setLocalState(book.id, { status: 'on-shelf' });
+      // `cancelCopy` has already said so at the moment the button was pressed.
+      if (outcome.reason !== 'cancelled') {
+        flashSlip({ kind: outcome.reason === 'no-space' ? 'wont-fit' : 'note', text: outcome.message });
+      }
+      return;
+    }
+
+    // The parts come first: `recordCheckoutComplete` writes local paths onto
+    // rows that have to exist, and a remote book has none until this.
+    await setRemoteParts(book.id, book.remoteId!, parts);
+
+    const localPath = `books/${book.id}`;
+    await recordCheckoutComplete(book.id, localPath, outcome.localRelPaths, started);
+    await get().refresh();
+    patch(book.id, (b) => ({
+      ...b,
+      local: { status: 'checked-out', localPath },
+      checkouts: [...b.checkouts, { out: started }],
+    }));
+    flashSlip({
+      kind: 'note',
+      stamp: 'CHECKED OUT',
+      text: `${book.title} is on your phone. Safe to go offline.`,
+    });
+    onCheckedOut?.(book.id);
   };
 
   const runCopy = async (book: Book, onCheckedOut?: (id: string) => void) => {
@@ -467,6 +576,42 @@ export const useLibrary = create<LibraryState>((set, get) => {
       };
     }
 
+    /*
+     * A book on a server has no parts until it is checked out — the
+     * catalogue knows how long a book is, not what it is made of — so the
+     * checks below about files and about the drive do not apply to it. Its
+     * own refusals are the ones that follow.
+     */
+    if (isRemote(book)) {
+      if (book.missingFromDrive) {
+        return {
+          kind: 'wont-fit',
+          text: `${book.title} is no longer on the server. Check again, or it may have been removed.`,
+        };
+      }
+      if (book.durationSec <= 0) {
+        return {
+          kind: 'wont-fit',
+          text: `${book.title} has no audio the server can offer.`,
+        };
+      }
+      const freeForRemote = get().budgetBytes - committedBytes(get().books);
+      if (book.sizeBytes > freeForRemote) {
+        return {
+          kind: 'wont-fit',
+          text: `${book.title} needs ${formatBytes(book.sizeBytes)}. You have ${formatBytes(freeForRemote)} left. Return something?`,
+        };
+      }
+      const roomForRemote = checkFreeSpace(book.sizeBytes);
+      if (!roomForRemote.ok) {
+        return {
+          kind: 'wont-fit',
+          text: `${book.title} needs ${formatBytes(book.sizeBytes)}, and the phone is ${formatBytes(roomForRemote.shortBy)} short of keeping 1 GB free.`,
+        };
+      }
+      return null;
+    }
+
     // Nothing in the folder could be read as audio, so there is no part to
     // copy. The book is still listed — it exists on the drive and the user may
     // want to go and look at it — but it cannot be checked out.
@@ -537,9 +682,20 @@ export const useLibrary = create<LibraryState>((set, get) => {
    * way, and the drive keeps reading until that part finishes — but the
    * button answers now, which is what it promises.
    */
+  /**
+   * Pause and resume, for downloads only.
+   *
+   * A copy from the drive is a single native call per part and cannot be
+   * interrupted; an HTTP transfer can, and keeps what it already has. The
+   * controls come from the download itself and live only as long as it does.
+   */
+  const remoteControls = new Map<string, { pause: () => void; resume: () => void; cancel: () => void; paused: () => boolean }>();
+
   const cancelCopy = (id: string) => {
     if (cancelledCopies.has(id)) return;
     cancelledCopies.add(id);
+    // A download answers at once rather than finishing the file first.
+    remoteControls.get(id)?.cancel();
     const book = get().books.find((b) => b.id === id);
     patch(id, (b) =>
       b.local.status === 'copying' ? { ...b, local: { status: 'on-shelf' } } : b,
@@ -566,11 +722,12 @@ export const useLibrary = create<LibraryState>((set, get) => {
    * added while the one before it is copying is picked up without anything
    * having to remember it.
    */
-  const nextQueued = (): Book | null => {
+  const nextQueued = (runnable: (b: Book) => boolean = () => true): Book | null => {
     const books = get().books;
     const since = (b: Book) => (b.local.status === 'on-hold' ? b.local.since : '');
     const held = books
       .filter((b) => b.local.status === 'on-hold')
+      .filter(runnable)
       .sort((a, b) => since(a).localeCompare(since(b)));
     for (const book of held) {
       const others = books.filter((b) => b.id !== book.id);
@@ -613,10 +770,16 @@ export const useLibrary = create<LibraryState>((set, get) => {
         // and one of them lost. Let the scan finish; the books are not going
         // anywhere.
         await waitForScanToFinish();
-        while (get().driveConnected) {
-          const book = nextQueued();
+        for (;;) {
+          /*
+           * A book from a server needs no drive, so an unplugged drive must
+           * not stop it — and a held drive book must not block it either,
+           * which is why the drive's availability is a filter on what can
+           * run rather than a condition on the loop.
+           */
+          const book = nextQueued((b) => isRemote(b) || get().driveConnected);
           if (!book) break;
-          if (!(await proveDriveReachable())) break;
+          if (!isRemote(book) && !(await proveDriveReachable())) break;
           const onCheckedOut = playWhenCopied.get(book.id);
           playWhenCopied.delete(book.id);
           await startCopy(book, onCheckedOut);
@@ -847,7 +1010,9 @@ export const useLibrary = create<LibraryState>((set, get) => {
         return;
       }
 
-      if (!driveConnected) {
+      // A book from a server does not wait for a drive; it goes in the
+      // queue and the download starts when its turn comes.
+      if (!isRemote(book) && !driveConnected) {
         // The file lives on the drive, so queue it rather than dead-ending.
         enqueue(id, {
           kind: 'note',

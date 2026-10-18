@@ -294,3 +294,86 @@ export async function localProgress(
   if (!row) return null;
   return { positionSec: row.progress_sec, updatedAt: row.progress_updated_at };
 }
+
+/**
+ * Writes the audio files of a remote book as `parts` rows.
+ *
+ * A book from a server has no parts until it is checked out: the catalogue
+ * knows how long it is, not what it is made of. These rows are what the
+ * player reads, so they have to exist before playback and have to carry the
+ * same columns a scanned book's parts do.
+ *
+ * `uri` is deliberately not a fetchable address. For a book on the drive it
+ * is where the audio lives; for this one the audio lives at a URL whose ino
+ * changes under us, and a stored one would be a trap for exactly the code
+ * that must never reuse it. The local path is what plays.
+ */
+export async function setRemoteParts(
+  bookId: string,
+  remoteId: string,
+  parts: {
+    name: string;
+    sizeBytes: number;
+    durationSec: number;
+    startSec: number;
+    trackNumber?: number;
+    localRelPath: string;
+  }[],
+): Promise<void> {
+  const db = await getDb();
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await txn.runAsync('DELETE FROM parts WHERE book_id = ?', bookId);
+    for (let i = 0; i < parts.length; i += 1) {
+      const part = parts[i];
+      await txn.runAsync(
+        `INSERT INTO parts
+           (book_id, idx, rel_path, name, uri, size_bytes, modified_ms,
+            duration_sec, start_sec, track_number, local_rel_path)
+         VALUES (?,?,?,?,?,?,0,?,?,?,?)`,
+        bookId,
+        i,
+        part.name,
+        part.name,
+        `abs:${remoteId}#${i}`,
+        part.sizeBytes,
+        part.durationSec,
+        part.startSec,
+        part.trackNumber ?? i + 1,
+        part.localRelPath,
+      );
+    }
+  });
+}
+
+/** What the progress pusher needs to know about a book, in one read. */
+export async function remotePlace(bookId: string): Promise<{
+  remoteId: string;
+  sourceId: string;
+  positionSec: number;
+  updatedAt: string | null;
+  durationSec: number;
+  isFinished: boolean;
+} | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{
+    remote_id: string | null;
+    source_id: string | null;
+    progress_sec: number;
+    progress_updated_at: string | null;
+    duration_sec: number;
+    finished_at: string | null;
+  }>(
+    `SELECT remote_id, source_id, progress_sec, progress_updated_at, duration_sec, finished_at
+       FROM books WHERE id = ?`,
+    bookId,
+  );
+  if (!row?.remote_id || !row.source_id) return null;
+  return {
+    remoteId: row.remote_id,
+    sourceId: row.source_id,
+    positionSec: row.progress_sec,
+    updatedAt: row.progress_updated_at,
+    durationSec: row.duration_sec,
+    isFinished: row.finished_at !== null,
+  };
+}

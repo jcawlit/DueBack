@@ -112,8 +112,14 @@ is a later step: nothing is downloaded yet.
 
 Verified only against the Docker server in `tools/abs-test`, from Node —
 login, refresh, authorize, libraries, paginated items, expanded items,
-covers and progress all answer correctly on 2.37.1. None of it has run on a
+covers, per-file downloads with Range, the progress PATCH and the download
+permission gate all answer correctly on 2.37.1. None of it has run on a
 phone, against a real server, or over a real network.
+
+**The download itself is the biggest untested thing.** `DownloadTask` is
+native and cannot run off-device, so what is proved is the protocol around
+it — the URLs, the sizes, the 206, the 404 — and not pause, resume or
+cancel, which have only ever been reasoned about.
 
 - **A remote book is its `(source_id, remote_id)` pair.** The local id is a
   uuid minted on first sight and never changes, so progress, notes,
@@ -130,6 +136,18 @@ phone, against a real server, or over a real network.
 - **The position comes from `currentTime`**, and the newer of the two
   writes wins. Taking the server's shows "Picked up where you left off on
   another device".
+- **A server book checks out like a drive book.** Per-file downloads into
+  the same local layout, through the same queue, with the same budget
+  rules and the same `recordCheckoutComplete` afterwards — so returning,
+  reconciliation and the checked-out tray needed no changes. Playing it
+  works offline. Its place is pushed back with a throttled PATCH, and only
+  when ours is the newer one.
+- **Checkout is disabled for an account without download permission**,
+  read from the authorize payload rather than discovered when the server
+  answers 403.
+- **Pause and resume work on a download** and not on a drive copy, because
+  an HTTP transfer can be interrupted and keeps what it has, where one
+  native file copy cannot.
 
 - **`android.usesCleartextTraffic` is on, for the whole app.** DEV-STAGE.
   An Audiobookshelf server on a LAN is reached over plain http and Android

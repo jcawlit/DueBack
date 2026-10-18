@@ -197,6 +197,47 @@ export function chaptersFrom(expanded: Json): { chapters: Chapter[]; fromParts: 
   };
 }
 
+/** One audio file of a book, as the server describes it right now. */
+export type AbsAudioFile = {
+  /**
+   * The server's inode for the file, and the thing a download addresses.
+   * Volatile: valid for this read of the item and not afterwards.
+   */
+  ino: string;
+  name: string;
+  sizeBytes: number;
+};
+
+/**
+ * The audio files of an expanded item.
+ *
+ * `media.audioFiles`, not `media.tracks`. Tracks carry the playback offsets
+ * but a track's address is a `contentUrl`; what a download needs is the ino
+ * of the file behind it, and only `audioFiles` has that. The two arrays run
+ * in the same order, so the offsets are matched up by index.
+ */
+export function audioFilesOf(expanded: Json): AbsAudioFile[] {
+  const media = obj(expanded.media);
+  return arr(media.audioFiles)
+    .map((entry) => {
+      const file = obj(entry);
+      const metadata = obj(file.metadata);
+      // Some payloads give the ino as a number.
+      const ino =
+        typeof file.ino === 'string'
+          ? file.ino
+          : typeof file.ino === 'number'
+            ? String(file.ino)
+            : '';
+      return {
+        ino,
+        name: str(metadata.filename) || `part-${ino}`,
+        sizeBytes: num(metadata.size),
+      };
+    })
+    .filter((file) => file.ino.length > 0);
+}
+
 /** What an expanded item adds to what the catalogue already knew. */
 export type AbsDetail = {
   chapters: Chapter[];

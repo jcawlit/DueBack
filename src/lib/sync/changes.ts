@@ -13,12 +13,36 @@
 
 export type ChangeKind = 'authored' | 'progress';
 
-let listener: ((kind: ChangeKind) => void) | undefined;
+/*
+ * A set, not a single callback. There are two listeners now — the drive
+ * backup and the push of progress to an Audiobookshelf server — and the
+ * single-slot version silently replaced one with the other depending on
+ * which module happened to be imported second.
+ */
+const listeners = new Set<(kind: ChangeKind, bookId?: string) => void>();
 
-export function onReadingDataChanged(callback: (kind: ChangeKind) => void) {
-  listener = callback;
+/**
+ * Registers a listener. The returned function removes it again.
+ *
+ * `bookId` is present on a progress change and says which book moved. The
+ * backup does not care — it copies everything — but pushing a position to a
+ * server does, and guessing it from whatever is playing would be wrong the
+ * moment anything else writes progress.
+ */
+export function onReadingDataChanged(
+  callback: (kind: ChangeKind, bookId?: string) => void,
+): () => void {
+  listeners.add(callback);
+  return () => listeners.delete(callback);
 }
 
-export function readingDataChanged(kind: ChangeKind = 'authored') {
-  listener?.(kind);
+export function readingDataChanged(kind: ChangeKind = 'authored', bookId?: string) {
+  for (const listener of listeners) {
+    try {
+      listener(kind, bookId);
+    } catch (error) {
+      // One listener failing must not stop the others being told.
+      console.warn('[dueback] a reading-data listener threw', error);
+    }
+  }
 }

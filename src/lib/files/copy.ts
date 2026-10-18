@@ -65,6 +65,26 @@ function tmpRoot() {
   return new Directory(Paths.document, BOOKS_TMP_DIR);
 }
 
+/**
+ * The layout, for anything that fills it by another route.
+ *
+ * A book downloaded from a server has to land exactly where a book copied
+ * from the drive lands, or the player cannot find it, `deleteLocalCopy`
+ * cannot remove it and startup reconciliation decides it was never checked
+ * out. One definition of "where", used by both. See `src/lib/abs/download.ts`.
+ */
+export const bookLayout = {
+  staging: (bookId: string) => new Directory(tmpRoot(), bookId),
+  final: (bookId: string) => new Directory(booksDir(), bookId),
+  /** The on-disk name of part `i`, which is what `local_rel_path` records. */
+  partFileName: (i: number, sourceName: string) => safeLocalName(i, sourceName),
+  relPath: (bookId: string, i: number, sourceName: string) =>
+    `${BOOKS_DIR}/${bookId}/${safeLocalName(i, sourceName)}`,
+  ensureStagingRoot: () => ensure(tmpRoot()),
+  ensure,
+  removeQuietly,
+};
+
 function ensure(dir: Directory) {
   try {
     if (!dir.exists) dir.create({ intermediates: true });
@@ -185,6 +205,28 @@ export function deleteLocalCopy(bookId: string) {
  * a second copy of the audio.
  */
 const PREVIOUS_SUFFIX = '.previous';
+
+/**
+ * Moves a complete staging folder into place, keeping one whole copy on disk
+ * at every instant.
+ *
+ * Extracted so the download path cannot drift from the copy path, because
+ * this is the step where drifting loses a book that is already fully on the
+ * phone. Two things were once wrong with it and must stay right: the move is
+ * awaited, or the caller reports success while the audio is still in flight;
+ * and the old copy is moved aside rather than deleted, so a kill between the
+ * two leaves something for `recoverInterruptedSwaps` to put back instead of
+ * a gap with neither version on disk.
+ */
+export async function swapIntoPlace(bookId: string, staging: Directory): Promise<void> {
+  const finalDir = new Directory(booksDir(), bookId);
+  ensure(booksDir());
+  const previous = new Directory(booksDir(), `${bookId}${PREVIOUS_SUFFIX}`);
+  removeQuietly(previous);
+  if (finalDir.exists) await finalDir.move(previous);
+  await staging.move(finalDir);
+  removeQuietly(previous);
+}
 
 /** The book ids that currently have a folder of copied audio on the phone. */
 export function listLocalBookIds(): string[] {
@@ -486,13 +528,7 @@ export async function copyBookToDevice(
      * window with neither on disk. The old copy is moved aside instead, and
      * `recoverInterruptedSwaps` puts it back if the app does not get this far.
      */
-    const finalDir = new Directory(booksDir(), bookId);
-    ensure(booksDir());
-    const previous = new Directory(booksDir(), `${bookId}${PREVIOUS_SUFFIX}`);
-    removeQuietly(previous);
-    if (finalDir.exists) await finalDir.move(previous);
-    await staging.move(finalDir);
-    removeQuietly(previous);
+    await swapIntoPlace(bookId, staging);
 
     return {
       ok: true,

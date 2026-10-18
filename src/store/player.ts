@@ -8,7 +8,7 @@
  */
 
 import { create } from 'zustand';
-import { chapterAt, type Book } from '@/data/types';
+import { chapterAt, isRemote, type Book } from '@/data/types';
 import { createExpoAudioEngine } from '@/lib/audio/expoAudioEngine';
 import { SPEEDS, type AudioEngine, type EngineTrack } from '@/lib/audio/engine';
 import { loadParts } from '@/db/books';
@@ -290,14 +290,23 @@ export const usePlayer = create<PlayerState>((set, get) => {
         // before a sound, so a book that is not on the phone is not playable
         // and the Book screen offers to check it out instead. The exception is
         // a library already on the phone, where there is nothing to copy.
-        const onDevice = useLibrary.getState().libraryOnDevice;
+        //
+        // `libraryOnDevice` is about the USB library sitting in phone
+        // storage, where a part's own `uri` is already local and playable.
+        // It says nothing about a book from a server, whose `uri` is a
+        // placeholder and never fetchable — so a remote book is playable
+        // only from a downloaded copy, and offering `p.uri` for one would
+        // hand the audio engine a string it cannot open.
+        const onDevice = useLibrary.getState().libraryOnDevice && !isRemote(b);
         const localUris = rows.map((p) =>
           p.local_uri ? localUriFor(p.local_uri) : onDevice ? p.uri : null,
         );
         if (localUris.some((u) => !u)) {
           set({
             buffering: false,
-            error: 'This book is not on your phone yet. Check it out first.',
+            error: isRemote(b)
+              ? 'This book is not downloaded yet. Check it out first.'
+              : 'This book is not on your phone yet. Check it out first.',
           });
           return;
         }

@@ -18,7 +18,10 @@ import { ActivityIndicator, Image, Pressable, ScrollView, Text, View } from 'rea
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Chapter } from '@/data/types';
+import { isCheckedOut } from '@/data/types';
 import { selectBook, useLibrary } from '@/store/library';
+import { canDownload } from '@/lib/abs/checkout';
+import { flushProgressPush, lastPushFor } from '@/store/absProgress';
 import { useSources } from '@/store/sources';
 import { fetchDetail } from '@/lib/abs/catalogue';
 import { adoptServerProgress, localProgress } from '@/db/remoteBooks';
@@ -38,6 +41,41 @@ type Loaded = {
   cached: boolean;
   cachedAt?: string;
 };
+
+function Act({
+  label,
+  onPress,
+  tone = 'normal',
+  disabled,
+}: {
+  label: string;
+  onPress: () => void;
+  tone?: 'normal' | 'accent' | 'warning';
+  disabled?: boolean;
+}) {
+  const ink = tone === 'accent' ? color.accent : tone === 'warning' ? color.warning : color.paper;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
+      style={({ pressed }) => ({
+        minHeight: TOUCH,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: space.md,
+        borderWidth: 1,
+        borderColor: ink,
+        borderRadius: radius.button,
+        opacity: disabled ? 0.45 : pressed ? 0.7 : 1,
+      })}
+    >
+      <Text style={{ fontFamily: font.mono, fontSize: 12, color: ink }}>{label}</Text>
+    </Pressable>
+  );
+}
 
 function Line({ label, value }: { label: string; value: string }) {
   return (
@@ -59,6 +97,9 @@ export default function AbsBookScreen() {
 
   const book = useLibrary(selectBook(id));
   const refreshLibrary = useLibrary((s) => s.refresh);
+  const checkOut = useLibrary((s) => s.checkOut);
+  const returnBook = useLibrary((s) => s.returnBook);
+  const cancelCopy = useLibrary((s) => s.cancelCopy);
   const clientFor = useSources((s) => s.clientFor);
   const sources = useSources((s) => s.sources);
 
@@ -67,6 +108,12 @@ export default function AbsBookScreen() {
   const [error, setError] = useState<string | null>(null);
   /** Set when the server's position was newer and has been taken. */
   const [adopted, setAdopted] = useState<number | null>(null);
+  /**
+   * Whether this account may download at all. `null` until asked, so the
+   * button is not disabled on a guess before the answer arrives.
+   */
+  const [allowed, setAllowed] = useState<boolean | null>(null);
+  const [pushedAt, setPushedAt] = useState<string | null>(null);
 
   const sourceId = book?.sourceId;
   const remoteId = book?.remoteId;
@@ -109,6 +156,13 @@ export default function AbsBookScreen() {
          * from a client.
          */
         if (client) {
+          // Asked once, on open. A server that refuses downloads for this
+          // account should say so before the button is pressed, not after
+          // a transfer has already started and been refused.
+          void canDownload(client)
+            .then((can) => alive && setAllowed(can))
+            .catch(() => alive && setAllowed(null));
+
           const server = await client.progress(remoteId).catch(() => null);
           const mine = await localProgress(bookId);
           const choice = chooseProgress(server, mine);
@@ -140,6 +194,8 @@ export default function AbsBookScreen() {
     );
   }
 
+  const out = isCheckedOut(book);
+  const copying = book.local.status === 'copying';
   const chapters = loaded?.chapters ?? book.chapters;
   const durationSec = loaded?.durationSec || book.durationSec;
   const sizeBytes = loaded?.sizeBytes || book.sizeBytes;
@@ -302,18 +358,55 @@ export default function AbsBookScreen() {
           )}
         </View>
 
-        <View
-          style={{
-            padding: space.md,
-            borderWidth: 1,
-            borderColor: color.line,
-            borderRadius: radius.button,
-          }}
-        >
-          <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>
-            Playing a book from a server arrives in a later step. Nothing here
-            is downloaded yet.
+        <View style={{ gap: space.sm }}>
+          <Text
+            style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}
+          >
+            ON THIS PHONE
           </Text>
+
+          {copying ? (
+            <>
+              <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.accent }}>
+                Downloading — {Math.round((book.local.status === 'copying' ? book.local.progress : 0) * 100)}%
+              </Text>
+              <Act label="Stop" onPress={() => cancelCopy(book.id)} tone="warning" />
+            </>
+          ) : out ? (
+            <>
+              <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.accent }}>
+                Downloaded. Plays offline.
+              </Text>
+              <Act label="Play" onPress={() => router.push(`/player/${book.id}`)} tone="accent" />
+              <Act label="Return (deletes the files, keeps your place)" onPress={() => returnBook(book.id)} />
+              <Act
+                label="Send my place to the server now"
+                onPress={() => {
+                  void flushProgressPush(book.id).then(() => {
+                    setPushedAt(lastPushFor(book.id)?.outcome ?? 'done');
+                  });
+                }}
+              />
+              {pushedAt ? (
+                <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>
+                  Last push: {pushedAt}
+                </Text>
+              ) : null}
+            </>
+          ) : allowed === false ? (
+            <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.warning }}>
+              This account is not allowed to download from the server, so this
+              book cannot be checked out. An administrator has to turn the
+              download permission on.
+            </Text>
+          ) : (
+            <Act
+              label={`Check out (${formatBytes(book.sizeBytes)})`}
+              onPress={() => checkOut(book.id)}
+              tone="accent"
+              disabled={allowed === null}
+            />
+          )}
         </View>
       </ScrollView>
     </View>
