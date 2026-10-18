@@ -50,6 +50,7 @@ import { SETTING_KEYS, getSetting, setSetting } from '@/db/schema';
 import { isPresent, isReachable } from '@/lib/files/access';
 import { isDeviceStorage } from '@/lib/files/safNames';
 import { waitForScanToFinish } from '@/lib/scanBusy';
+import { setCatalogueListener } from './sources';
 
 const GB = 1024 * 1024 * 1024;
 
@@ -681,6 +682,14 @@ export const useLibrary = create<LibraryState>((set, get) => {
       // Idempotent: mounting effects and fast refresh can both call this.
       if (get().ready || hydrating) return;
       hydrating = true;
+      /*
+       * A catalogue arriving from a server changes the same `books` table a
+       * scan does, so the shelves have to be reloaded when it lands. Wired
+       * here as a callback rather than an import in the other direction:
+       * two zustand stores importing each other resolve at module-evaluation
+       * time and fail as an undefined `create`.
+       */
+      setCatalogueListener(() => get().refresh());
       await reconcileLocalCopies();
       try {
         const [rootUri, rootName, lastSeen, budget, books] = await Promise.all([

@@ -1148,3 +1148,38 @@ Verified against 2.37.1. `/api/status` does not exist on that version; the
 public one is `/status`.
 
 *`tools/abs-test/verify.sh`, `tools/abs-test/sample-item.json`*
+
+### Covers come back as WebP, and a missing one is a 404
+
+`GET /api/items/:id/cover?width=400` re-encodes, so the bytes are WebP
+whatever the file on the server was. A plain cover compresses to a few
+hundred bytes — rejecting a small response as "too small to be real" throws
+away good artwork. A book the server has no cover for answers **404**, which
+is the only signal needed.
+
+The request carries the Authorization header like every other, and the bytes
+go straight into the local cover cache. Audiobookshelf also accepts
+`?token=`, and the app never uses it: a URL with a token in it ends up in
+logs, in crash reports and in the image cache key, and `<Image source={{uri}}>`
+cannot send a header anyway — so the only way to stay header-only is to fetch
+the bytes and point the UI at a local file.
+
+*`src/lib/abs/catalogue.ts`, `src/lib/files/covers.ts`*
+
+### A minified list item has only the flattened metadata
+
+`GET /api/libraries/:id/items?minified=1` carries `authorName`,
+`narratorName` and `seriesName` — the last already formatted as
+"Keepers #1". The structured `authors[]`, `narrators[]` and
+`series[{name,sequence}]` appear only on an expanded item. `narrators[]` is
+an array of plain strings where `authors[]` is an array of objects.
+
+So the mapper reads both shapes through one set of functions, structured
+first, and rebuilds the flattened series string from name and sequence — or
+the catalogue and the book screen would disagree about the same book.
+
+A multi-file book gets real chapters from the server, one per file, titled
+from the ID3 tags rather than the file names. A single file with no chapter
+marks gets none, and the app does not invent one spanning the whole book.
+
+*`src/lib/abs/map.ts`, `tools/abs-test/sample-item-multi.json`*

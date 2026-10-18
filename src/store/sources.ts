@@ -23,6 +23,8 @@ import {
   type AbsSession,
 } from '@/lib/abs/client';
 import { forgetTokens, loadTokens, saveTokens } from '@/lib/abs/tokens';
+import { pullCatalogue, pullCovers } from '@/lib/abs/catalogue';
+import type { CatalogueChange } from '@/db/remoteBooks';
 import {
   addSource,
   countBooksFor,
@@ -69,12 +71,24 @@ type SourcesState = {
   remove: (sourceId: string) => Promise<void>;
   /** A live client for a stored source, or null when there is no token. */
   clientFor: (sourceId: string) => Promise<AbsClient | null>;
+
+  /** True while a catalogue is being read, keyed by source id. */
+  refreshing: Record<string, boolean>;
+  /** What the last refresh of each source did, or why it could not. */
+  lastRefresh: Record<string, { at: string; change?: CatalogueChange; error?: string }>;
+  /**
+   * Re-reads a source's catalogue and then its missing covers.
+   * Returns true when the catalogue landed.
+   */
+  refreshCatalogue: (sourceId: string) => Promise<boolean>;
 };
 
 export const useSources = create<SourcesState>((set, get) => ({
   sources: [],
   ready: false,
   bookCounts: {},
+  refreshing: {},
+  lastRefresh: {},
 
   load: async () => {
     try {
@@ -185,6 +199,64 @@ export const useSources = create<SourcesState>((set, get) => ({
     set((s) => ({ sources: s.sources.filter((x) => x.id !== sourceId) }));
   },
 
+  /*
+   * Read the catalogue, then fetch the covers it is missing.
+   *
+   * The two are deliberately separate awaits with a reload between them: the
+   * books appear on the shelves as soon as the catalogue lands, and the
+   * pictures fill in behind. A server with four hundred books is four
+   * hundred image requests, and holding the library blank until the last one
+   * finishes would be the wrong trade every time.
+   */
+  refreshCatalogue: async (sourceId) => {
+    if (get().refreshing[sourceId]) return false;
+    const source = await getSource(sourceId);
+    if (!source || source.kind !== 'abs') return false;
+
+    const libraryId = source.config.absLibraryId;
+    if (!libraryId) {
+      set((s) => ({
+        lastRefresh: {
+          ...s.lastRefresh,
+          [sourceId]: { at: new Date().toISOString(), error: 'No library picked yet.' },
+        },
+      }));
+      return false;
+    }
+
+    set((s) => ({ refreshing: { ...s.refreshing, [sourceId]: true } }));
+    try {
+      const client = await get().clientFor(sourceId);
+      if (!client) throw new AbsError('auth', 'No stored credentials. Sign in again.', 401);
+
+      const change = await pullCatalogue(client, sourceId, libraryId);
+      const lastSeenAt = await touchSource(sourceId);
+      set((s) => ({
+        sources: s.sources.map((x) => (x.id === sourceId ? { ...x, lastSeenAt } : x)),
+        bookCounts: { ...s.bookCounts, [sourceId]: change.total },
+        lastRefresh: { ...s.lastRefresh, [sourceId]: { at: lastSeenAt, change } },
+      }));
+      // The shelves can show the books now; covers arrive after this.
+      await onCatalogueChanged?.();
+
+      await pullCovers(client, sourceId);
+      await onCatalogueChanged?.();
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[sources] refreshing ${sourceId} failed`, error);
+      set((s) => ({
+        lastRefresh: {
+          ...s.lastRefresh,
+          [sourceId]: { at: new Date().toISOString(), error: message },
+        },
+      }));
+      return false;
+    } finally {
+      set((s) => ({ refreshing: { ...s.refreshing, [sourceId]: false } }));
+    }
+  },
+
   clientFor: async (sourceId) => {
     const source = await getSource(sourceId);
     if (!source || source.kind !== 'abs') return null;
@@ -209,6 +281,19 @@ export const useSources = create<SourcesState>((set, get) => ({
     });
   },
 }));
+
+/**
+ * How this store tells the library store that the books have changed.
+ *
+ * A callback rather than an import, because `store/library.ts` already
+ * imports a great deal and a cycle between two zustand stores is resolved at
+ * module-evaluation time, where it shows up as an undefined `create`.
+ */
+let onCatalogueChanged: (() => Promise<void>) | null = null;
+
+export function setCatalogueListener(listener: (() => Promise<void>) | null) {
+  onCatalogueChanged = listener;
+}
 
 /** The drive is always first and always there; the rest are configured. */
 export function switchableSources(sources: Source[]): { id: string; label: string }[] {

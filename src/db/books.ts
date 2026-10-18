@@ -43,6 +43,11 @@ export type BookRow = {
   source_kind: string;
   on_drive: number;
   chapters_from_parts: number;
+  source_id: string | null;
+  remote_id: string | null;
+  remote_updated_at: number | null;
+  series: string | null;
+  genres: string | null;
 };
 
 export type PartRow = {
@@ -431,11 +436,19 @@ export async function loadBooks(): Promise<Book[]> {
       missingFromDrive: row.missing === 1,
       // An imported book not yet copied across means the phone holds the only
       // copy, which is the same hazard as a book that left the drive.
-      onlyCopyOnPhone: row.missing === 1 || (row.source_kind === 'imported' && row.on_drive === 0),
+      // Not for a book on a server: "gone from the server" does not mean the
+      // phone holds the only copy, and no remote book has a local copy yet.
+      onlyCopyOnPhone:
+        row.source_id === null &&
+        (row.missing === 1 || (row.source_kind === 'imported' && row.on_drive === 0)),
       importedFromPhone: row.source_kind === 'imported',
       chaptersFromParts: row.chapters_from_parts === 1,
       drmProtected: row.drm === 1,
       lastPlayedAt: row.last_played_at ?? undefined,
+      sourceId: row.source_id ?? undefined,
+      remoteId: row.remote_id ?? undefined,
+      series: row.series ?? undefined,
+      remoteUpdatedAt: row.remote_updated_at ?? undefined,
     } satisfies Book;
   });
 }

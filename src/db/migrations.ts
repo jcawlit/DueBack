@@ -331,6 +331,31 @@ export const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
       CREATE INDEX IF NOT EXISTS idx_books_source ON books(source_id, remote_id);
     `);
   },
+  async (db) => {
+    /*
+     * What a server said about a book, and when it last said it.
+     *
+     * `remote_updated_at` is the server's own `updatedAt`, in its own
+     * milliseconds, kept verbatim. It is the whole of the refresh diff: a
+     * catalogue of several hundred books is re-read often, and a row whose
+     * stamp has not moved needs no write at all. Comparing our fields
+     * instead would mean trusting that we mapped every one of them, which
+     * is exactly the assumption a diff should not make.
+     *
+     * `remote_detail` is the expanded item as it arrived — chapters, tracks,
+     * the lot. Cached so that opening a book with the server unreachable
+     * shows what it showed last time rather than a blank screen. It is a
+     * cache and nothing reads it as truth: the catalogue columns beside it
+     * are what the shelves use.
+     */
+    await db.execAsync(`
+      ALTER TABLE books ADD COLUMN remote_updated_at INTEGER;
+      ALTER TABLE books ADD COLUMN remote_detail TEXT;
+      ALTER TABLE books ADD COLUMN remote_detail_at TEXT;
+      ALTER TABLE books ADD COLUMN series TEXT;
+      ALTER TABLE books ADD COLUMN genres TEXT;
+    `);
+  },
 ];
 
 export async function migrate(db: SQLite.SQLiteDatabase) {

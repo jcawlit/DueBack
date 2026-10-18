@@ -119,6 +119,25 @@ printf '%s' "$ITEM" | node -e '
 ' > "$SAMPLE"
 note "saved $(basename "$SAMPLE") ($(wc -c < "$SAMPLE" | tr -d ' ') bytes)"
 
+# And the three-file book, whose chapters the server derives from the
+# files. The single-file sample above has none, so without this one the
+# chapter mapping would have no real payload to be tested against.
+MULTI_ID="$(ITEM_WANT="Three Short Nights" pick 'd.results.find((r) => r.media.metadata.title === process.env.ITEM_WANT).id' <<<"$ITEMS" || true)"
+if [ -n "$MULTI_ID" ]; then
+  MULTI="$(api "$TOKEN" GET "/api/items/$MULTI_ID?expanded=1")"
+  printf '%s' "$MULTI" | node -e '
+    let s = "";
+    process.stdin.on("data", (c) => (s += c)).on("end", () => {
+      process.stdout.write(JSON.stringify(JSON.parse(s), null, 2) + "\n");
+    });
+  ' > "$HERE/sample-item-multi.json"
+  eq "its chapters" "$(pick 'd.media.chapters.length' <<<"$MULTI" || echo 0)" "3"
+  eq "its tracks" "$(pick 'd.media.tracks.length' <<<"$MULTI" || echo 0)" "3"
+  note "saved sample-item-multi.json"
+else
+  bad "could not find Three Short Nights for the chapters sample"
+fi
+
 INO="$(pick 'd.media.audioFiles[0].ino' <<<"$ITEM" || true)"
 TRACK_NAME="$(pick 'd.media.audioFiles[0].metadata.filename' <<<"$ITEM" || true)"
 some "first audio file ino" "$INO"

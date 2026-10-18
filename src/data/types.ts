@@ -79,7 +79,26 @@ export type Book = {
   drmProtected?: boolean;
   /** ISO date the book was last listened to, for the "gathering dust" sort. */
   lastPlayedAt?: string;
+  /**
+   * Which configured source this book came from. Absent means the USB
+   * drive, which is the implicit source and has no row of its own.
+   */
+  sourceId?: string;
+  /**
+   * The server's own id for this book. A remote book *is* its
+   * `(sourceId, remoteId)` pair — the local `id` is a uuid minted here, so
+   * progress, notes, characters and history attach to it exactly as they do
+   * for a book on the drive.
+   */
+  remoteId?: string;
+  /** Series as the server flattens it, e.g. "Keepers #1". */
+  series?: string;
+  /** When the server last said anything about this book. */
+  remoteUpdatedAt?: number;
 };
+
+/** True for a book that lives on a server rather than on the drive. */
+export const isRemote = (b: Book) => b.sourceId !== undefined && b.remoteId !== undefined;
 
 /**
  * How the shelves are arranged.

@@ -365,12 +365,43 @@ export type ClientOptions = {
   fetch?: Fetcher;
 };
 
+/** One book as the catalogue lists it. Raw JSON — mapping lives in map.ts. */
+export type AbsItemJson = Record<string, unknown>;
+
+/** What the server knows about where a listener is in a book. */
+export type AbsProgress = {
+  /** Seconds. The position, and the only field a client owns. */
+  currentTime: number;
+  /** The server's clock, in milliseconds, for deciding which side is newer. */
+  lastUpdate: number;
+  isFinished: boolean;
+  duration: number;
+};
+
 export type AbsClient = {
   authorize(): Promise<AbsSession>;
   libraries(): Promise<AbsLibrary[]>;
+  /**
+   * Every book in a library, a page at a time. Minified, because the
+   * catalogue needs the flattened fields and nothing else — the expanded
+   * record is hundreds of times the size and is fetched per book, on open.
+   */
+  libraryItems(libraryId: string): Promise<AbsItemJson[]>;
+  /** One book, expanded: chapters, tracks, the structured metadata. */
+  item(itemId: string): Promise<AbsItemJson>;
+  /** Cover bytes, fetched with the Authorization header like everything else. */
+  cover(itemId: string, width?: number): Promise<Uint8Array>;
+  /** Where the server thinks the listener is, or null if it has no record. */
+  progress(itemId: string): Promise<AbsProgress | null>;
   /** The tokens as they now stand, after any renewal. */
   currentAuth(): AbsAuth;
 };
+
+/** Books per request. Large enough that a real library is a few round trips. */
+const PAGE_SIZE = 100;
+
+/** Pages to read before giving up, in case a server never stops paging. */
+const MAX_PAGES = 200;
 
 /**
  * A connection to one server, which renews its own session exactly once per
@@ -467,6 +498,74 @@ export function createClient(options: ClientOptions): AbsClient {
            */
           .filter((library) => library.mediaType === 'book')
       );
+    },
+
+    async libraryItems(libraryId) {
+      const items: AbsItemJson[] = [];
+      for (let page = 0; page < MAX_PAGES; page += 1) {
+        const response = await send(
+          `/api/libraries/${encodeURIComponent(libraryId)}/items` +
+            `?limit=${PAGE_SIZE}&page=${page}&minified=1`,
+          { method: 'GET' },
+        );
+        if (!response.ok) await fail(response, 'Read the library');
+        const body = await readJson(response, 'Read the library');
+        const results = Array.isArray(body.results) ? (body.results as AbsItemJson[]) : [];
+        items.push(...results);
+        /*
+         * Stop on a short page rather than on a running total reaching
+         * `total`. The total is counted per request, so a book added while
+         * the catalogue is being read makes the two disagree for ever and
+         * the loop never ends.
+         */
+        if (results.length < PAGE_SIZE) return items;
+      }
+      console.warn(`[abs] stopped reading ${libraryId} after ${MAX_PAGES} pages`);
+      return items;
+    },
+
+    async item(itemId) {
+      const response = await send(`/api/items/${encodeURIComponent(itemId)}?expanded=1`, {
+        method: 'GET',
+      });
+      if (!response.ok) await fail(response, 'Read the book');
+      return readJson(response, 'Read the book');
+    },
+
+    async cover(itemId, width = 400) {
+      /*
+       * Through `send`, which means the Authorization header — not the
+       * `?token=` the server also accepts. A URL with a token in it ends up
+       * in logs, in crash reports and in the image cache's key, and an
+       * <Image source={{uri}}> cannot carry a header anyway. So the bytes
+       * are fetched here and written to the local cover cache, and the UI
+       * only ever points at a local file.
+       */
+      const response = await send(
+        `/api/items/${encodeURIComponent(itemId)}/cover?width=${width}`,
+        { method: 'GET' },
+      );
+      if (!response.ok) await fail(response, 'Fetch the cover');
+      return new Uint8Array(await response.arrayBuffer());
+    },
+
+    async progress(itemId) {
+      const response = await send(`/api/me/progress/${encodeURIComponent(itemId)}`, {
+        method: 'GET',
+      });
+      // No record is the normal answer for a book nobody has opened.
+      if (response.status === 404) return null;
+      if (!response.ok) await fail(response, 'Read the saved place');
+      const body = await readJson(response, 'Read the saved place');
+      const currentTime = Number(body.currentTime);
+      const lastUpdate = Number(body.lastUpdate);
+      if (!Number.isFinite(currentTime) || !Number.isFinite(lastUpdate)) return null;
+      return {
+        currentTime,
+        lastUpdate,
+        isFinished: body.isFinished === true,
+        duration: Number.isFinite(Number(body.duration)) ? Number(body.duration) : 0,
+      };
     },
 
     currentAuth() {

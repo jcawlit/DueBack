@@ -13,7 +13,13 @@ import { coverUri, deleteCover, deleteCoversFor, writeCoverBytes } from './acces
 /** Long side of the stored thumbnail, in pixels. */
 export const THUMBNAIL_SIZE = 400;
 
-export type CoverSource = 'folder-image' | 'embedded' | 'none';
+/**
+ * Where the artwork came from. `remote` is a server's cover endpoint, which
+ * arrives as bytes over an authenticated request and is cached here like any
+ * other — the app never points an image at a URL it would have to put a
+ * token in.
+ */
+export type CoverSource = 'folder-image' | 'embedded' | 'remote' | 'none';
 
 export type StoredCover = {
   /** File name within the covers directory. */

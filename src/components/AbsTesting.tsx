@@ -395,6 +395,24 @@ function SignInAgainPanel({ source }: { source: Source }) {
 function SourcePanel({ source }: { source: Source }) {
   const disconnect = useSources((s) => s.disconnect);
   const remove = useSources((s) => s.remove);
+  const refreshCatalogue = useSources((s) => s.refreshCatalogue);
+  const refreshing = useSources((s) => s.refreshing[source.id] === true);
+  const last = useSources((s) => s.lastRefresh[source.id]);
+
+  /** What the last catalogue read did, in one line. */
+  const refreshLine = (() => {
+    if (refreshing) return 'Reading the catalogue…';
+    if (!last) return null;
+    if (last.error) return `Last check failed: ${last.error}`;
+    const c = last.change;
+    if (!c) return null;
+    const parts = [`${c.total} on the server`];
+    if (c.added) parts.push(`${c.added} new`);
+    if (c.updated) parts.push(`${c.updated} changed`);
+    if (c.returned) parts.push(`${c.returned} back`);
+    if (c.missing) parts.push(`${c.missing} gone`);
+    return parts.join(' · ');
+  })();
 
   const confirmRemove = () => {
     Alert.alert(
@@ -434,7 +452,19 @@ function SourcePanel({ source }: { source: Source }) {
       {source.config.needsSignIn ? (
         <SignInAgainPanel source={source} />
       ) : (
-        <LibraryPicker source={source} />
+        <>
+          <LibraryPicker source={source} />
+          <Button
+            label={refreshing ? 'Checking…' : 'Check again'}
+            onPress={() => void refreshCatalogue(source.id)}
+            tone="accent"
+            busy={refreshing}
+            disabled={!source.config.absLibraryId}
+          />
+          {refreshLine ? (
+            <Message tone={last?.error ? 'bad' : 'ok'} text={refreshLine} />
+          ) : null}
+        </>
       )}
 
       <View style={{ flexDirection: 'row', gap: space.sm }}>
@@ -466,7 +496,7 @@ export function AbsTestingSection() {
         AUDIOBOOKSHELF (TESTING)
       </Text>
       <Text style={{ fontFamily: font.mono, fontSize: 10, color: color.faint }}>
-        Unfinished. Connecting a server does not bring any books across yet.
+        Unfinished. The catalogue and chapters arrive; the audio does not yet.
       </Text>
 
       {servers.map((source) => (

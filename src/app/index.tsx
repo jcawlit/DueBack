@@ -11,7 +11,7 @@ import { Alert, FlatList, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Book } from '@/data/types';
-import { isCheckedOut } from '@/data/types';
+import { isCheckedOut, isRemote } from '@/data/types';
 import {
   checkedOutFrom,
   heldCount,
@@ -46,7 +46,7 @@ export default function LibraryScreen() {
   const activeSourceId = useUi((s) => s.activeSourceId);
   const setActiveSourceId = useUi((s) => s.setActiveSourceId);
   const sources = useSources((s) => s.sources);
-  const bookCounts = useSources((s) => s.bookCounts);
+
   const loadSources = useSources((s) => s.load);
   /** The docked player sits above the tray; the shelves clear both. */
   const miniPlayerInset = useMiniPlayerInset();
@@ -91,7 +91,20 @@ export default function LibraryScreen() {
 
   // Shelves show everything, so a checked-out book keeps its place in the
   // stacks with an "OUT" tag rather than vanishing from where the user left it.
-  const found = useMemo(() => searchBooks(books, search), [books, search]);
+  /*
+   * The shelves show one library at a time.
+   *
+   * A book's source is where it is kept, and mixing two of them into one set
+   * of generated shelves would produce a "6 hours or less" shelf containing
+   * books you cannot reach. The checked-out tray below is deliberately not
+   * filtered: what is on the phone is on the phone, whichever library it
+   * came from.
+   */
+  const inSource = useMemo(
+    () => books.filter((b) => (b.sourceId ?? USB_SOURCE_ID) === activeSourceId),
+    [books, activeSourceId],
+  );
+  const found = useMemo(() => searchBooks(inSource, search), [inSource, search]);
   const shelves = useMemo(() => buildShelves(found, sort), [found, sort]);
   const searching = search.trim().length > 0;
 
@@ -124,6 +137,8 @@ export default function LibraryScreen() {
   }, [loadSources]);
 
   const switchable = useMemo(() => switchableSources(sources), [sources]);
+  const refreshCatalogue = useSources((s) => s.refreshCatalogue);
+  const refreshingSource = useSources((s) => s.refreshing);
   /*
    * A removed source leaves its id behind in the stored preference. Falling
    * back to the drive is better than an empty screen that cannot be left.
@@ -131,7 +146,19 @@ export default function LibraryScreen() {
   const activeSource = sources.find((s) => s.id === activeSourceId) ?? null;
   const onRemote = activeSourceId !== USB_SOURCE_ID && activeSource !== null;
 
-  const openBook = useCallback((book: Book) => router.push(`/book/${book.id}`), []);
+  /*
+   * A book on a server opens on its own plain screen.
+   *
+   * The polished Book screen is built around a book that is on the drive or
+   * on the phone — it offers to check out, to return, to put on hold. None
+   * of those mean anything for a book whose audio has not been brought
+   * across yet, and threading "but not this kind of book" through all of it
+   * is how a working screen gets broken for the library that already works.
+   */
+  const openBook = useCallback(
+    (book: Book) => router.push(isRemote(book) ? `/abs/${book.id}` : `/book/${book.id}`),
+    [],
+  );
 
   /**
    * Tapping the status looks for the drive there and then, rather than sending
@@ -241,47 +268,76 @@ export default function LibraryScreen() {
    * the catalogue across.
    */
   if (onRemote && activeSource) {
-    const count = bookCounts[activeSource.id] ?? 0;
+    const busy = refreshingSource[activeSource.id] === true;
+    const subtitle = activeSource.config.needsSignIn
+      ? 'Sign in again in Settings'
+      : busy
+        ? 'Reading the catalogue…'
+        : `${inSource.length} ${inSource.length === 1 ? 'book' : 'books'}` +
+          (activeSource.lastSeenAt ? ` · checked ${relativeTimeShort(activeSource.lastSeenAt)}` : '');
+
     return (
       <View style={{ flex: 1, backgroundColor: color.ground, paddingTop: insets.top }}>
         <LibraryHeader
-          title="Library"
-          subtitle={activeSource.config.absLibraryName ?? activeSource.config.serverUrl}
+          title={activeSource.config.absLibraryName ?? activeSource.label}
+          subtitle={subtitle}
           connected={false}
-          onCheckDrive={recheckDrive}
+          onCheckDrive={() => void refreshCatalogue(activeSource.id)}
+          checking={busy}
           onOpenSettings={() => router.push('/settings')}
           sources={switchable}
           activeSourceId={activeSourceId}
           onSelectSource={setActiveSourceId}
+          sort={sort}
+          onSort={setSort}
+          search={search}
+          onSearch={setSearch}
         />
-        <View
-          style={{
-            flex: 1,
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: space.xxl,
-            gap: space.sm,
-          }}
-        >
-          <Text style={{ fontFamily: font.serif, fontSize: 22, color: color.paper }}>
-            {activeSource.label}
-          </Text>
-          <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.muted }}>
-            {count > 0 ? `${count} ${count === 1 ? 'book' : 'books'}` : 'No books here yet'}
-          </Text>
-          <Text
+
+        {inSource.length === 0 ? (
+          <View
             style={{
-              fontFamily: font.mono,
-              fontSize: 12,
-              color: color.faint,
-              textAlign: 'center',
+              flex: 1,
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: space.xxl,
+              gap: space.sm,
             }}
           >
-            {activeSource.config.needsSignIn
-              ? 'Sign in again in Settings.'
-              : 'Catalogue arrives in step 2.'}
-          </Text>
-        </View>
+            <Text style={{ fontFamily: font.serif, fontSize: 22, color: color.paper }}>
+              {activeSource.label}
+            </Text>
+            <Text
+              style={{
+                fontFamily: font.mono,
+                fontSize: 12,
+                color: color.muted,
+                textAlign: 'center',
+              }}
+            >
+              {activeSource.config.needsSignIn
+                ? 'Sign in again in Settings.'
+                : busy
+                  ? 'Reading the catalogue…'
+                  : 'Nothing here yet. Settings → Check again reads the catalogue.'}
+            </Text>
+          </View>
+        ) : searching && found.length === 0 ? (
+          <NoSearchResults query={search} total={inSource.length} onClear={() => setSearch('')} />
+        ) : (
+          <FlatList
+            style={{ flex: 1 }}
+            data={shelves}
+            keyExtractor={(shelf) => shelf.key}
+            renderItem={renderShelf}
+            contentContainerStyle={{ paddingBottom: 28 + miniPlayerInset }}
+            showsVerticalScrollIndicator={false}
+            removeClippedSubviews={false}
+            initialNumToRender={4}
+            maxToRenderPerBatch={4}
+            windowSize={7}
+          />
+        )}
       </View>
     );
   }

@@ -106,13 +106,30 @@ Treat these as open questions, not as working features:
 ### Audiobookshelf, which is mid-build and on `feat/pro`
 
 A testing stage, not a feature. The app can connect to a server, sign in,
-list its book libraries and remember which one was picked; the Library's
-source pill can switch to it. Bringing the catalogue across is step 2, so
-switching to a server currently shows a placeholder saying so.
+pick one of its book libraries, read that library's catalogue onto the
+shelves with its covers, and open a book to its real chapters. Playing one
+is a later step: nothing is downloaded yet.
 
 Verified only against the Docker server in `tools/abs-test`, from Node —
-login, refresh, authorize and libraries all answer correctly on 2.37.1. None
-of it has run on a phone, against a real server, or over a real network.
+login, refresh, authorize, libraries, paginated items, expanded items,
+covers and progress all answer correctly on 2.37.1. None of it has run on a
+phone, against a real server, or over a real network.
+
+- **A remote book is its `(source_id, remote_id)` pair.** The local id is a
+  uuid minted on first sight and never changes, so progress, notes,
+  characters and history attach to it exactly as they do for a book on the
+  drive. A refresh diffs on the server's own `updatedAt` and marks a
+  vanished book missing rather than deleting it, mirroring what a USB scan
+  does.
+- **Shelves and search show one source at a time.** The checked-out tray
+  stays global: what is on the phone is on the phone.
+- **A book on a server opens on its own plain screen**, `src/app/abs/[id]`,
+  not the polished Book screen. That one is built around checking out,
+  returning and holding, none of which mean anything yet for a book with no
+  audio on the phone.
+- **The position comes from `currentTime`**, and the newer of the two
+  writes wins. Taking the server's shows "Picked up where you left off on
+  another device".
 
 - **`android.usesCleartextTraffic` is on, for the whole app.** DEV-STAGE.
   An Audiobookshelf server on a LAN is reached over plain http and Android
@@ -122,7 +139,8 @@ of it has run on a phone, against a real server, or over a real network.
   ranges — the app config carries the same note beside the flag.
 - **The connect form is in Settings under "Audiobookshelf (testing)".**
   Plain fields and square buttons on purpose. It is not meant to survive
-  into Settings looking like that.
+  into Settings looking like that. "Check again" there is what re-reads the
+  catalogue.
 - **The source pill is unchanged until a server exists.** With no
   Audiobookshelf source configured the Library header shows exactly the
   drive button it always has. The switcher only appears once there is
