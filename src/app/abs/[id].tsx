@@ -97,9 +97,6 @@ export default function AbsBookScreen() {
 
   const book = useLibrary(selectBook(id));
   const refreshLibrary = useLibrary((s) => s.refresh);
-  const checkOut = useLibrary((s) => s.checkOut);
-  const returnBook = useLibrary((s) => s.returnBook);
-  const cancelCopy = useLibrary((s) => s.cancelCopy);
   const clientFor = useSources((s) => s.clientFor);
   const sources = useSources((s) => s.sources);
 
@@ -362,23 +359,34 @@ export default function AbsBookScreen() {
           <Text
             style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}
           >
-            ON THIS PHONE
+            SERVER DETAILS (TESTING)
           </Text>
 
-          {copying ? (
+          <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>
+            {copying
+              ? `Downloading — ${Math.round((book.local.status === 'copying' ? book.local.progress : 0) * 100)}%`
+              : out
+                ? 'Downloaded. Plays offline.'
+                : 'Not downloaded.'}
+          </Text>
+
+          {allowed === false ? (
+            <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.warning }}>
+              This account is not allowed to download from the server. An
+              administrator has to turn the download permission on.
+            </Text>
+          ) : null}
+
+          {/*
+            Downloading, playing and returning are the Book screen's job —
+            this is the view behind it, for the things only a tester wants.
+            Having both offer the same actions is what gave the player and
+            the book two different places to go back to.
+          */}
+          <Act label="Open the book" onPress={() => router.navigate(`/book/${book.id}`)} tone="accent" />
+
+          {out ? (
             <>
-              <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.accent }}>
-                Downloading — {Math.round((book.local.status === 'copying' ? book.local.progress : 0) * 100)}%
-              </Text>
-              <Act label="Stop" onPress={() => cancelCopy(book.id)} tone="warning" />
-            </>
-          ) : out ? (
-            <>
-              <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.accent }}>
-                Downloaded. Plays offline.
-              </Text>
-              <Act label="Play" onPress={() => router.push(`/player/${book.id}`)} tone="accent" />
-              <Act label="Return (deletes the files, keeps your place)" onPress={() => returnBook(book.id)} />
               <Act
                 label="Send my place to the server now"
                 onPress={() => {
@@ -393,20 +401,7 @@ export default function AbsBookScreen() {
                 </Text>
               ) : null}
             </>
-          ) : allowed === false ? (
-            <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.warning }}>
-              This account is not allowed to download from the server, so this
-              book cannot be checked out. An administrator has to turn the
-              download permission on.
-            </Text>
-          ) : (
-            <Act
-              label={`Check out (${formatBytes(book.sizeBytes)})`}
-              onPress={() => checkOut(book.id)}
-              tone="accent"
-              disabled={allowed === null}
-            />
-          )}
+          ) : null}
         </View>
       </ScrollView>
     </View>

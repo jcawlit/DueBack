@@ -224,7 +224,14 @@ export default function PlayerScreen() {
           came from. Down is out of the book altogether, to the shelves.
         */}
         <Pressable
-          onPress={() => router.push(`/book/${book.id}`)}
+          /*
+           * `navigate`, not `push`. Push stacks a second copy of the book
+           * on top of the player, so going back from it returns to the
+           * player and the two trap each other — which is exactly what
+           * happened once a server book arrived from a different screen.
+           * Navigate returns to the book already in the stack.
+           */
+          onPress={() => router.navigate(`/book/${book.id}`)}
           accessibilityRole="button"
           accessibilityLabel="Back to the book"
           style={({ pressed }) => ({

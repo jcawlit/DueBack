@@ -136,6 +136,15 @@ cancel, which have only ever been reasoned about.
 - **The position comes from `currentTime`**, and the newer of the two
   writes wins. Taking the server's shows "Picked up where you left off on
   another device".
+- **One screen per book, whichever library it came from.** A server book
+  opens on the Book screen like any other. It had its own plain screen
+  while it was an inert catalogue entry with no audio; once it could be
+  downloaded it was a book, and two screens for one thing trapped the
+  player and the book in a loop. `src/app/abs/[id]` survives as the server
+  view behind it — remote id, cached-at, last progress push — reached from
+  a link on the Chapters tab.
+- **The position is settled in `player.open`**, not when a screen appears.
+  Every route to playback passes through there; a screen does not.
 - **A server book checks out like a drive book.** Per-file downloads into
   the same local layout, through the same queue, with the same budget
   rules and the same `recordCheckoutComplete` afterwards — so returning,

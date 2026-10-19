@@ -17,6 +17,8 @@ import { localUriFor } from '@/lib/files/copy';
 import { onBecomingNoisy } from '@/lib/audio/soundFx';
 import { useSound } from './sound';
 import { onBookAudioRemoved, useLibrary } from './library';
+import { reconcileBeforePlay } from './absProgress';
+import { timestamp } from '@/lib/format';
 
 export { SPEEDS };
 
@@ -243,8 +245,32 @@ export const usePlayer = create<PlayerState>((set, get) => {
     sleepRemainingSec: null,
 
     open: async (bookId) => {
-      const b = useLibrary.getState().books.find((x) => x.id === bookId);
+      let b = useLibrary.getState().books.find((x) => x.id === bookId);
       if (!b) return;
+
+      /*
+       * Settle the position with the server before deciding where to start.
+       *
+       * Every route to playback comes through here — the mini player, "Keep
+       * listening", the checked-out tray, the player route — which is why
+       * the comparison lives here and not on a screen. Doing it when a
+       * screen opened missed all of those, and lost even on the screen that
+       * did it whenever Play was pressed before the round trip came back:
+       * that is what made picking up another device's position work only
+       * sometimes.
+       *
+       * Bounded, and silent on failure. A book already on the phone must
+       * play whatever the server is doing.
+       */
+      const adopted = isRemote(b) ? await reconcileBeforePlay(bookId) : null;
+      if (adopted !== null) {
+        b = useLibrary.getState().books.find((x) => x.id === bookId) ?? b;
+        useLibrary.getState().showSlip({
+          kind: 'note',
+          stamp: 'PICKED UP',
+          text: `Picked up where you left off on another device — ${timestamp(adopted)}.`,
+        });
+      }
 
       /*
        * A finished book opens at the beginning: its saved position is the last

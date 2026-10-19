@@ -7,11 +7,13 @@ import { Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useMemo, useState } from 'react';
-import { chapterAt, fractionAt, isCheckedOut } from '@/data/types';
+import { chapterAt, fractionAt, isCheckedOut, isRemote } from '@/data/types';
 import { selectBook, useLibrary } from '@/store/library';
+import { useSources } from '@/store/sources';
+import { fetchDetail } from '@/lib/abs/catalogue';
 import { usePlayer } from '@/store/player';
 import { duplicatesOf, folderLabel } from '@/lib/library/duplicates';
-import { bytes, hoursClock, hoursMinutes, hoursLeft, stampDate } from '@/lib/format';
+import { bytes, hoursClock, hoursMinutes, hoursLeft, relativeTime, stampDate } from '@/lib/format';
 import { color, font, space, TOUCH } from '@/theme/tokens';
 import { BookCover } from '@/components/BookCover';
 import { LibraryCardSheet } from '@/components/LibraryCard';
@@ -171,12 +173,51 @@ export default function BookScreen() {
   const deleteCharacter = useNotes((s) => s.deleteCharacter);
   const addToBio = useNotes((s) => s.addToBio);
   const showSlip = useLibrary((s) => s.showSlip);
+  const sources = useSources((s) => s.sources);
+  const refresh = useLibrary((s) => s.refresh);
   const backupEnabled = useBackup((s) => s.enabled);
   const backupPending = useBackup((s) => s.pending);
 
   useEffect(() => {
     if (id) void loadNotes(id);
   }, [id, loadNotes]);
+
+  /*
+   * A book from a server is re-read on open, which is where its chapters
+   * come from: the catalogue knows how long a book is, not what it is made
+   * of. Cheap, cached, and the only way a chapter list stays current when
+   * the book changes on the server.
+   *
+   * Nothing here can fail visibly. If the server cannot be reached, the
+   * cached record from last time is used and the screen says so — the
+   * alternative is a downloaded book with no chapters because the wifi is
+   * off, which is the case this most needs to survive.
+   */
+  /** Said when the chapters on screen came from the cache, not the server. */
+  const [serverNote, setServerNote] = useState<string | null>(null);
+  const bookSourceId = book?.sourceId;
+  const bookRemoteId = book?.remoteId;
+  const bookRowId = book?.id;
+  useEffect(() => {
+    if (!bookRowId || !bookSourceId || !bookRemoteId) return;
+    let alive = true;
+    void (async () => {
+      const client = await useSources.getState().clientFor(bookSourceId).catch(() => null);
+      const result = await fetchDetail(client, bookRowId, bookRemoteId).catch(() => null);
+      if (!alive || !result) return;
+      setServerNote(
+        result.cached
+          ? `Chapters as the server last gave them${result.cachedAt ? `, ${relativeTime(result.cachedAt)}` : ''}.`
+          : null,
+      );
+      // The chapters are written to the database, so the screen has to
+      // re-read to see them.
+      if (!result.cached) await refresh();
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [bookRowId, bookSourceId, bookRemoteId, refresh]);
 
   // The offer to undo a deletion does not sit there for the rest of the
   // session; long enough to change your mind, not long enough to be furniture.
@@ -212,6 +253,17 @@ export default function BookScreen() {
   }
 
   const out = isCheckedOut(book);
+  /*
+   * A book from a server reaches the phone over the network, so the
+   * drive's availability is not what decides whether it can be fetched.
+   * Everything else on this screen — the hero, the chapters, the notes,
+   * the characters — is read from the database and does not care where the
+   * book came from.
+   */
+  const remote = isRemote(book);
+  /** Which server it came from, for the download line. */
+  const sourceLabel =
+    sources.find((source) => source.id === book.sourceId)?.label ?? 'the server';
   const copying = book.local.status === 'copying';
   const onHold = book.local.status === 'on-hold';
   const position = livePosition ?? book.progressSec;
@@ -396,36 +448,49 @@ export default function BookScreen() {
                   // missing: the drive, or a turn in the queue behind another
                   // copy. Saying "waiting for the drive" with the drive plugged
                   // in reads as a bug.
-                  label: driveConnected ? 'In the queue' : 'Waiting for the drive',
-                  sentence: driveConnected ? 'In the queue' : 'Waiting for the drive',
-                  context: driveConnected
-                    ? 'It will copy when the one ahead finishes'
-                    : 'It will copy as soon as the drive is connected',
+                  label: remote || driveConnected ? 'In the queue' : 'Waiting for the drive',
+                  sentence: remote || driveConnected ? 'In the queue' : 'Waiting for the drive',
+                  context:
+                    remote || driveConnected
+                      ? 'It will start when the one ahead finishes'
+                      : 'It will copy as soon as the drive is connected',
                   onPress: undefined,
                 }
-              : {
-                  label: driveConnected
-                    ? `Check out and play · ${bytes(book.sizeBytes)}`
-                    : `Put on hold · ${bytes(book.sizeBytes)}`,
-                  sentence: driveConnected ? 'Check out and play' : 'Put on hold',
-                  context: driveConnected
-                    ? `Copies ${bytes(book.sizeBytes)} to your phone first`
-                    : `${bytes(book.sizeBytes)} · waiting for the drive`,
-                  onPress: () =>
-                    driveConnected
-                      ? checkOutAndPlay(book.id, openPlayer)
-                      : checkOut(book.id),
-                };
+              : remote
+                ? {
+                    // No drive to wait for: it downloads when its turn in
+                    // the queue comes, and fails plainly if the server
+                    // cannot be reached.
+                    label: `Download and play · ${bytes(book.sizeBytes)}`,
+                    sentence: 'Download and play',
+                    context: `Fetches ${bytes(book.sizeBytes)} from ${sourceLabel}`,
+                    onPress: () => checkOutAndPlay(book.id, openPlayer),
+                  }
+                : {
+                    label: driveConnected
+                      ? `Check out and play · ${bytes(book.sizeBytes)}`
+                      : `Put on hold · ${bytes(book.sizeBytes)}`,
+                    sentence: driveConnected ? 'Check out and play' : 'Put on hold',
+                    context: driveConnected
+                      ? `Copies ${bytes(book.sizeBytes)} to your phone first`
+                      : `${bytes(book.sizeBytes)} · waiting for the drive`,
+                    onPress: () =>
+                      driveConnected
+                        ? checkOutAndPlay(book.id, openPlayer)
+                        : checkOut(book.id),
+                  };
 
   const secondary: Secondary | null = out
     ? {
-        label: `Return to shelves · frees ${bytes(book.sizeBytes)}`,
+        label: remote
+          ? `Delete the download · frees ${bytes(book.sizeBytes)}`
+          : `Return to shelves · frees ${bytes(book.sizeBytes)}`,
         kind: 'return',
         onPress: () => returnBook(book.id),
       }
     : onHold
       ? {
-          label: driveConnected ? 'Leave the queue' : 'Cancel the hold',
+          label: remote || driveConnected ? 'Leave the queue' : 'Cancel the hold',
           kind: 'cancel',
           onPress: () => cancelHold(book.id),
         }
@@ -722,7 +787,34 @@ export default function BookScreen() {
         ) : null}
 
         {tab === 'chapters' ? (
-          <ChaptersTab book={book} notes={mine} currentIndex={here.index} onPlayFrom={playFrom} />
+          <>
+            {remote ? (
+              <View style={{ paddingHorizontal: space.xl, paddingTop: space.sm, gap: 4 }}>
+                {serverNote ? (
+                  <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.warning }}>
+                    {serverNote}
+                  </Text>
+                ) : null}
+                {/*
+                  The way to the plain server view, which is where the
+                  things only a tester wants — the remote id, when the
+                  record was cached, what the last progress push did —
+                  live. Kept off this screen and one tap away from it.
+                */}
+                <Pressable
+                  onPress={() => router.push(`/abs/${book.id}`)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Server details for this book"
+                  style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, paddingVertical: 4 })}
+                >
+                  <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>
+                    {sourceLabel} · server details →
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
+            <ChaptersTab book={book} notes={mine} currentIndex={here.index} onPlayFrom={playFrom} />
+          </>
         ) : null}
 
         {tab === 'notes' ? (

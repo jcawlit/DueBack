@@ -11,7 +11,7 @@ import { Alert, FlatList, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Book } from '@/data/types';
-import { isCheckedOut, isRemote } from '@/data/types';
+import { isCheckedOut } from '@/data/types';
 import {
   checkedOutFrom,
   heldCount,
@@ -147,18 +147,17 @@ export default function LibraryScreen() {
   const onRemote = activeSourceId !== USB_SOURCE_ID && activeSource !== null;
 
   /*
-   * A book on a server opens on its own plain screen.
+   * Every book opens on the Book screen, wherever it came from.
    *
-   * The polished Book screen is built around a book that is on the drive or
-   * on the phone — it offers to check out, to return, to put on hold. None
-   * of those mean anything for a book whose audio has not been brought
-   * across yet, and threading "but not this kind of book" through all of it
-   * is how a working screen gets broken for the library that already works.
+   * A server book used to open on a plain screen of its own, because at
+   * the time it was an inert catalogue entry: no audio, no parts, and the
+   * Book screen's whole vocabulary — check out, return, put on hold — meant
+   * nothing for it. Downloading changed that. It now has parts, chapters,
+   * a position and notes, and checks out through the same queue; it is a
+   * book. Two screens for one thing is what produced a loop between the
+   * player and the book, and the fix is to stop having two.
    */
-  const openBook = useCallback(
-    (book: Book) => router.push(isRemote(book) ? `/abs/${book.id}` : `/book/${book.id}`),
-    [],
-  );
+  const openBook = useCallback((book: Book) => router.push(`/book/${book.id}`), []);
 
   /**
    * Tapping the status looks for the drive there and then, rather than sending

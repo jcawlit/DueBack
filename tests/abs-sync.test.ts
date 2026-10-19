@@ -235,3 +235,70 @@ describe('the push throttle', () => {
     assert.ok(PUSH_INTERVAL_MS <= 300_000, 'too stale to be useful on a pause');
   });
 });
+
+describe('settling a position before playback', () => {
+  /*
+   * The bug this guards against, found on the phone: picking up another
+   * device's position "worked sometimes". It was reconciled when one screen
+   * opened, and every other route to playback — the mini player, "Keep
+   * listening", the checked-out tray, the player route — skipped it; even
+   * on that screen, pressing Play before the round trip returned started
+   * from the stale position.
+   *
+   * `reconcileBeforePlay` lives in the store and needs a database, so what
+   * is pinned here is the decision it is built on: the comparison must be
+   * made fresh at the moment of playing, and must not block when the
+   * server does not answer.
+   */
+
+  it('asks the server again rather than trusting an earlier answer', async () => {
+    // Opening a screen, then playing a minute later: the second comparison
+    // has to be a real round trip or it cannot see the other device.
+    const client = fakeClient(place(700, NEW));
+    const stale = { positionSec: 10, updatedAt: new Date(OLD).toISOString() };
+    const first = await reconcile(client, 'r1', stale);
+    const second = await reconcile(client, 'r1', stale);
+    assert.equal(client.reads, 2, 'each decision costs a read, by design');
+    assert.equal(first.outcome, 'adopted');
+    assert.equal(second.outcome, 'adopted');
+  });
+
+  it('does not stall playback when the server never answers', async () => {
+    // What the bounded wait in reconcileBeforePlay is built on: a reconcile
+    // that hangs must be raced, not awaited. Here it is proved that a
+    // hanging call does hang, so the race is load-bearing.
+    const hanging = {
+      async progress() {
+        return new Promise(() => {});
+      },
+    } as unknown as Parameters<typeof reconcile>[0];
+
+    const raced = await Promise.race([
+      reconcile(hanging, 'r1', { positionSec: 5, updatedAt: null }),
+      new Promise((resolve) => setTimeout(() => resolve({ outcome: 'timed-out' }), 30)),
+    ]);
+    assert.deepEqual(raced, { outcome: 'timed-out' });
+  });
+
+  it('starts where the server says when this phone has no stamp at all', async () => {
+    // A freshly downloaded book has a position of zero and no local stamp,
+    // and the server's place is the whole reason to check.
+    const client = fakeClient(place(1234, OLD));
+    const result = await reconcile(client, 'r1', { positionSec: 0, updatedAt: null });
+    assert.deepEqual(result, {
+      outcome: 'adopted',
+      positionSec: 1234,
+      isFinished: false,
+      serverLastUpdate: OLD,
+    });
+  });
+
+  it('leaves a locally-newer position alone, so a rewind is not undone', async () => {
+    const client = fakeClient(place(900, OLD));
+    const result = await reconcile(client, 'r1', {
+      positionSec: 60,
+      updatedAt: new Date(NEW).toISOString(),
+    });
+    assert.deepEqual(result, { outcome: 'local-newer', positionSec: 60 });
+  });
+});
