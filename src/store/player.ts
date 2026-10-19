@@ -208,11 +208,32 @@ onBookCheckedOut((bookId) => {
   if (!state.streaming || state.bookId !== bookId) return;
   const at = state.positionSec;
   const wasPlaying = state.playing;
+
   void (async () => {
-    // `open` ends the session itself, with the final sync inside the close.
-    await usePlayer.getState().open(bookId);
-    await usePlayer.getState().seekTo(at);
-    if (wasPlaying) usePlayer.getState().togglePlay();
+    /*
+     * The position goes to the database first, because what comes next
+     * reads it from there rather than being told. Recorded while the book
+     * still counts as streaming, so the progress push stays suppressed and
+     * the session — which is about to carry this same second in its final
+     * sync — remains the only thing reporting it.
+     */
+    useLibrary.getState().recordProgress(bookId, at, { commit: true });
+
+    /*
+     * `reload`, not `open`.
+     *
+     * `open` returns early when it already holds the book asked for, and
+     * during a handoff it always does: same book, already loaded, no
+     * error. So it did nothing at all — the session stayed open and the
+     * downloaded files were never picked up, which is why playback did
+     * not come back by itself.
+     *
+     * `reload` is the path that means "throw away what you are holding
+     * and open this again": it clears the loaded marker, closes — which
+     * is what ends the session, with its final sync — and loads the local
+     * copy at the position just recorded.
+     */
+    await usePlayer.getState().reload(wasPlaying);
   })();
 });
 
