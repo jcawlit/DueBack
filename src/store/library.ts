@@ -52,6 +52,7 @@ import { isDeviceStorage } from '@/lib/files/safNames';
 import { waitForScanToFinish } from '@/lib/scanBusy';
 import { setCatalogueListener, useSources } from './sources';
 import { checkoutRemoteBook } from '@/lib/abs/checkout';
+import { describeAbsError } from '@/lib/abs/errors';
 import { loadTokens } from '@/lib/abs/tokens';
 import { setRemoteParts } from '@/db/remoteBooks';
 import { getSource } from '@/db/sources';
@@ -418,16 +419,14 @@ export const useLibrary = create<LibraryState>((set, get) => {
       parts = result.parts;
     } catch (error) {
       remoteControls.delete(book.id);
-      const message = (error as Error)?.message ?? '';
-      // 401 at any point means the session is gone; the source has already
-      // been marked by the client, so point at the fix rather than the fault.
-      if (/401|sign in/i.test(message)) {
-        fail(`${book.title} could not be fetched — sign in to ${source.label} again.`);
-      } else if (/403|not allowed/i.test(message)) {
-        fail(`${source.label} does not allow this account to download books.`);
-      } else {
-        fail(`${book.title} could not be fetched. ${message}`);
-      }
+      /*
+       * One mapper for every surface, rather than matching on the text of
+       * whatever was thrown. The old version tested the message with a
+       * regex for "401" and "403" — which only worked while those numbers
+       * happened to be in it, and put them on screen when they were.
+       */
+      console.warn(`[dueback] downloading ${book.title} failed`, error);
+      fail(describeAbsError(error, 'checkout'));
       return;
     } finally {
       cancelledCopies.delete(book.id);

@@ -218,8 +218,10 @@ export type AbsAudioFile = {
  */
 export function audioFilesOf(expanded: Json): AbsAudioFile[] {
   const media = obj(expanded.media);
+  const tracks = arr(media.tracks);
+
   return arr(media.audioFiles)
-    .map((entry) => {
+    .map((entry, i) => {
       const file = obj(entry);
       const metadata = obj(file.metadata);
       // Some payloads give the ino as a number.
@@ -228,7 +230,7 @@ export function audioFilesOf(expanded: Json): AbsAudioFile[] {
           ? file.ino
           : typeof file.ino === 'number'
             ? String(file.ino)
-            : '';
+            : inoFromContentUrl(str(obj(tracks[i]).contentUrl));
       return {
         ino,
         name: str(metadata.filename) || `part-${ino}`,
@@ -236,6 +238,20 @@ export function audioFilesOf(expanded: Json): AbsAudioFile[] {
       };
     })
     .filter((file) => file.ino.length > 0);
+}
+
+/**
+ * The ino out of a track's address, for a server too old to put it on the
+ * file.
+ *
+ * `audioFiles[].ino` arrived in 2.18. Before that the only place the
+ * number appears is in the middle of the content url —
+ * `/api/items/<id>/file/<ino>` — which is the same number the download
+ * endpoint wants, so reading it back out is the whole fallback.
+ */
+export function inoFromContentUrl(contentUrl: string): string {
+  const match = /\/file\/([^/?#]+)/.exec(contentUrl);
+  return match ? decodeURIComponent(match[1]) : '';
 }
 
 /** What an expanded item adds to what the catalogue already knew. */

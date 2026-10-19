@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from 'react-native';
 import { AbsError, isCleartextToPublicHost, type AbsLibrary } from '@/lib/abs/client';
+import { describeAbsError, describeServerVersion } from '@/lib/abs/errors';
 import { useSources, type ConnectForm, type TestResult } from '@/store/sources';
 import type { Source } from '@/db/sources';
 import { relativeTime } from '@/lib/format';
@@ -18,21 +19,18 @@ import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 
 const EMPTY: ConnectForm = { serverUrl: '', username: '', password: '', apiKey: '' };
 
-/** Whatever went wrong, as something a person can act on. */
-function explain(error: unknown): string {
-  if (error instanceof AbsError) {
-    switch (error.kind) {
-      case 'unreachable':
-        return `${error.message} Check the address, and that the phone is on the same network.`;
-      case 'auth':
-        return 'That username and password were not accepted.';
-      case 'forbidden':
-        return 'Signed in, but this account is not allowed to do that.';
-      default:
-        return error.message;
-    }
+/**
+ * Whatever went wrong, as something a person can act on.
+ *
+ * Connecting is the one place where "auth" means the password just typed
+ * is wrong rather than a session having expired, so it says so instead of
+ * sending somebody to sign in again on a form they are already filling in.
+ */
+function explainConnect(error: unknown): string {
+  if (error instanceof AbsError && error.kind === 'auth') {
+    return 'That username and password were not accepted.';
   }
-  return error instanceof Error ? error.message : String(error);
+  return describeAbsError(error, 'connect');
 }
 
 function Label({ children }: { children: string }) {
@@ -163,6 +161,8 @@ function ConnectPanel({ onDone }: { onDone: () => void }) {
   };
 
   const warnCleartext = isCleartextToPublicHost(form.serverUrl);
+  /** Anything worth saying about how old the server is. */
+  const versionNote = tested ? describeServerVersion(tested.version) : null;
 
   const test = () => {
     setBusy(true);
@@ -172,7 +172,7 @@ function ConnectPanel({ onDone }: { onDone: () => void }) {
         setTested(await testConnection(form));
       } catch (e) {
         setTested(null);
-        setError(explain(e));
+        setError(explainConnect(e));
       } finally {
         setBusy(false);
       }
@@ -192,7 +192,7 @@ function ConnectPanel({ onDone }: { onDone: () => void }) {
         setTested(null);
         onDone();
       } catch (e) {
-        setError(explain(e));
+        setError(explainConnect(e));
       } finally {
         setBusy(false);
       }
@@ -251,6 +251,9 @@ function ConnectPanel({ onDone }: { onDone: () => void }) {
               `${tested.session.user.username || 'that account'} (${tested.session.user.type})`
             }
           />
+          {versionNote ? (
+            <Message tone="bad" text={versionNote.text} />
+          ) : null}
           <Message
             tone={tested.libraries.length === 0 ? 'bad' : 'ok'}
             text={
@@ -263,7 +266,13 @@ function ConnectPanel({ onDone }: { onDone: () => void }) {
         </View>
       ) : null}
 
-      <Button label="Save" onPress={save} tone="accent" disabled={!tested} busy={busy} />
+      <Button
+        label="Save"
+        onPress={save}
+        tone="accent"
+        disabled={!tested || versionNote?.tone === 'bad'}
+        busy={busy}
+      />
     </View>
   );
 }
@@ -289,7 +298,7 @@ function LibraryPicker({ source }: { source: Source }) {
         }
         setLibraries(await client.libraries());
       } catch (e) {
-        setError(explain(e));
+        setError(describeAbsError(e, 'catalogue'));
       } finally {
         setBusy(false);
       }
@@ -358,7 +367,7 @@ function SignInAgainPanel({ source }: { source: Source }) {
         await reconnect(source.id, form);
         setForm(EMPTY);
       } catch (e) {
-        setError(explain(e));
+        setError(explainConnect(e));
       } finally {
         setBusy(false);
       }

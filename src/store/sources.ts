@@ -24,6 +24,7 @@ import {
 } from '@/lib/abs/client';
 import { forgetTokens, loadTokens, saveTokens } from '@/lib/abs/tokens';
 import { pullCatalogue, pullCovers } from '@/lib/abs/catalogue';
+import { describeAbsError } from '@/lib/abs/errors';
 import type { CatalogueChange } from '@/db/remoteBooks';
 import {
   addSource,
@@ -246,7 +247,7 @@ export const useSources = create<SourcesState>((set, get) => ({
       await onCatalogueChanged?.();
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = describeAbsError(error, 'catalogue');
       console.warn(`[sources] refreshing ${sourceId} failed`, error);
       set((s) => ({
         lastRefresh: {

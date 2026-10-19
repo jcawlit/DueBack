@@ -19,6 +19,7 @@ import { useSound } from './sound';
 import { onBookAudioRemoved, onBookCheckedOut, useLibrary } from './library';
 import { flushProgressPush, reconcileBeforePlay, setStreaming } from './absProgress';
 import { StreamSession, SYNC_INTERVAL_MS, isTranscode } from '@/lib/abs/session';
+import { describeAbsError } from '@/lib/abs/errors';
 import { absDeviceId } from '@/lib/abs/device';
 import { loadTokens } from '@/lib/abs/tokens';
 import { setSourceClosedListener, useSources } from './sources';
@@ -491,14 +492,8 @@ export const usePlayer = create<PlayerState>((set, get) => {
       try {
         opened = await live.open();
       } catch (error) {
-        set({
-          buffering: false,
-          streaming: false,
-          error:
-            error instanceof Error
-              ? `The server would not start this stream. ${error.message}`
-              : 'The server would not start this stream.',
-        });
+        console.warn(`[dueback] opening a stream for ${book.title} failed`, error);
+        set({ buffering: false, streaming: false, error: describeAbsError(error, 'stream') });
         return;
       }
 
@@ -528,12 +523,9 @@ export const usePlayer = create<PlayerState>((set, get) => {
         await engine.load(trackFor(book, opened, tokens.accessToken), startAt);
         await engine.play();
       } catch (error) {
+        console.warn(`[dueback] playing the stream for ${book.title} failed`, error);
         await endSession(startAt);
-        set({
-          buffering: false,
-          streaming: false,
-          error: error instanceof Error ? error.message : 'The stream would not play.',
-        });
+        set({ buffering: false, streaming: false, error: describeAbsError(error, 'stream') });
         return;
       }
 
