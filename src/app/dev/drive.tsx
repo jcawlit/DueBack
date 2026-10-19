@@ -135,6 +135,20 @@ export default function DriveSpikeScreen() {
       if (report.duplicateKeys.length > 0) {
         say(`  DUPLICATE identities: ${report.duplicateKeys.length}`);
       }
+      /*
+       * What the provider calls things, which over Drive is the whole
+       * story: `groupIntoBooks` only counts a file as audio if its name
+       * ends in a known extension, and an opaque document id has none.
+       */
+      if (report.bookCount === 0 && report.fileCount > 0) {
+        say('  NO BOOKS from these files. First few names:');
+        for (const f of report.files.slice(0, 3)) {
+          const dot = f.name.lastIndexOf('.');
+          say(`    "${f.name}" ext=${dot > 0 ? f.name.slice(dot) : '(none)'}`);
+        }
+        say(`    uri: ${report.files[0]?.uri.slice(0, 110)}`);
+        say('    → names carry no extension, so nothing reads as audio.');
+      }
       if (firstKeys) {
         const verdict = sameBooks(firstKeys, report.keys);
         say(`  vs the first listing: ${verdict.same ? 'STABLE' : 'UNSTABLE'} — ${verdict.detail}`);
@@ -150,21 +164,45 @@ export default function DriveSpikeScreen() {
         say('List the folder first.');
         return;
       }
-      say('Reading tags from up to 5 books…');
-      const samples = await probeMetadata(listing.books, 5);
+      /*
+       * Files, not books.
+       *
+       * This read books, and over Drive there are none — so it sampled
+       * nothing, divided zero by zero, and printed "partial reads
+       * survive". A check that reports success when it has done nothing
+       * is worse than no check, and this is the measurement the whole
+       * spike turns on.
+       */
+      if (listing.files.length === 0) {
+        say('Nothing to read — the listing found no files at all.');
+        return;
+      }
+      say(`Reading tags from the 5 largest of ${listing.files.length} files…`);
+      const samples = await probeMetadata(listing.files, 5);
+      if (samples.length === 0) {
+        say('  NO SAMPLES TAKEN — this measured nothing. No verdict.');
+        return;
+      }
+
       let pulled = 0;
       let total = 0;
-      for (const s of samples) {
-        const share = s.sizeBytes > 0 ? Math.round((s.bytesRead / s.sizeBytes) * 100) : 0;
-        pulled += s.bytesRead;
-        total += s.sizeBytes;
+      for (const sample of samples) {
+        const share =
+          sample.sizeBytes > 0 ? Math.round((sample.bytesRead / sample.sizeBytes) * 100) : 0;
+        pulled += sample.bytesRead;
+        total += sample.sizeBytes;
         say(
-          `  ${s.file}: read ${formatBytes(s.bytesRead)} of ${formatBytes(s.sizeBytes)} ` +
-            `(${share}%) in ${Math.round(s.ms)} ms, ${s.readCount} reads` +
-            (s.error ? ` — ${s.error}` : ''),
+          `  ${sample.file} [${sample.extension}]: read ${formatBytes(sample.bytesRead)} ` +
+            `of ${formatBytes(sample.sizeBytes)} (${share}%) in ${Math.round(sample.ms)} ms, ` +
+            `${sample.readCount} reads` + (sample.error ? ` — ${sample.error}` : ''),
         );
       }
-      const share = total > 0 ? Math.round((pulled / total) * 100) : 0;
+
+      if (total === 0) {
+        say('  SIZES ALL ZERO — the provider did not report file sizes. No verdict.');
+        return;
+      }
+      const share = Math.round((pulled / total) * 100);
       say(`  TOTAL: ${formatBytes(pulled)} of ${formatBytes(total)} (${share}%)`);
       say(
         share > 50
@@ -175,16 +213,24 @@ export default function DriveSpikeScreen() {
 
   const copy = () =>
     run('copy', async () => {
-      if (!listing || listing.books.length === 0) {
+      if (!listing || listing.files.length === 0) {
         say('List the folder first.');
         return;
       }
       setCancelled(false);
+      /*
+       * A whole book when one formed, otherwise the single largest file.
+       * Copy throughput is worth knowing even when grouping found nothing,
+       * and the largest file is where a slow provider shows itself.
+       */
       const book = listing.books[0];
-      const size = book.files.reduce((n, f) => n + f.sizeBytes, 0);
-      say(`Copying "${book.folderRelPath || '(root)'}" — ${formatBytes(size)}…`);
+      const files =
+        book?.files ?? [[...listing.files].sort((a, b) => b.sizeBytes - a.sizeBytes)[0]];
+      const label = book ? `"${book.folderRelPath || '(root)'}"` : `the largest file`;
+      const size = files.reduce((n, f) => n + f.sizeBytes, 0);
+      say(`Copying ${label} — ${files.length} file(s), ${formatBytes(size)}…`);
       let lastPercent = -1;
-      const report = await probeCopy(book, {
+      const report = await probeCopy(files, {
         shouldCancel: () => cancelled,
         onProgress: (fraction) => {
           const percent = Math.round(fraction * 100);

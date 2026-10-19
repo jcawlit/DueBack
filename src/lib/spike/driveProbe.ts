@@ -24,7 +24,12 @@
 
 import { isReachable, listTree, pickLibraryRoot, readFileMetadata } from '@/lib/files/access';
 import { copyBookToDevice, deleteLocalCopy, type CopyPart } from '@/lib/files/copy';
-import { fingerprintKey, groupIntoBooks, type FileGroup } from '@/lib/library/grouping';
+import {
+  fingerprintKey,
+  groupIntoBooks,
+  type FileGroup,
+  type ScannedFile,
+} from '@/lib/library/grouping';
 import { getSetting, setSetting } from '@/db/schema';
 
 export { sameBooks } from './identity';
@@ -85,6 +90,16 @@ export type ListingReport = {
   /** The identity key of every book, in order, for comparing two runs. */
   keys: string[];
   books: FileGroup[];
+  /**
+   * Everything the walk found, books or not.
+   *
+   * Carried separately because grouping can legitimately produce nothing:
+   * over Google Drive the provider hands back opaque document ids as
+   * names, so no entry looks like audio and no book forms. The files are
+   * still there and still readable, and the measurement that decides the
+   * architecture has to be able to reach them regardless.
+   */
+  files: ScannedFile[];
 };
 
 /** One listing of the folder, timed. */
@@ -106,6 +121,7 @@ export async function probeListing(uri: string): Promise<ListingReport> {
   }
 
   return {
+    files: listing.files,
     ms,
     rootReadable: listing.rootReadable,
     fileCount: listing.files.length,
@@ -119,8 +135,11 @@ export async function probeListing(uri: string): Promise<ListingReport> {
 }
 
 export type MetadataSample = {
-  book: string;
+  /** Where it sits, which over Drive is a string of ids. */
+  where: string;
   file: string;
+  /** What the provider called it. Opaque here is the whole finding. */
+  extension: string;
   /** What the file actually is, so a whole-file pull is obvious. */
   sizeBytes: number;
   /** What the provider made us read to get the tags out. */
@@ -142,17 +161,27 @@ export type MetadataSample = {
  * `bytesRead` against `sizeBytes` is the evidence, per file.
  */
 export async function probeMetadata(
-  books: FileGroup[],
+  files: ScannedFile[],
   limit = 5,
 ): Promise<MetadataSample[]> {
+  /*
+   * Largest first, deliberately.
+   *
+   * A whole-file pull on a three-minute track costs nothing and proves
+   * nothing. The question is what happens to a two-gigabyte m4b, because
+   * that is where the difference between reading a header and downloading
+   * a library actually shows up.
+   */
+  const biggest = [...files].sort((a, b) => b.sizeBytes - a.sizeBytes).slice(0, limit);
+
   const samples: MetadataSample[] = [];
-  for (const book of books.slice(0, limit)) {
-    const file = book.files[0];
-    if (!file) continue;
+  for (const file of biggest) {
     const read = await readFileMetadata(file.uri, file.name);
+    const dot = file.name.lastIndexOf('.');
     samples.push({
-      book: book.folderRelPath || '(root)',
+      where: file.relPath.slice(0, file.relPath.lastIndexOf('/') + 1) || '(root)',
       file: file.name,
+      extension: dot > 0 ? file.name.slice(dot) : '(none)',
       sizeBytes: file.sizeBytes,
       bytesRead: read.bytesRead,
       readCount: read.readCount,
@@ -181,15 +210,18 @@ export type CopyReport = {
  * library's own Stop button drives it.
  */
 export async function probeCopy(
-  book: FileGroup,
+  files: ScannedFile[],
   options: { shouldCancel?: () => boolean; onProgress?: (fraction: number) => void } = {},
 ): Promise<CopyReport> {
   const id = 'spike-drive-copy';
-  const parts: CopyPart[] = book.files.map((file) => ({
+  const parts: CopyPart[] = files.map((file) => ({
     uri: file.uri,
     name: file.name,
     sizeBytes: file.sizeBytes,
   }));
+  if (parts.length === 0) {
+    return { ok: false, bytes: 0, ms: 0, rate: 0, message: 'nothing to copy' };
+  }
   const total = parts.reduce((n, p) => n + p.sizeBytes, 0);
 
   const started = Date.now();
