@@ -20,6 +20,28 @@ import { adoptServerProgress, remotePlace } from '@/db/remoteBooks';
 import { useSources } from './sources';
 import { useLibrary } from './library';
 
+/**
+ * Books whose listening is being reported by a streaming session.
+ *
+ * One reporting channel per listen. While a session owns a book, its
+ * position reaches the server through `/api/session/:id/sync` and must not
+ * also go through a progress PATCH: the server adds `timeListened` up
+ * across every session row it holds, so reporting the same listening twice
+ * inflates the listener's statistics permanently and nothing ever takes it
+ * back off. The local database is still written, because the position has
+ * to survive going offline — it is only the push that is suppressed.
+ */
+const streaming = new Set<string>();
+
+export function setStreaming(bookId: string, on: boolean): void {
+  if (on) streaming.add(bookId);
+  else streaming.delete(bookId);
+}
+
+export function isStreaming(bookId: string): boolean {
+  return streaming.has(bookId);
+}
+
 /** The last thing that happened for a book, for the testing screens. */
 export type PushState = { at: string; outcome: string };
 
@@ -37,6 +59,8 @@ export function lastPushFor(bookId: string): PushState | undefined {
  * did not answer; the next change tries again.
  */
 async function pushOne(bookId: string): Promise<void> {
+  // A streaming session is already telling the server about this book.
+  if (streaming.has(bookId)) return;
   const place = await remotePlace(bookId).catch(() => null);
   if (!place) return;
 
@@ -98,6 +122,7 @@ export function startAbsProgressSync(): void {
     // `remotePlace` returns null for anything on the drive, so the schedule
     // is cheap to arm and decides nothing on its own.
     if (kind !== 'progress' || !bookId) return;
+    if (streaming.has(bookId)) return;
     scheduler.schedule(bookId);
   });
 }

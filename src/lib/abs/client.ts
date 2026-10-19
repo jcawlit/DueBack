@@ -68,6 +68,37 @@ export type AbsSession = {
   serverVersion?: string;
 };
 
+/** One playable stream the server has offered for this session. */
+export type AbsAudioTrack = {
+  index: number;
+  /** Where this track begins on the whole-book timeline, in seconds. */
+  startSec: number;
+  durationSec: number;
+  /** Absolute, built from the server address and the relative path given. */
+  url: string;
+  mimeType: string;
+};
+
+/**
+ * How the server decided to serve the audio.
+ *
+ * 0 and 1 hand over the files themselves, which play with an Authorization
+ * header like everything else. 2 is a transcode, served as HLS from an
+ * unguessable session URL — the one address in the system that carries no
+ * credential, because the session id is itself the secret.
+ */
+export type AbsPlayMethod = 0 | 1 | 2 | 3;
+
+export type AbsSessionInfo = {
+  id: string;
+  playMethod: AbsPlayMethod;
+  tracks: AbsAudioTrack[];
+  /** Seconds. What the server believes the whole book runs to. */
+  durationSec: number;
+  /** Where the server started this session from. */
+  startedAtSec: number;
+};
+
 export type AbsLibrary = {
   id: string;
   name: string;
@@ -431,6 +462,29 @@ export type AbsClient = {
     itemId: string,
     place: { currentTime: number; duration: number; isFinished: boolean },
   ): Promise<void>;
+
+  /** Opens a playback session for streaming. */
+  openSession(itemId: string, deviceId: string): Promise<AbsSessionInfo>;
+  /**
+   * Reports listening against an open session.
+   *
+   * `timeListened` is a **delta** in seconds since the last successful
+   * sync, not a running total — the server adds it up across every session
+   * row it holds. `currentTime` is absolute and is written straight into
+   * the listener's progress.
+   *
+   * Resolves false when the session has gone (404), which the caller
+   * answers by opening a new one rather than by failing.
+   */
+  syncSession(
+    sessionId: string,
+    body: { currentTime: number; timeListened: number; duration: number },
+  ): Promise<boolean>;
+  /** Ends a session, carrying one final sync in the same request. */
+  closeSession(
+    sessionId: string,
+    body: { currentTime: number; timeListened: number; duration: number },
+  ): Promise<void>;
   /** The tokens as they now stand, after any renewal. */
   currentAuth(): AbsAuth;
 };
@@ -631,6 +685,94 @@ export function createClient(options: ClientOptions): AbsClient {
         }),
       });
       if (!response.ok) await fail(response, 'Save the place');
+    },
+
+    async openSession(itemId, deviceId) {
+      /*
+       * `deviceId` is not optional in practice. Sessions dedupe per (user,
+       * device), so without a stable one every press of Play invents a new
+       * device on the server and leaves a session nobody will ever close.
+       *
+       * `supportedMimeTypes` is what lets the server choose direct play
+       * over a transcode. Saying nothing makes it assume the worst and
+       * transcode, which costs the server CPU for audio the phone could
+       * have played as it stands.
+       */
+      const response = await send(`/api/items/${encodeURIComponent(itemId)}/play`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceInfo: { clientName: 'Due Back', clientVersion: '1.0.0', deviceId },
+          mediaPlayer: 'expo-audio',
+          supportedMimeTypes: [
+            'audio/mpeg', 'audio/mp4', 'audio/m4b', 'audio/m4a',
+            'audio/flac', 'audio/ogg', 'audio/aac', 'audio/wav',
+          ],
+        }),
+      });
+      if (!response.ok) await fail(response, 'Start streaming');
+
+      const body = await readJson(response, 'Start streaming');
+      const id = str(body.id);
+      if (!id) throw new AbsError('server', 'Start streaming: the server opened no session.');
+
+      const rawTracks = Array.isArray(body.audioTracks) ? body.audioTracks : [];
+      const tracks: AbsAudioTrack[] = rawTracks
+        .map((entry) => {
+          const track = obj(entry);
+          const path = str(track.contentUrl) ?? '';
+          return {
+            index: Number(track.index) || 0,
+            startSec: Number(track.startOffset) || 0,
+            durationSec: Number(track.duration) || 0,
+            // Relative to the server, and never given a token: a direct
+            // track is fetched with the Authorization header, and an HLS
+            // url is already scoped to the unguessable session id.
+            url: path.startsWith('http') ? path : `${base}${path}`,
+            mimeType: str(track.mimeType) ?? '',
+          };
+        })
+        .filter((track) => track.url.length > base.length);
+
+      const method = Number(body.playMethod);
+      return {
+        id,
+        playMethod: ((method === 0 || method === 1 || method === 2 || method === 3)
+          ? method
+          : 0) as AbsPlayMethod,
+        tracks,
+        durationSec: Number(obj(body.media).duration) || Number(body.duration) || 0,
+        startedAtSec: Number(body.startTime) || 0,
+      };
+    },
+
+    async syncSession(sessionId, place) {
+      const response = await send(`/api/session/${encodeURIComponent(sessionId)}/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(place),
+      });
+      /*
+       * Sessions live in the server's memory. A restart, a close, or a
+       * newer /play from this same device ends one — so a 404 here is
+       * routine and means "open another", not "something is wrong".
+       */
+      if (response.status === 404) return false;
+      if (!response.ok) await fail(response, 'Report listening');
+      return true;
+    },
+
+    async closeSession(sessionId, place) {
+      // The close carries the final sync in its own body; there is no need
+      // to sync and then close, and doing both reports the tail twice.
+      const response = await send(`/api/session/${encodeURIComponent(sessionId)}/close`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(place),
+      });
+      // A session already gone is a session closed, as far as anyone cares.
+      if (response.status === 404) return;
+      if (!response.ok) await fail(response, 'End the session');
     },
 
     currentAuth() {

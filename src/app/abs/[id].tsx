@@ -22,6 +22,7 @@ import { isCheckedOut } from '@/data/types';
 import { selectBook, useLibrary } from '@/store/library';
 import { canDownload } from '@/lib/abs/checkout';
 import { flushProgressPush, lastPushFor } from '@/store/absProgress';
+import { usePlayer } from '@/store/player';
 import { useSources } from '@/store/sources';
 import { fetchDetail } from '@/lib/abs/catalogue';
 import { adoptServerProgress, localProgress } from '@/db/remoteBooks';
@@ -97,6 +98,7 @@ export default function AbsBookScreen() {
 
   const book = useLibrary(selectBook(id));
   const refreshLibrary = useLibrary((s) => s.refresh);
+  const stream = usePlayer((s) => s.stream);
   const clientFor = useSources((s) => s.clientFor);
   const sources = useSources((s) => s.sources);
 
@@ -382,8 +384,29 @@ export default function AbsBookScreen() {
             this is the view behind it, for the things only a tester wants.
             Having both offer the same actions is what gave the player and
             the book two different places to go back to.
+
+            Streaming is the exception, and lives here on purpose: it is
+            the newest and least proven thing in the app, it occupies no
+            budget and does not check the book out, and it should not be
+            offered beside "Download" until it has been used in anger.
           */}
           <Act label="Open the book" onPress={() => router.navigate(`/book/${book.id}`)} tone="accent" />
+
+          {!out ? (
+            <>
+              <Act
+                label="Stream (no download)"
+                onPress={() => {
+                  void stream(book.id).then(() => router.push(`/player/${book.id}`));
+                }}
+                disabled={allowed === false}
+              />
+              <Text style={{ fontFamily: font.mono, fontSize: 10, color: color.faint }}>
+                Plays straight off the server. Takes no storage, needs the
+                network, and reports your place through its own session.
+              </Text>
+            </>
+          ) : null}
 
           {out ? (
             <>

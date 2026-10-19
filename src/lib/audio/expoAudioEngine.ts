@@ -21,6 +21,7 @@ import {
 } from 'expo-audio';
 import {
   locatePart,
+  sourceFor,
   MAX_RATE,
   type AudioEngine,
   type EngineStatus,
@@ -125,7 +126,7 @@ export function createExpoAudioEngine(): AudioEngine {
     partIndex = index;
     preloadedFor = -1;
     try {
-      player.replace({ uri: list[index].uri });
+      player.replace(sourceFor(list[index]));
       // `replace` swaps the media source on the same underlying ExoPlayer, so
       // the MediaSession survives it — but the rate is reset and the injected
       // metadata needs pushing again.
@@ -178,7 +179,7 @@ export function createExpoAudioEngine(): AudioEngine {
       // Module-level, not a player method: it warms a shared source cache that
       // the next `replace()` then draws on.
       void preload(
-        { uri: list[partIndex + 1].uri },
+        sourceFor(list[partIndex + 1]),
         { preferredForwardBufferDuration: PRELOAD_BUFFER_SEC },
       ).catch(() => {
         // Preloading is an optimisation; a failure just means a longer seam.
@@ -218,7 +219,7 @@ export function createExpoAudioEngine(): AudioEngine {
       const first = next.parts[partIndex];
       if (!first) return;
 
-      player = createAudioPlayer({ uri: first.uri }, { updateInterval: 500 });
+      player = createAudioPlayer(sourceFor(first), { updateInterval: 500 });
       statusSub = player.addListener('playbackStatusUpdate', onStatus);
       player.setPlaybackRate(Math.min(rate, MAX_RATE), PITCH_QUALITY);
       await player.seekTo(located.offsetSec);

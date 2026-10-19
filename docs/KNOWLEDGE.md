@@ -1222,3 +1222,38 @@ blind PATCH overwrites a newer position with an older one — the one failure
 here that loses something waiting cannot recover.
 
 *`src/lib/abs/sync.ts`, `src/store/absProgress.ts`*
+
+### A streaming session needs a stable device id, and dies easily
+
+Sessions dedupe per (user, device). Without a stable `deviceInfo.deviceId`
+every `/play` invents a new device on the server and leaves a session
+nobody will ever close. One UUID per install, in SecureStore beside the
+tokens — not in SQLite, because the database is copied to the drive and two
+phones restoring one backup would claim to be the same device.
+
+**A new `/play` from the same device closes the previous session**, even
+for a different book. Verified against 2.37.1: the old session's next sync
+answers 404.
+
+Sessions live in the server's memory. A restart, a close, or that newer
+`/play` ends one, so a **404 from sync is routine** and means "open
+another", not "something is wrong". Verified by restarting the container
+mid-session: reopening and syncing the current position recovers it
+exactly. Never cache a `contentUrl` across app restarts.
+
+`timeListened` is a **delta in seconds since the last successful sync**,
+not a running total — the server sums it across every session row it has
+ever held. So the counter resets on a 200 and on nothing else: a failed
+sync carries its seconds into the next one, and seconds listened under a
+session the server has forgotten are dropped rather than attributed to its
+replacement. `close` takes the same body inline, so one final sync rides
+the close and syncing first would report the tail twice.
+
+With MP3s the server answers `playMethod: 0` — direct play, no transcode —
+so the tracks are ordinary files that need the Authorization header. They
+genuinely need it: an unauthenticated fetch of a track URL answers 401. The
+HLS path (`playMethod: 2`) is the one address in the system with no
+credential, because the session id in it is unguessable and dies with the
+session.
+
+*`src/lib/abs/session.ts`, `src/lib/abs/device.ts`, `src/store/player.ts`*

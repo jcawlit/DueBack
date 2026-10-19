@@ -175,6 +175,21 @@ const cancelledCopies = new Set<string>();
  * when it loads, which the root layout guarantees happens at startup.
  */
 let audioRemovedHandler: ((bookId: string) => void) | null = null;
+
+/**
+ * Told when a book's audio has finished arriving on the phone.
+ *
+ * A callback rather than an import, like the one above and for the same
+ * reason: the player imports this store, so this store cannot import the
+ * player. What it is for is the handoff — a book being streamed while its
+ * download finishes should carry on from the local copy, at the same
+ * second, without a gap or a second position.
+ */
+let checkedOutHandler: ((bookId: string) => void) | null = null;
+
+export function onBookCheckedOut(handler: (bookId: string) => void) {
+  checkedOutHandler = handler;
+}
 export function onBookAudioRemoved(handler: (bookId: string) => void) {
   audioRemovedHandler = handler;
 }
@@ -446,6 +461,8 @@ export const useLibrary = create<LibraryState>((set, get) => {
       stamp: 'CHECKED OUT',
       text: `${book.title} is on your phone. Safe to go offline.`,
     });
+    // Hands a stream over to the files that have just landed.
+    checkedOutHandler?.(book.id);
     onCheckedOut?.(book.id);
   };
 

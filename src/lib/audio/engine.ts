@@ -13,12 +13,25 @@
 
 /** One audio file making up part of a book. */
 export type EnginePart = {
-  /** Playable location — a local copy when there is one, else the drive. */
+  /** Playable location — a local copy, the drive, or a remote stream. */
   uri: string;
   /** Where this part begins on the whole-book timeline. */
   startSec: number;
   durationSec: number;
+  /**
+   * Sent with the request, for a part fetched over the network.
+   *
+   * This is how a streamed book carries its Authorization header, so no
+   * credential ever has to be put in the URL. Absent for a local file,
+   * which is every part of every book on the drive or on the phone.
+   */
+  headers?: Record<string, string>;
 };
+
+/** What a part looks like to the native player. */
+export function sourceFor(part: EnginePart): { uri: string; headers?: Record<string, string> } {
+  return part.headers ? { uri: part.uri, headers: part.headers } : { uri: part.uri };
+}
 
 export type EngineTrack = {
   bookId: string;

@@ -16,8 +16,13 @@ import { SETTING_KEYS, getSetting, setSetting } from '@/db/schema';
 import { localUriFor } from '@/lib/files/copy';
 import { onBecomingNoisy } from '@/lib/audio/soundFx';
 import { useSound } from './sound';
-import { onBookAudioRemoved, useLibrary } from './library';
-import { reconcileBeforePlay } from './absProgress';
+import { onBookAudioRemoved, onBookCheckedOut, useLibrary } from './library';
+import { reconcileBeforePlay, setStreaming } from './absProgress';
+import { StreamSession, SYNC_INTERVAL_MS, isTranscode } from '@/lib/abs/session';
+import { absDeviceId } from '@/lib/abs/device';
+import { loadTokens } from '@/lib/abs/tokens';
+import { useSources } from './sources';
+import { getSource } from '@/db/sources';
 import { timestamp } from '@/lib/format';
 
 export { SPEEDS };
@@ -48,7 +53,16 @@ type PlayerState = {
   /** The same thing as a countdown, for the Player's label. Derived. */
   sleepRemainingSec: number | null;
 
+  /**
+   * True while the book on screen is coming off a server rather than off
+   * the phone. It occupies no budget and is not checked out; it is simply
+   * a different way of reaching the same book.
+   */
+  streaming: boolean;
+
   open: (bookId: string) => Promise<void>;
+  /** Plays a book from a server without downloading it. */
+  stream: (bookId: string) => Promise<void>;
   /**
    * Opens a book and lands on a given second — what a note's time chip does.
    *
@@ -77,6 +91,96 @@ type PlayerState = {
 
 const engine: AudioEngine = createExpoAudioEngine();
 
+/* ----------------------------------------------------------- streaming */
+
+/** The open session, if the book playing is being streamed. */
+let session: StreamSession | null = null;
+/** Which book that session belongs to. */
+let streamBookId: string | null = null;
+let syncTimer: ReturnType<typeof setInterval> | null = null;
+/** When listening was last counted, for working out the delta. */
+let lastListenAt = 0;
+
+/**
+ * The most wall-clock time one status update may contribute.
+ *
+ * Updates arrive twice a second while playing, so anything much larger than
+ * that is the app having been asleep rather than somebody having listened.
+ * Counting that gap would inflate the listening statistics the server keeps,
+ * and nothing ever subtracts it again.
+ */
+const MAX_LISTEN_STEP_SEC = 2;
+
+function countListening(playing: boolean) {
+  const now = Date.now();
+  if (!playing || !session) {
+    lastListenAt = now;
+    return;
+  }
+  if (lastListenAt > 0) {
+    session.listened(Math.min(MAX_LISTEN_STEP_SEC, (now - lastListenAt) / 1000));
+  }
+  lastListenAt = now;
+}
+
+/**
+ * The engine's view of a session.
+ *
+ * A transcode is one HLS playlist covering the whole book, so it becomes a
+ * single part and the player's own timeline does the rest. Direct play
+ * hands back the real files, which keep their offsets and carry the
+ * Authorization header — the one thing that must never go in the URL.
+ */
+function trackFor(
+  book: Book,
+  info: { playMethod: number; tracks: { startSec: number; durationSec: number; url: string }[] },
+  accessToken: string,
+): EngineTrack {
+  const transcode = info.playMethod === 2;
+  const parts = transcode
+    ? [
+        {
+          // The HLS url is scoped to an unguessable session id that dies
+          // with the session, which is why it needs no credential — and
+          // why it must never be cached across app restarts.
+          uri: info.tracks[0]?.url ?? '',
+          startSec: 0,
+          durationSec: book.durationSec,
+        },
+      ]
+    : info.tracks.map((t) => ({
+        uri: t.url,
+        startSec: t.startSec,
+        durationSec: t.durationSec,
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }));
+
+  return {
+    bookId: book.id,
+    title: book.title,
+    author: book.author || undefined,
+    artworkUri: book.coverThumbPath,
+    durationSec: book.durationSec,
+    parts,
+  };
+}
+
+function stopSyncTimer() {
+  if (syncTimer) clearInterval(syncTimer);
+  syncTimer = null;
+}
+
+/** Ends the session with one final sync, and forgets it. */
+async function endSession(positionSec: number) {
+  stopSyncTimer();
+  const ending = session;
+  const bookId = streamBookId;
+  session = null;
+  streamBookId = null;
+  if (bookId) setStreaming(bookId, false);
+  if (ending) await ending.close(positionSec);
+}
+
 /*
  * The Sound panel's effects follow the session, which moves on every part
  * change. Subscribed once, at module scope, rather than from a screen: the
@@ -84,6 +188,32 @@ const engine: AudioEngine = createExpoAudioEngine();
  */
 engine.onSessionChange((nativePlayer) => {
   useSound.getState().useSession(nativePlayer);
+});
+
+/*
+ * The handoff from streaming to the local copy.
+ *
+ * A book can be checked out while it is streaming, and when the files
+ * land the listener should not notice anything except that it now works
+ * offline. The session is closed with its final sync first — so the
+ * server hears the last of the streamed listening exactly once — and
+ * playback then reopens from the same second, off the phone.
+ *
+ * Registered at module scope because it belongs to playback rather than
+ * to any screen, and because the download may well finish while the
+ * player is not the thing on top.
+ */
+onBookCheckedOut((bookId) => {
+  const state = usePlayer.getState();
+  if (!state.streaming || state.bookId !== bookId) return;
+  const at = state.positionSec;
+  const wasPlaying = state.playing;
+  void (async () => {
+    // `open` ends the session itself, with the final sync inside the close.
+    await usePlayer.getState().open(bookId);
+    await usePlayer.getState().seekTo(at);
+    if (wasPlaying) usePlayer.getState().togglePlay();
+  })();
 });
 
 /*
@@ -243,8 +373,135 @@ export const usePlayer = create<PlayerState>((set, get) => {
     sleepIndex: 0,
     sleepDeadlineAt: null,
     sleepRemainingSec: null,
+    streaming: false,
+
+    /**
+     * Plays a book straight off the server.
+     *
+     * The session is the whole of the difference. A streamed book reports
+     * its listening through that session and through nothing else — never
+     * also a progress PATCH — because the server adds `timeListened` up
+     * across every session row it holds, and double-reporting inflates the
+     * listener's statistics permanently.
+     */
+    stream: async (bookId) => {
+      const b = useLibrary.getState().books.find((x) => x.id === bookId);
+      if (!b?.sourceId || !b.remoteId) return;
+
+      await get().close();
+
+      const sourceId = b.sourceId;
+      const remoteId = b.remoteId;
+      const source = await getSource(sourceId).catch(() => null);
+      const client = await useSources.getState().clientFor(sourceId).catch(() => null);
+      const tokens = await loadTokens(sourceId).catch(() => null);
+      if (!source || !client || !tokens) {
+        set({ bookId, error: 'Sign in to the server again to stream this book.' });
+        return;
+      }
+
+      // The same rule as everywhere: the newer write wins, and the
+      // comparison happens before a note is played.
+      const adopted = await reconcileBeforePlay(bookId);
+      const book = useLibrary.getState().books.find((x) => x.id === bookId) ?? b;
+      const startAt = adopted ?? book.progressSec;
+      if (adopted !== null) {
+        useLibrary.getState().showSlip({
+          kind: 'note',
+          stamp: 'PICKED UP',
+          text: `Picked up where you left off on another device — ${timestamp(adopted)}.`,
+        });
+      }
+
+      set({ bookId, positionSec: startAt, playing: false, buffering: true, error: null, streaming: true });
+
+      const deviceId = await absDeviceId();
+      const live = new StreamSession(client, remoteId, deviceId, book.durationSec, {
+        /*
+         * A replacement session means new addresses. For a transcode they
+         * are the whole of the stream, so the engine has to be handed the
+         * new ones; for direct play the tracks are ordinary files whose
+         * URLs did not change, and reloading would put a gap in the audio
+         * for nothing.
+         */
+        onReopened: (next) => {
+          if (!isTranscode(next)) return;
+          const at = get().positionSec;
+          void engine
+            .load(trackFor(book, next, tokens.accessToken), at)
+            .then(() => (get().playing ? engine.play() : undefined))
+            .catch(() => set({ error: 'The stream could not be picked up again.' }));
+        },
+        onLost: () => {
+          // Keep playing if audio is still arriving; the position is
+          // correct locally either way and the next attempt will report.
+          console.warn('[abs] streaming without a session');
+        },
+      });
+
+      let opened;
+      try {
+        opened = await live.open();
+      } catch (error) {
+        set({
+          buffering: false,
+          streaming: false,
+          error:
+            error instanceof Error
+              ? `The server would not start this stream. ${error.message}`
+              : 'The server would not start this stream.',
+        });
+        return;
+      }
+
+      session = live;
+      streamBookId = bookId;
+      lastListenAt = Date.now();
+      // Stops the progress PATCH for as long as this session owns the book.
+      setStreaming(bookId, true);
+      loadedFor = bookId;
+
+      unsubscribe?.();
+      unsubscribe = engine.subscribe((status) => {
+        if (get().bookId !== bookId) return;
+        countListening(status.playing);
+        set({
+          positionSec: status.positionSec,
+          playing: status.playing,
+          buffering: status.buffering,
+        });
+        persist(status.positionSec, false);
+        if (status.finished) {
+          void get().close();
+        }
+      });
+
+      try {
+        await engine.load(trackFor(book, opened, tokens.accessToken), startAt);
+        await engine.play();
+      } catch (error) {
+        await endSession(startAt);
+        set({
+          buffering: false,
+          streaming: false,
+          error: error instanceof Error ? error.message : 'The stream would not play.',
+        });
+        return;
+      }
+
+      stopSyncTimer();
+      syncTimer = setInterval(() => {
+        if (!session) return;
+        void session.sync(get().positionSec);
+      }, SYNC_INTERVAL_MS);
+    },
 
     open: async (bookId) => {
+      // Opening a book from the phone ends any stream that was running:
+      // one book plays at a time, and a session left open would keep
+      // reporting against a book nobody is listening to.
+      await endSession(get().positionSec);
+      set({ streaming: false });
       let b = useLibrary.getState().books.find((x) => x.id === bookId);
       if (!b) return;
 
@@ -457,6 +714,9 @@ export const usePlayer = create<PlayerState>((set, get) => {
     close: async () => {
       loadedFor = null;
       if (get().bookId) persist(get().positionSec, true);
+      // The final sync rides the close, so the server hears the last of
+      // the listening in the same request that ends the session.
+      await endSession(get().positionSec);
       // Stopping is deliberate — do not reopen this on the next launch.
       void setSetting(SETTING_KEYS.lastBookId, null);
       unsubscribe?.();
@@ -471,6 +731,7 @@ export const usePlayer = create<PlayerState>((set, get) => {
         sleepIndex: 0,
         sleepDeadlineAt: null,
         sleepRemainingSec: null,
+        streaming: false,
       });
     },
 
@@ -495,8 +756,20 @@ export const usePlayer = create<PlayerState>((set, get) => {
         pausedAt = Date.now();
         void engine.pause();
         persist(get().positionSec, true);
+        /*
+         * A pause ends the session, carrying its final sync. Sessions live
+         * in the server's memory and an abandoned one reports nothing and
+         * is tidied up by nobody; resuming opens a fresh one.
+         */
+        if (get().streaming) void endSession(get().positionSec);
         return;
       }
+
+      // Resuming a stream needs a session again. For direct play the track
+      // URLs are ordinary files and did not change, so only the reporting
+      // has to be restarted; a transcode is handed new addresses by
+      // `onReopened` and reloads itself.
+      if (get().streaming && !session && id) void get().stream(id);
 
       // Step back a little if this has been paused a while.
       const awaySec = pausedAt ? (Date.now() - pausedAt) / 1000 : 0;
