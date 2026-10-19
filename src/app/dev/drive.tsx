@@ -129,7 +129,7 @@ export default function DriveSpikeScreen() {
       setListing(report);
       say(`Listed in ${report.ms} ms`);
       say(`  readable: ${report.rootReadable}`);
-      say(`  ${report.fileCount} audio files, ${report.bookCount} books`);
+      say(`  ${report.fileCount} listed files, ${report.bookCount} books`);
       say(`  ${report.unsupportedCount} unsupported, ${report.unreadableFolders.length} unreadable folders`);
       for (const folderName of report.unreadableFolders.slice(0, 5)) say(`    ! ${folderName}`);
       if (report.duplicateKeys.length > 0) {
@@ -203,12 +203,13 @@ export default function DriveSpikeScreen() {
         return;
       }
       const share = Math.round((pulled / total) * 100);
-      say(`  TOTAL: ${formatBytes(pulled)} of ${formatBytes(total)} (${share}%)`);
-      say(
-        share > 50
-          ? '  VERDICT: the provider is pulling whole files. Indexing would download the library.'
-          : '  VERDICT: partial reads survive. Indexing stays cheap.',
-      );
+      say(`  TOTAL returned to app: ${formatBytes(pulled)} of ${formatBytes(total)} (${share}%)`);
+      if (samples.some((sample) => sample.bytesRead === 0 || sample.error || sample.sizeBytes <= 0)) {
+        say('  The read returned nothing, failed, or has unknown size. No verdict.');
+        return;
+      }
+      say('  Reads returned data. Provider network/download bytes are UNKNOWN. No SAF verdict.');
+      say('  Compare cold-cache network usage before/after this step; app bytes exclude Drive caching/downloads.');
     });
 
   const copy = () =>
@@ -288,7 +289,7 @@ export default function DriveSpikeScreen() {
           <Button label="1 · Pick a folder" onPress={pick} disabled={busy !== null} tone="accent" />
           <Button label="2 · List it (time a scan)" onPress={list} disabled={busy !== null || !folder} />
           <Button
-            label="3 · Read tags (bytes pulled)"
+            label="3 · Read tags (bytes returned)"
             onPress={metadata}
             disabled={busy !== null || !listing}
           />
@@ -361,3 +362,4 @@ export default function DriveSpikeScreen() {
     </View>
   );
 }
+

@@ -1388,3 +1388,22 @@ throughput, pause and cancel behaviour, and whether an expired or revoked
 grant is distinguishable from an empty folder.
 
 *`src/lib/spike/driveProbe.ts`, `src/app/dev/drive.tsx`*
+
+## Google Drive via SAF: probe limits (2026-10-19)
+
+Device report: the large m4b returned 0 bytes across 5 reads despite a
+171 MB listing size. This is not a successful partial read. CachingReader
+previously replaced missing bytes with zero-filled parser input; it now
+rejects short reads. Empty native reads report offset, requested length,
+handle size and file size. Expo's installed Android FileSystemFileHandle.read
+returns an empty array when channel.size minus position is nonpositive;
+the next device run must establish which sizes/offsets Drive reports.
+
+The reader counts bytes returned to the app, not Drive's internal network
+traffic. A small successful read cannot prove cheap provider downloads.
+Measure cold-cache Drive network usage independently before and after tags,
+before copying (copying warms the cache). Record listing time, ext= lines,
+read errors/sizes and copy throughput. No SAF/REST decision is established.
+Opaque Drive document names still prevent extension-based grouping; do not
+build native identification or REST until the device evidence and Jake's
+architecture decision exist. ABS work and real accounts remain outside this probe.

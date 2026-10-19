@@ -224,7 +224,11 @@ export function openReader(uri: string, blockSize = DEFAULT_BLOCK_SIZE): ByteRea
       },
       async read(offset: number, length: number) {
         handle.offset = offset;
-        return handle.readBytes(length);
+        const bytes = handle.readBytes(length);
+        if (bytes.length === 0 && length > 0) {
+          throw new Error(`Empty native read: offset ${offset}, requested ${length}, handle size ${handle.size}, file size ${file.size}`);
+        }
+        return bytes;
       },
       async close() {
         handle.close();

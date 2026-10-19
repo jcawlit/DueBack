@@ -142,7 +142,7 @@ export type MetadataSample = {
   extension: string;
   /** What the file actually is, so a whole-file pull is obvious. */
   sizeBytes: number;
-  /** What the provider made us read to get the tags out. */
+  /** Bytes returned to the app; excludes provider-internal downloads/cache. */
   bytesRead: number;
   readCount: number;
   ms: number;
@@ -150,15 +150,11 @@ export type MetadataSample = {
 };
 
 /**
- * The deciding measurement.
+ * App-visible metadata read measurement.
  *
- * The scanner reads tags out of the first and last few hundred kilobytes of
- * a file and never the middle. Over USB that is what happens. A cloud
- * provider may instead download the whole file to satisfy the first read,
- * which would turn indexing a library into downloading it — and that is
- * the difference between SAF being viable here and not.
- *
- * `bytesRead` against `sizeBytes` is the evidence, per file.
+ * The parser requests selected ranges. Drive may download more internally
+ * to serve them; these counters cannot observe that traffic. Measure cold-cache
+ * network usage independently before deciding whether SAF is viable.
  */
 export async function probeMetadata(
   files: ScannedFile[],
