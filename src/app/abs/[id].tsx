@@ -204,9 +204,11 @@ export default function AbsBookScreen() {
     <View style={{ flex: 1, backgroundColor: color.ground, paddingTop: insets.top }}>
       <View style={{ paddingTop: 14, paddingHorizontal: space.md, flexDirection: 'row' }}>
         <Pressable
-          onPress={() => router.back()}
+          // This is reached from the book, not from the library, and said
+          // the wrong thing about where it goes.
+          onPress={() => (router.canGoBack() ? router.back() : router.navigate('/'))}
           accessibilityRole="button"
-          accessibilityLabel="Back to the library"
+          accessibilityLabel="Back to the book"
           style={({ pressed }) => ({
             flexDirection: 'row',
             alignItems: 'center',
@@ -218,7 +220,7 @@ export default function AbsBookScreen() {
         >
           <ChevronLeft />
           <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.muted }}>
-            back to the library
+            back
           </Text>
         </Pressable>
       </View>
@@ -400,7 +402,7 @@ export default function AbsBookScreen() {
                 onPress={() => {
                   setStreamBusy(true);
                   void stream(book.id)
-                    .then(() => router.push(`/player/${book.id}`))
+                    .then(() => router.navigate(`/player/${book.id}`))
                     .finally(() => setStreamBusy(false));
                 }}
                 disabled={streamBusy}

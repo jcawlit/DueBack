@@ -57,7 +57,7 @@ type Action = {
  * Giving the book back, or giving up a place in the queue. Two different
  * moves and two different glyphs, but the same disc beside the same play.
  */
-type Secondary = { label: string; kind: 'return' | 'cancel'; onPress: () => void };
+type Secondary = { label: string; kind: 'return' | 'cancel' | 'stream'; onPress: () => void };
 
 /**
  * The one action, as a bar across the page.
@@ -175,6 +175,7 @@ export default function BookScreen() {
   const showSlip = useLibrary((s) => s.showSlip);
   const sources = useSources((s) => s.sources);
   const refresh = useLibrary((s) => s.refresh);
+  const stream = usePlayer((s) => s.stream);
   const backupEnabled = useBackup((s) => s.enabled);
   const backupPending = useBackup((s) => s.pending);
 
@@ -278,7 +279,12 @@ export default function BookScreen() {
       : 'not started';
 
   /** The primary action depends entirely on where the audio currently lives. */
-  const openPlayer = (id: string) => router.push(`/player/${id}`);
+  /*
+   * `navigate`, not `push`. The player can be reached from here and from
+   * the mini player, and pushing a second copy of it onto the stack is how
+   * going back starts bouncing between two screens instead of leaving.
+   */
+  const openPlayer = (id: string) => router.navigate(`/player/${id}`);
 
   /**
    * The one action that matters, whatever state the book is in. A book that is
@@ -326,7 +332,7 @@ export default function BookScreen() {
 
   /** Opens the player and lands on a second — a note's time chip. */
   const playFrom = (sec: number) => {
-    router.push(`/player/${book.id}`);
+    router.navigate(`/player/${book.id}`);
     void usePlayer.getState().openAt(book.id, sec);
   };
 
@@ -495,13 +501,27 @@ export default function BookScreen() {
         kind: 'return',
         onPress: () => returnBook(book.id),
       }
-    : onHold
+      : onHold
       ? {
           label: remote || driveConnected ? 'Leave the queue' : 'Cancel the hold',
           kind: 'cancel',
           onPress: () => cancelHold(book.id),
         }
-      : null;
+    : remote && !copying
+        ? {
+            /*
+             * The other way to listen, under the one that downloads and
+             * across from the library card. It is the quieter of the two
+             * on purpose: streaming needs the network for as long as you
+             * listen, where a download needs it once.
+             */
+            label: 'or stream it · no download',
+            kind: 'stream',
+            onPress: () => {
+              void stream(book.id).then(() => router.navigate(`/player/${book.id}`));
+            },
+          }
+        : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: color.ground, paddingTop: insets.top }}>
@@ -515,7 +535,13 @@ export default function BookScreen() {
         }}
       >
         <Pressable
-          onPress={() => router.back()}
+          /*
+           * The library, not whatever came before. Reached from the player
+           * — which happens whenever the player was opened from the mini
+           * player rather than from here — going back landed on the
+           * player again, and the two bounced off each other.
+           */
+          onPress={() => router.navigate('/')}
           accessibilityRole="button"
           accessibilityLabel="Back to the library"
           style={({ pressed }) => ({
@@ -675,7 +701,13 @@ export default function BookScreen() {
                   opacity: pressed ? 0.6 : 1,
                 })}
               >
-                <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.muted }}>
+                <Text
+                  style={{
+                    fontFamily: font.mono,
+                    fontSize: 12,
+                    color: secondary.kind === 'stream' ? color.accent : color.muted,
+                  }}
+                >
                   {secondary.label}
                 </Text>
               </Pressable>

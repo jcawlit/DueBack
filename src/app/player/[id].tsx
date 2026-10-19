@@ -249,9 +249,15 @@ export default function PlayerScreen() {
           </Text>
         </Pressable>
         <Pressable
-          onPress={() => router.navigate('/')}
+          /*
+           * Down is out of here, to wherever you came from — the book if
+           * you arrived from it, the shelves if you arrived from the mini
+           * player. `navigate` on the left always reaches the book, so
+           * this one does not need to be a second route to the same place.
+           */
+          onPress={() => (router.canGoBack() ? router.back() : router.navigate('/'))}
           accessibilityRole="button"
-          accessibilityLabel="Back to the shelves"
+          accessibilityLabel="Back to where you were"
           style={({ pressed }) => ({
             width: TOUCH,
             minHeight: TOUCH,

@@ -159,8 +159,8 @@ cancel, which have only ever been reasoned about.
   native file copy cannot. On the phone, losing the network mid-download
   behaves like a cancel — the part-downloaded file is discarded — so
   resume-after-interruption is not yet doing anything useful.
-- **A book can also be streamed**, from the server view behind the Book
-  screen. It takes no storage and is not checked out. Its listening is
+- **A book can also be streamed**, offered under "Download and play" on
+  the Book screen and across from the library card. It takes no storage and is not checked out. Its listening is
   reported through its session and never also through a progress PATCH;
   checking a book out while it streams closes the session with its final
   sync first, then carries on from the local copy at the same second.
