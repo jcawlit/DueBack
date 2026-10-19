@@ -23,6 +23,7 @@ import { selectBook, useLibrary } from '@/store/library';
 import { canDownload } from '@/lib/abs/checkout';
 import { flushProgressPush, lastPushFor } from '@/store/absProgress';
 import { usePlayer } from '@/store/player';
+import { absDeviceId } from '@/lib/abs/device';
 import { useSources } from '@/store/sources';
 import { fetchDetail } from '@/lib/abs/catalogue';
 import { adoptServerProgress, localProgress } from '@/db/remoteBooks';
@@ -114,11 +115,27 @@ export default function AbsBookScreen() {
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [pushedAt, setPushedAt] = useState<string | null>(null);
   const [streamBusy, setStreamBusy] = useState(false);
+  /*
+   * What the server files this phone's sessions under.
+   *
+   * Shown because there is otherwise no way to tell a session this phone
+   * opened from one the web player did — and "did a downloaded book open
+   * a session?" cannot be answered without knowing which rows are ours.
+   */
+  const [deviceId, setDeviceId] = useState<string | null>(null);
 
   const sourceId = book?.sourceId;
   const remoteId = book?.remoteId;
   const bookId = book?.id;
   const source = sources.find((s) => s.id === sourceId) ?? null;
+
+  useEffect(() => {
+    let live = true;
+    void absDeviceId().then((id) => live && setDeviceId(id));
+    return () => {
+      live = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!bookId || !sourceId || !remoteId) return;
@@ -313,6 +330,7 @@ export default function AbsBookScreen() {
           <Line label="FILES" value={loaded ? String(loaded.trackCount) : '—'} />
           <Line label="PLACE" value={book.progressSec > 0 ? timestamp(book.progressSec) : 'not started'} />
           <Line label="REMOTE ID" value={book.remoteId ?? '—'} />
+          <Line label="THIS DEVICE" value={deviceId ?? '…'} />
         </View>
 
         {busy ? (
