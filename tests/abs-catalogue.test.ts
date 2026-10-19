@@ -10,7 +10,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import { migrate } from '../src/db/migrations.ts';
+import { MIGRATIONS, migrate } from '../src/db/migrations.ts';
 import { chooseProgress } from '../src/lib/abs/progress.ts';
 import type { AbsCatalogueEntry } from '../src/lib/abs/map.ts';
 import { DRIVE_BOOKS } from '../src/db/scope.ts';
@@ -336,5 +336,121 @@ describe('a drive scan speaks only for the drive', () => {
     for (const id of doomed) raw.prepare('DELETE FROM books WHERE id = ?').run(id);
     const survivor = raw.prepare("SELECT * FROM books WHERE id = 'srv1'").get()!;
     assert.equal(survivor.progress_sec, 321, 'the server book and its place survive');
+  });
+});
+
+describe('removing a server', () => {
+  /*
+   * The bug this guards against, found on the phone: removing a source
+   * unhooked its books instead of accounting for them. Each became a row
+   * with no source, no files and nothing to tell it from a book on the
+   * drive — so it sat on the drive's shelf refusing to play, and re-adding
+   * the server inserted a second copy of every one.
+   */
+  function removeSource(id: string) {
+    raw.exec(`
+      DELETE FROM books
+        WHERE source_id = '${id}'
+          AND local_status = 'on-shelf'
+          AND progress_sec = 0
+          AND finished_at IS NULL
+          AND id NOT IN (SELECT book_id FROM checkouts)
+          AND id NOT IN (SELECT book_id FROM notes WHERE deleted_at IS NULL)
+          AND id NOT IN (SELECT book_id FROM characters WHERE deleted_at IS NULL);
+      UPDATE books SET source_id = NULL, remote_id = NULL, missing = 1
+        WHERE source_id = '${id}';
+      DELETE FROM sources WHERE id = '${id}';
+    `);
+  }
+
+  beforeEach(() => {
+    raw.exec(`INSERT INTO sources (id, kind, label, config, created_at)
+              VALUES ('s1','abs','server','{}','2026-10-19T00:00:00.000Z')`);
+  });
+
+  it('deletes a book that held nothing of the listener’s', () => {
+    upsert('s1', [entry({ remoteId: 'a', title: 'Untouched' })]);
+    removeSource('s1');
+    assert.equal(raw.prepare('SELECT COUNT(*) AS n FROM books').get()!.n, 0);
+  });
+
+  it('keeps a book with a place in it, and marks it missing', () => {
+    upsert('s1', [entry({ remoteId: 'a', title: 'Half read' })]);
+    const id = raw.prepare('SELECT id FROM books').get()!.id as string;
+    raw.prepare('UPDATE books SET progress_sec = ? WHERE id = ?').run(640, id);
+
+    removeSource('s1');
+
+    const row = raw.prepare('SELECT * FROM books').get()!;
+    assert.equal(row.progress_sec, 640, 'the place is the listener’s');
+    assert.equal(row.source_id, null, 'nothing points at a source that is gone');
+    assert.equal(row.missing, 1, 'and it must not pose as a playable drive book');
+  });
+
+  it('keeps a book somebody wrote a note on', () => {
+    upsert('s1', [entry({ remoteId: 'a' })]);
+    const id = raw.prepare('SELECT id FROM books').get()!.id as string;
+    raw.prepare(`INSERT INTO notes (id, book_id, position_sec, chapter_index, text, created_at, updated_at)
+                 VALUES ('n1', ?, 10, 0, 'mine', 'c', 'u')`).run(id);
+
+    removeSource('s1');
+
+    assert.equal(raw.prepare('SELECT COUNT(*) AS n FROM books').get()!.n, 1);
+    assert.equal(raw.prepare('SELECT text FROM notes').get()!.text, 'mine');
+  });
+
+  it('keeps a book that is downloaded, rather than orphaning its files', () => {
+    upsert('s1', [entry({ remoteId: 'a' })]);
+    raw.exec("UPDATE books SET local_status = 'checked-out', local_path = 'books/x'");
+    removeSource('s1');
+    assert.equal(raw.prepare('SELECT COUNT(*) AS n FROM books').get()!.n, 1);
+  });
+
+  it('leaves books from another source untouched', () => {
+    raw.exec(`INSERT INTO sources (id, kind, label, config, created_at)
+              VALUES ('s2','abs','other','{}','2026-10-19T00:00:00.000Z')`);
+    upsert('s1', [entry({ remoteId: 'a' })]);
+    upsert('s2', [entry({ remoteId: 'b' })]);
+    removeSource('s1');
+    const left = raw.prepare('SELECT * FROM books').all();
+    assert.equal(left.length, 1);
+    assert.equal(left[0].source_id, 's2');
+    assert.equal(left[0].missing, 0);
+  });
+});
+
+describe('the sweep for ghosts left by the old removal', () => {
+  it('marks an orphaned server book missing, and nothing else', async () => {
+    const fresh = new DatabaseSync(':memory:');
+    fresh.exec('PRAGMA foreign_keys = OFF');
+    const db = {
+      async execAsync(sql: string) { fresh.exec(sql); },
+      async runAsync(sql: string, ...a: SQLInputValue[]) { return fresh.prepare(sql).run(...a); },
+      async getFirstAsync<T>(sql: string, ...a: SQLInputValue[]) { return (fresh.prepare(sql).get(...a) as T) ?? null; },
+      async getAllAsync<T>(sql: string, ...a: SQLInputValue[]) { return fresh.prepare(sql).all(...a) as T[]; },
+      async closeAsync() {},
+    };
+    try {
+      // Migrate to just before the sweep, then plant what the old code left.
+      for (const migration of MIGRATIONS.slice(0, MIGRATIONS.length - 1)) {
+        await migration(db as never);
+      }
+      fresh.exec(`PRAGMA user_version = ${MIGRATIONS.length - 1};
+        INSERT INTO books(id, folder_rel_path, raw_folder_name, title, title_source)
+          VALUES ('ghost','','','Orphaned Server Book','server');
+        INSERT INTO books(id, folder_rel_path, raw_folder_name, title, title_source)
+          VALUES ('usb','A','A','A Drive Book','tags');`);
+
+      await migrate(db as never);
+
+      assert.equal(fresh.prepare("SELECT missing FROM books WHERE id = 'ghost'").get()!.missing, 1);
+      assert.equal(
+        fresh.prepare("SELECT missing FROM books WHERE id = 'usb'").get()!.missing,
+        0,
+        'only the catalogue writes title_source = server, so a drive book is safe',
+      );
+    } finally {
+      fresh.close();
+    }
   });
 });

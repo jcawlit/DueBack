@@ -148,8 +148,40 @@ export async function touchSource(id: string): Promise<string> {
  */
 export async function removeSource(id: string): Promise<void> {
   const db = await getDb();
-  await db.runAsync('UPDATE books SET source_id = NULL, remote_id = NULL WHERE source_id = ?', id);
-  await db.runAsync('DELETE FROM sources WHERE id = ?', id);
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    /*
+     * A book whose server has gone, and which holds nothing of the
+     * listener's, is not worth keeping. It used to be kept — the row was
+     * simply unhooked — and the result was a ghost: no source, no files,
+     * no way to tell it from a book on the drive, sitting on the drive's
+     * own shelf and refusing to play because it has no audio. Removing
+     * and re-adding a server left one per book, and then a second copy of
+     * every book beside it.
+     */
+    await txn.runAsync(
+      `DELETE FROM books
+        WHERE source_id = ?
+          AND local_status = 'on-shelf'
+          AND progress_sec = 0
+          AND finished_at IS NULL
+          AND id NOT IN (SELECT book_id FROM checkouts)
+          AND id NOT IN (SELECT book_id FROM notes WHERE deleted_at IS NULL)
+          AND id NOT IN (SELECT book_id FROM characters WHERE deleted_at IS NULL)`,
+      id,
+    );
+    /*
+     * What is left does hold something — a place, a note, a card history —
+     * and that is the listener's, not the server's. It stays, marked
+     * missing, which is what a book with no reachable source is and what
+     * puts it in reach of "Forget missing books" when they are done with
+     * it.
+     */
+    await txn.runAsync(
+      'UPDATE books SET source_id = NULL, remote_id = NULL, missing = 1 WHERE source_id = ?',
+      id,
+    );
+    await txn.runAsync('DELETE FROM sources WHERE id = ?', id);
+  });
 }
 
 /** How many books have arrived from a source. Zero until step 2 brings any. */

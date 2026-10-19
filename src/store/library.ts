@@ -635,7 +635,13 @@ export const useLibrary = create<LibraryState>((set, get) => {
     if (book.files.length === 0 || book.durationSec <= 0) {
       return {
         kind: 'wont-fit',
-        text: `${book.title} has no audio that can be read. The files may be empty or damaged.`,
+        /*
+         * Deliberately distinguishable from the server's version of this
+         * sentence above. The two were close enough to be reported as the
+         * same message, which cost a round trip working out which branch
+         * a book had fallen down.
+         */
+        text: `${book.title} has no audio on the drive that can be read. The files may be empty or damaged.`,
       };
     }
 
@@ -1148,13 +1154,18 @@ export const useLibrary = create<LibraryState>((set, get) => {
         return;
       }
 
-      const driveNotConnected: Slip = {
-        kind: 'wont-fit',
-        stamp: 'DRIVE NOT CONNECTED',
-        text: 'Plug in your drive to check this out.',
-      };
-      if (!driveConnected) {
-        flashSlip(driveNotConnected);
+      /*
+       * A book from a server needs the network, not the drive. `checkOut`
+       * already knew that; this path did not, so asking to download and
+       * play one with the drive unplugged was refused with "plug in your
+       * drive" — advice that could not have helped.
+       */
+      if (!isRemote(book) && !driveConnected) {
+        flashSlip({
+          kind: 'wont-fit',
+          stamp: 'DRIVE NOT CONNECTED',
+          text: 'Plug in your drive to check this out.',
+        });
         return;
       }
 

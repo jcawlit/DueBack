@@ -433,10 +433,17 @@ export default function BookScreen() {
               context: placeLine,
               onPress: () => openPlayer(book.id),
             }
-          : libraryOnDevice
+          : libraryOnDevice && !remote
             ? {
-                // The library is already on the phone, so there is nothing to
-                // copy and nothing to wait for — just play it.
+                /*
+                 * The library is already on the phone, so there is nothing
+                 * to copy and nothing to wait for — just play it.
+                 *
+                 * `!remote` because this is about where the *drive's*
+                 * library lives. A book on a server is not in it, and has
+                 * no audio on the phone until it is downloaded: offering
+                 * Play for one sent the player at a book with no files.
+                 */
                 label: 'Play',
                 sentence: started ? 'Keep listening' : 'Start listening',
                 context: placeLine,

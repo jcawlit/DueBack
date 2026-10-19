@@ -356,6 +356,27 @@ export const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
       ALTER TABLE books ADD COLUMN genres TEXT;
     `);
   },
+  async (db) => {
+    /*
+     * Sweep up the ghosts an earlier "remove this server" left behind.
+     *
+     * Removing a source unhooked its books instead of accounting for
+     * them, so each one became a row with no source, no files and no way
+     * to tell it from a book on the drive — on the drive's own shelf,
+     * refusing to play because it has no audio. Re-adding the server then
+     * inserted a second copy of every one of them.
+     *
+     * `title_source = 'server'` is the marker: only the catalogue writes
+     * it, so this cannot touch a book that came off a drive. They are
+     * marked missing rather than deleted, because some of them carry a
+     * place or a note that is the listener's — and missing is both the
+     * truth and what puts them in reach of "Forget missing books".
+     */
+    await db.runAsync(
+      `UPDATE books SET missing = 1
+        WHERE source_id IS NULL AND title_source = 'server' AND missing = 0`,
+    );
+  },
 ];
 
 export async function migrate(db: SQLite.SQLiteDatabase) {
