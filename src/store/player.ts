@@ -21,7 +21,7 @@ import { flushProgressPush, reconcileBeforePlay, setStreaming } from './absProgr
 import { StreamSession, SYNC_INTERVAL_MS, isTranscode } from '@/lib/abs/session';
 import { absDeviceId } from '@/lib/abs/device';
 import { loadTokens } from '@/lib/abs/tokens';
-import { useSources } from './sources';
+import { setSourceClosedListener, useSources } from './sources';
 import { getSource } from '@/db/sources';
 import { timestamp } from '@/lib/format';
 
@@ -203,6 +203,33 @@ engine.onSessionChange((nativePlayer) => {
  * to any screen, and because the download may well finish while the
  * player is not the thing on top.
  */
+/*
+ * Signing out of a server, or removing it, stops anything streaming from it.
+ *
+ * Not automatic: the engine holds the track addresses and the header it was
+ * given when playback started, so a book goes on playing — and its session
+ * goes on reporting — against credentials the app has just been told to
+ * forget. A book already downloaded is untouched, because it needs nothing
+ * from the server to play.
+ */
+setSourceClosedListener((sourceId) => {
+  const state = usePlayer.getState();
+  if (!state.streaming || !state.bookId) return;
+  const book = useLibrary.getState().books.find((b) => b.id === state.bookId);
+  if (book?.sourceId !== sourceId) return;
+
+  void (async () => {
+    // `close` carries the session's final sync, which is still worth
+    // sending: the listening happened, whatever happens to the account now.
+    await usePlayer.getState().close();
+    useLibrary.getState().showSlip({
+      kind: 'note',
+      stamp: 'SIGNED OUT',
+      text: `${book.title} stopped — it was playing from a server you just signed out of.`,
+    });
+  })();
+});
+
 onBookCheckedOut((bookId) => {
   const state = usePlayer.getState();
   if (!state.streaming || state.bookId !== bookId) return;

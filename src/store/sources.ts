@@ -187,6 +187,8 @@ export const useSources = create<SourcesState>((set, get) => ({
   },
 
   disconnect: async (sourceId) => {
+    // Before the token goes, so the session can still be closed properly.
+    onSourceClosed?.(sourceId);
     await forgetTokens(sourceId);
     const updated = await updateSourceConfig(sourceId, { needsSignIn: true });
     if (!updated) return;
@@ -194,6 +196,7 @@ export const useSources = create<SourcesState>((set, get) => ({
   },
 
   remove: async (sourceId) => {
+    onSourceClosed?.(sourceId);
     await forgetTokens(sourceId);
     await removeSource(sourceId);
     set((s) => ({ sources: s.sources.filter((x) => x.id !== sourceId) }));
@@ -293,6 +296,24 @@ let onCatalogueChanged: (() => Promise<void>) | null = null;
 
 export function setCatalogueListener(listener: (() => Promise<void>) | null) {
   onCatalogueChanged = listener;
+}
+
+/**
+ * Told when a source stops being usable — signed out of, or removed.
+ *
+ * A stream from it has to stop. The audio engine was handed the track
+ * addresses and an Authorization header when playback began and will go on
+ * using them quite happily, so forgetting the token locally does not stop
+ * anything: the book keeps playing, and its session keeps reporting, to a
+ * server the listener has just disconnected from.
+ *
+ * A callback for the usual reason — the player imports this store, so this
+ * store cannot import the player.
+ */
+let onSourceClosed: ((sourceId: string) => void) | null = null;
+
+export function setSourceClosedListener(listener: ((sourceId: string) => void) | null) {
+  onSourceClosed = listener;
 }
 
 /** The drive is always first and always there; the rest are configured. */

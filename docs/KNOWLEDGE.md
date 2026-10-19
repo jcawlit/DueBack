@@ -1299,3 +1299,23 @@ else sets it, which is what made the ghosts already on a phone safe to
 sweep up in a migration without touching a book that came off a drive.
 
 *`src/db/sources.ts`, `src/db/migrations.ts`*
+
+### The audio engine keeps the credentials it was handed
+
+A streaming book is given its track addresses and an `Authorization`
+header when playback starts, and the native player holds both. Forgetting
+the token locally — signing out of a source, or removing it — stops
+nothing: the book goes on playing, and its session goes on reporting, to a
+server the listener has just disconnected from. The access token is still
+valid server-side; only our copy of it went away.
+
+So anything that makes a source unusable has to stop playback from it
+explicitly. A book already downloaded is untouched, because it needs
+nothing from the server to play.
+
+The same is *not* done when a token refresh fails mid-listen. There the
+listener has asked for nothing, the audio is still arriving, and stopping
+a book because a renewal failed would be worse than letting it run on —
+the source is marked "Sign in again" and the next play settles it.
+
+*`src/store/sources.ts`, `src/store/player.ts`*
