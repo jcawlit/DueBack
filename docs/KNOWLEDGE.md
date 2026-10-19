@@ -1256,4 +1256,26 @@ HLS path (`playMethod: 2`) is the one address in the system with no
 credential, because the session id in it is unguessable and dies with the
 session.
 
+Streaming does **not** need the download permission. An account with
+`permissions.download` false opens a session and fetches its tracks (206)
+quite happily — verified as `dueback-nodl`. Gating the Stream action on
+that permission refuses somebody the server would have served.
+
 *`src/lib/abs/session.ts`, `src/lib/abs/device.ts`, `src/store/player.ts`*
+
+### `player.open` must not tear down a stream before its own shortcut
+
+`open` returns early when it already holds the book asked for, so that
+leaving the Player and coming back does not reload it. Anything that ends
+a stream has to come **after** that check, not before: the Player screen
+asks to open the book it can already see, so a teardown at the top of the
+function killed the session a moment after Stream started it — leaving
+audio playing with nothing reporting it, or falling through to local files
+a streamed book does not have.
+
+For the same reason the shortcut skips the progress reconcile. During a
+stream the session's own sync has just written our position to the server,
+so the server always reads as newer, and reconciling would pull the
+listener back to wherever the last sync left them.
+
+*`src/store/player.ts`*

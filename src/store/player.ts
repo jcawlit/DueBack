@@ -17,7 +17,7 @@ import { localUriFor } from '@/lib/files/copy';
 import { onBecomingNoisy } from '@/lib/audio/soundFx';
 import { useSound } from './sound';
 import { onBookAudioRemoved, onBookCheckedOut, useLibrary } from './library';
-import { reconcileBeforePlay, setStreaming } from './absProgress';
+import { flushProgressPush, reconcileBeforePlay, setStreaming } from './absProgress';
 import { StreamSession, SYNC_INTERVAL_MS, isTranscode } from '@/lib/abs/session';
 import { absDeviceId } from '@/lib/abs/device';
 import { loadTokens } from '@/lib/abs/tokens';
@@ -497,11 +497,6 @@ export const usePlayer = create<PlayerState>((set, get) => {
     },
 
     open: async (bookId) => {
-      // Opening a book from the phone ends any stream that was running:
-      // one book plays at a time, and a session left open would keep
-      // reporting against a book nobody is listening to.
-      await endSession(get().positionSec);
-      set({ streaming: false });
       let b = useLibrary.getState().books.find((x) => x.id === bookId);
       if (!b) return;
 
@@ -519,7 +514,17 @@ export const usePlayer = create<PlayerState>((set, get) => {
        * Bounded, and silent on failure. A book already on the phone must
        * play whatever the server is doing.
        */
-      const adopted = isRemote(b) ? await reconcileBeforePlay(bookId) : null;
+      /*
+       * Already holding this book, with no error: the screen is asking to
+       * open what is playing. There is nothing to settle, and settling
+       * anyway is actively harmful during a stream — the session's own
+       * sync has just written our position to the server, so the server
+       * reads as "newer" and the book would be yanked back to wherever
+       * the last sync left it.
+       */
+      const alreadyLive = get().bookId === bookId && loadedFor === bookId && !get().error;
+      const adopted =
+        !alreadyLive && isRemote(b) ? await reconcileBeforePlay(bookId) : null;
       if (adopted !== null) {
         b = useLibrary.getState().books.find((x) => x.id === bookId) ?? b;
         useLibrary.getState().showSlip({
@@ -548,10 +553,31 @@ export const usePlayer = create<PlayerState>((set, get) => {
        * its last second, so "Listen again" lands on exactly this shortcut and
        * has to rewind rather than hand back the end.
        */
-      if (get().bookId === bookId && loadedFor === bookId && !get().error) {
+      if (alreadyLive) {
         if (rewind && get().positionSec > 0) get().seekTo(0);
+        /*
+         * A position taken from the server still has to be moved to, even
+         * on the shortcut: the database and the shelves now say one thing
+         * and the engine is still sitting where it was.
+         */
+        else if (adopted !== null) get().seekTo(adopted);
         return;
       }
+
+      /*
+       * Past the shortcut, so this really is taking over, and any stream
+       * running is finished with.
+       *
+       * Deliberately here and not at the top of this function. It was at
+       * the top, which meant that pressing Stream and then navigating to
+       * the player — where the screen asks to open the book it can already
+       * see — killed the session before the shortcut above had the chance
+       * to say there was nothing to do. The stream kept playing with
+       * nothing reporting it, or fell through to loading local files that
+       * a streamed book does not have.
+       */
+      await endSession(get().positionSec);
+      set({ streaming: false });
 
       const token = ++openToken;
       const current = () => token === openToken;
@@ -762,6 +788,13 @@ export const usePlayer = create<PlayerState>((set, get) => {
          * is tidied up by nobody; resuming opens a fresh one.
          */
         if (get().streaming) void endSession(get().positionSec);
+        /*
+         * A downloaded book pushes its place now rather than waiting out
+         * the throttle. Stopping is exactly the moment the position
+         * matters to another device, and a minute of silence afterwards
+         * reads as the sync not working at all.
+         */
+        else if (id) void flushProgressPush(id);
         return;
       }
 
@@ -831,7 +864,16 @@ export const usePlayer = create<PlayerState>((set, get) => {
       }),
 
     savePosition: () => {
-      if (get().bookId) persist(get().positionSec, true);
+      const id = get().bookId;
+      if (!id) return;
+      persist(get().positionSec, true);
+      /*
+       * Going away is the other moment a position matters elsewhere, so a
+       * downloaded book sends it now instead of waiting out the throttle.
+       * A stream needs nothing here: its session is reporting already, and
+       * pausing or closing carries the final sync.
+       */
+      if (!get().streaming) void flushProgressPush(id);
     },
 
   };

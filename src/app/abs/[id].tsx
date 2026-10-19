@@ -113,6 +113,7 @@ export default function AbsBookScreen() {
    */
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [pushedAt, setPushedAt] = useState<string | null>(null);
+  const [streamBusy, setStreamBusy] = useState(false);
 
   const sourceId = book?.sourceId;
   const remoteId = book?.remoteId;
@@ -395,15 +396,22 @@ export default function AbsBookScreen() {
           {!out ? (
             <>
               <Act
-                label="Stream (no download)"
+                label={streamBusy ? 'Starting…' : 'Stream (no download)'}
                 onPress={() => {
-                  void stream(book.id).then(() => router.push(`/player/${book.id}`));
+                  setStreamBusy(true);
+                  void stream(book.id)
+                    .then(() => router.push(`/player/${book.id}`))
+                    .finally(() => setStreamBusy(false));
                 }}
-                disabled={allowed === false}
+                disabled={streamBusy}
               />
               <Text style={{ fontFamily: font.mono, fontSize: 10, color: color.faint }}>
                 Plays straight off the server. Takes no storage, needs the
                 network, and reports your place through its own session.
+              </Text>
+              <Text style={{ fontFamily: font.mono, fontSize: 10, color: color.faint }}>
+                Not gated on the download permission: an account that may not
+                download may still stream, which the server confirms.
               </Text>
             </>
           ) : null}
