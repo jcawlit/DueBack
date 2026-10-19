@@ -1279,3 +1279,23 @@ so the server always reads as newer, and reconciling would pull the
 listener back to wherever the last sync left them.
 
 *`src/store/player.ts`*
+
+### Unhooking a book from a removed source makes a ghost
+
+Removing a server used to clear `source_id` and `remote_id` and keep the
+row. What that leaves is a book with no source, no files and nothing to
+tell it apart from a book on the drive — so it appears on the **drive's**
+shelf, because the Library groups by `sourceId ?? 'usb'`, and refuses to
+play with "no audio that can be read", which it genuinely has none of.
+Re-adding the server then inserts a second copy of every book beside the
+ghosts.
+
+Removal now deletes the books holding nothing of the listener's and keeps
+the rest marked `missing` — which is the truth about a book whose source
+has gone, and what puts it in reach of "Forget missing books".
+
+`title_source = 'server'` identifies a row the catalogue wrote and nothing
+else sets it, which is what made the ghosts already on a phone safe to
+sweep up in a migration without touching a book that came off a drive.
+
+*`src/db/sources.ts`, `src/db/migrations.ts`*
