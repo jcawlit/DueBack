@@ -425,6 +425,11 @@ export default function SettingsScreen() {
             detail="Every book, its parts, timings and warnings"
             onPress={() => router.push('/dev/metadata')}
           />
+          <Row
+            label="Drive folder spike"
+            detail="Throwaway probe: can a cloud folder carry the library pipeline?"
+            onPress={() => router.push('/dev/drive')}
+          />
         </View>
       </ScrollView>
     </View>

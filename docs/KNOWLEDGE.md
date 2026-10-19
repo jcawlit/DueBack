@@ -1319,3 +1319,72 @@ a book because a renewal failed would be worse than letting it run on —
 the source is marked "Sign in again" and the next play settles it.
 
 *`src/store/sources.ts`, `src/store/player.ts`*
+
+## Google Drive via SAF
+
+A spike, run on `feat/pro` in October 2026, to decide whether a Google
+Drive folder picked through Android's folder picker can be a book source
+the way the USB drawer is — or whether the Drive build has to go through
+the Drive REST API instead. The probe is `src/lib/spike/` and
+`src/app/dev/drive.tsx`, and is meant to be deleted once the decision is
+made.
+
+### The SAF layer is already provider-agnostic
+
+`pickLibraryRoot` is `Directory.pickDirectoryAsync()`, and everything
+downstream of it — `listTree`, `openReader`, `readFileMetadata`,
+`copyBookToDevice` — takes a tree URI and never asks which provider
+produced it. So **if** Drive hands back a tree, the existing pipeline
+reads it without modification. Nothing in the file layer needs a Drive
+case; that is what makes the spike worth running rather than assuming.
+
+### The scanner, though, cannot simply be pointed at a second root
+
+`scanLibrary` writes books bound to one `library_id`, and finishes by
+calling `markMissingExcept`, which marks every book it did not find as
+gone. Pointing it at a second folder therefore mixes that folder into the
+USB shelves **and** marks the drive's books missing. A second folder
+source needs per-source library binding and a sweep scoped the way the
+Audiobookshelf catalogue's already is — which is the Drive build itself,
+not a probe. That is why the spike measures the primitives directly and
+does not put Drive books on a shelf.
+
+### Identity is path-based, which is why this can work at all
+
+A SAF document URI contains a provider-chosen document id, and nothing
+promises it is stable between sessions — for a cloud provider it is more
+likely than not to churn. The scanner keys a book on its **path**
+(`fingerprintKey(folderRelPath, firstPartRelPath)`) and confirms it with a
+content sample, never on the URI. A URI that changes therefore does not
+move a book. Had identity been URI-based, Drive would have been a no-go on
+the first rescan without anything needing to be measured.
+
+### The measurement that decides it
+
+`readFileMetadata` reports `bytesRead`, `readCount` and `ms` per file, and
+the scanner already records them per book. The tag pass reads the first
+and last few hundred kilobytes of a file and never the middle.
+
+Over USB that is what happens. A cloud DocumentsProvider is free to
+satisfy the first read by downloading the whole file — and if it does,
+indexing a library means *downloading* the library, which is the
+difference between SAF being viable here and not. So the number that
+decides the architecture is **`bytesRead` against `sizeBytes`** on the
+metadata pass, per book, and the probe prints both.
+
+### Open until the device run
+
+Whether Google Drive appears in `ACTION_OPEN_DOCUMENT_TREE` at all is
+**not established**. Drive is a DocumentsProvider and has long been
+pickable for single files; whether it exposes folders as selectable tree
+roots is a property of its provider implementation, and two searches
+turned up no authoritative statement either way. The probe answers it in
+one tap, and prints the URI's authority so the answer names the provider
+that actually responded.
+
+Also unanswered until then: listing time and its stability across
+repeats, whether the provider hides or duplicates entries, copy
+throughput, pause and cancel behaviour, and whether an expired or revoked
+grant is distinguishable from an empty folder.
+
+*`src/lib/spike/driveProbe.ts`, `src/app/dev/drive.tsx`*
