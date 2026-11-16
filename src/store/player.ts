@@ -79,6 +79,15 @@ type PlayerState = {
   reload: (andPlay?: boolean) => Promise<void>;
   /** Reopens the last book, paused at its saved position. */
   restoreLastBook: () => Promise<void>;
+  /**
+   * Whether the attempt to reopen the last book has finished, one way or
+   * another.
+   *
+   * Not "a book was restored": most launches have nothing to reopen, and a
+   * loading screen waiting for a book that does not exist would never go
+   * away. It means the question has been asked and answered.
+   */
+  restored: boolean;
   close: () => Promise<void>;
   togglePlay: () => void;
   seekTo: (positionSec: number) => void;
@@ -418,6 +427,7 @@ export const usePlayer = create<PlayerState>((set, get) => {
     playing: false,
     buffering: false,
     error: null,
+    restored: false,
     speedIndex: 0,
     sleepIndex: 0,
     sleepDeadlineAt: null,
@@ -760,7 +770,10 @@ export const usePlayer = create<PlayerState>((set, get) => {
      * failures, since the book may have been returned or forgotten since.
      */
     restoreLastBook: async () => {
-      if (get().bookId) return;
+      if (get().bookId) {
+        set({ restored: true });
+        return;
+      }
       try {
         const id = await getSetting(SETTING_KEYS.lastBookId);
         if (!id) return;
@@ -774,6 +787,11 @@ export const usePlayer = create<PlayerState>((set, get) => {
         }
       } catch {
         // Never let this stop the app starting.
+      } finally {
+        // In `finally`, because every path through here — no saved book, a
+        // book that has gone, a failure — is an answer, and the loading
+        // screen is waiting on the question rather than on a result.
+        set({ restored: true });
       }
     },
 

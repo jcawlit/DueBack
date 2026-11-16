@@ -23,6 +23,7 @@ import { GlobalConfirm } from '@/components/GlobalConfirm';
 import { GlobalReconnect } from '@/components/GlobalReconnect';
 import { GlobalSlip } from '@/components/GlobalSlip';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
+import { LoadingScreen } from '@/components/LoadingScreen';
 import { MiniPlayer } from '@/components/MiniPlayer';
 import { usePlayer } from '@/store/player';
 import { useLibrary } from '@/store/library';
@@ -191,13 +192,34 @@ export default function RootLayout() {
     else if (fontTimedOut && !fontsLoaded) {
       console.warn('[dueback] fonts still loading after 4s; starting anyway');
     }
-    SplashScreen.hideAsync().catch(() => {});
+    /*
+     * The native splash is **not** hidden here any more.
+     *
+     * `LoadingScreen` hides it from its own first layout, once it is on
+     * screen showing the same image at the same size on the same colour.
+     * Hiding it here instead left a frame of whatever was underneath
+     * between the two, which is the flash the handoff exists to avoid.
+     */
   }, [fontsSettled, fontError, fontTimedOut, fontsLoaded]);
 
+  /**
+   * Everything the loading screen waits for.
+   *
+   * The library has to be hydrated or the shelves arrive empty and fill in
+   * afterwards, and the player has to have finished asking whether there is
+   * a book to reopen — otherwise the mini player appears a moment after the
+   * app does, which is the kind of thing a loading screen is for hiding.
+   */
+  const libraryReady = useLibrary((s) => s.ready);
+  const playerRestored = usePlayer((s) => s.restored);
+  const appReady = fontsSettled && libraryReady && playerRestored;
+  const [showLoading, setShowLoading] = useState(true);
+
   // The whole design is typographic, so render nothing rather than a flash of
-  // system fonts — but never hold the app hostage to it.
+  // system fonts — but never hold the app hostage to it. The native splash is
+  // still up at this point, so this colour is only ever seen if it fails.
   if (!fontsSettled) {
-    return <View style={{ flex: 1, backgroundColor: color.groundDeep }} />;
+    return <View style={{ flex: 1, backgroundColor: color.ground }} />;
   }
 
   return (
@@ -233,6 +255,14 @@ export default function RootLayout() {
       <GlobalSlip />
       <GlobalConfirm />
       <GlobalReconnect />
+      {/*
+        Last, so it covers everything above it, and mounted from the first
+        frame after the fonts settle — it is what hides the native splash,
+        so anything that delays it is a frame of nothing on screen.
+      */}
+      {showLoading ? (
+        <LoadingScreen ready={appReady} onDone={() => setShowLoading(false)} />
+      ) : null}
     </SafeAreaProvider>
     </KeyboardProvider>
   );
