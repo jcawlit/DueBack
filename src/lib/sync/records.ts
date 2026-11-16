@@ -65,6 +65,37 @@ export type TagRecord = Stamp & {
   characterId: string;
 };
 
+/**
+ * A shelf the listener arranged, and its name.
+ *
+ * Plain last-write-wins, unlike a note. A note holds sentences someone
+ * composed, so losing one side of a two-sided edit loses writing and the
+ * merge keeps a conflicted copy instead. A shelf holds a name and an
+ * order; the newer answer to "what is this shelf called" is simply the
+ * answer, and a second shelf called "Sci-fi (conflict)" would be a worse
+ * outcome than either side's choice.
+ */
+export type ShelfRecord = Stamp & {
+  id: string;
+  /** Null for the drive, which is the implicit source and has no row. */
+  sourceId: string | null;
+  name: string;
+  position: number;
+  createdAt: string;
+};
+
+/**
+ * Which shelf a book sits on, keyed on the book.
+ *
+ * A book is on at most one shelf, so two phones disagreeing about where it
+ * goes merges to one answer rather than putting the book on both.
+ */
+export type ShelfBookRecord = Stamp & {
+  bookId: string;
+  shelfId: string;
+  position: number;
+};
+
 export type ProgressRecord = Stamp & {
   bookId: string;
   positionSec: number;
@@ -110,10 +141,21 @@ export type SyncPayload = {
   tags: TagRecord[];
   progress: ProgressRecord[];
   history: HistoryRecord[];
+  shelves: ShelfRecord[];
+  shelfBooks: ShelfBookRecord[];
 };
 
 export function emptyPayload(): SyncPayload {
-  return { identity: [], notes: [], characters: [], tags: [], progress: [], history: [] };
+  return {
+    identity: [],
+    notes: [],
+    characters: [],
+    tags: [],
+    progress: [],
+    history: [],
+    shelves: [],
+    shelfBooks: [],
+  };
 }
 
 /** The key two copies of a record are matched on. */
@@ -124,6 +166,8 @@ export const keyOf = {
   tag: (r: TagRecord) => `${r.noteId}\u0000${r.characterId}`,
   progress: (r: ProgressRecord) => r.bookId,
   history: (r: HistoryRecord) => r.id,
+  shelf: (r: ShelfRecord) => r.id,
+  shelfBook: (r: ShelfBookRecord) => r.bookId,
 };
 
 /**
@@ -224,15 +268,23 @@ export function mergeNote(mine: NoteRecord, theirs: NoteRecord): NoteMerge {
   };
 }
 
-/** Merges two sides of one record type, keyed by `key`. */
+/**
+ * Merges two sides of one record type, keyed by `key`.
+ *
+ * Tolerates a missing collection on either side, because a generation
+ * already sitting on a drive was written by a build that had never heard of
+ * whatever was added since — shelves, most recently. Reading one is how the
+ * restore path works, so an absent field has to mean "nothing yet" rather
+ * than throwing halfway through a merge.
+ */
 function mergeBy<T extends Stamp>(
-  mine: T[],
-  theirs: T[],
+  mine: T[] | undefined,
+  theirs: T[] | undefined,
   key: (record: T) => string,
 ): T[] {
   const merged = new Map<string, T>();
-  for (const record of mine) merged.set(key(record), record);
-  for (const record of theirs) {
+  for (const record of mine ?? []) merged.set(key(record), record);
+  for (const record of theirs ?? []) {
     const existing = merged.get(key(record));
     merged.set(key(record), existing ? laterOf(existing, record) : record);
   }
@@ -279,6 +331,16 @@ export function mergePayloads(mine: SyncPayload, theirs: SyncPayload): SyncPaylo
    */
   const progress = mergeBy(mine.progress, theirs.progress, keyOf.progress);
 
+  /*
+   * Shelves: newest write wins, full stop.
+   *
+   * `laterOf` compares the timestamp first and only breaks a same-
+   * millisecond tie on the writer and the mutation, so both phones reach
+   * the same answer without talking to each other.
+   */
+  const shelves = mergeBy(mine.shelves, theirs.shelves, keyOf.shelf);
+  const shelfBooks = mergeBy(mine.shelfBooks, theirs.shelfBooks, keyOf.shelfBook);
+
   return {
     identity,
     notes: [...notes.values()],
@@ -286,6 +348,8 @@ export function mergePayloads(mine: SyncPayload, theirs: SyncPayload): SyncPaylo
     tags,
     progress,
     history,
+    shelves,
+    shelfBooks,
   };
 }
 

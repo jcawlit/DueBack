@@ -15,6 +15,8 @@ import {
   type HistoryRecord,
   type NoteRecord,
   type ProgressRecord,
+  type ShelfBookRecord,
+  type ShelfRecord,
   type SyncPayload,
   type TagRecord,
 } from '@/lib/sync/records';
@@ -99,6 +101,28 @@ async function collectAllPayload(): Promise<SyncPayload> {
        FROM checkouts WHERE uuid IS NOT NULL`,
   );
 
+  const shelfRows = await db.getAllAsync<{
+    id: string; source_id: string | null; name: string; position: number;
+    created_at: string; updated_at: string; deleted_at: string | null;
+    mutation_id: string | null; writer_device: string | null;
+    base_updated_at: string | null;
+  }>(
+    `SELECT id, source_id, name, position, created_at, updated_at, deleted_at,
+            mutation_id, writer_device, base_updated_at
+       FROM shelves`,
+  );
+
+  const shelfBookRows = await db.getAllAsync<{
+    book_id: string; shelf_id: string; position: number;
+    updated_at: string; deleted_at: string | null;
+    mutation_id: string | null; writer_device: string | null;
+    base_updated_at: string | null;
+  }>(
+    `SELECT book_id, shelf_id, position, updated_at, deleted_at,
+            mutation_id, writer_device, base_updated_at
+       FROM shelf_books`,
+  );
+
   return {
     identity: identity.map<BookIdentityRecord>((r) => {
       let partSizes: number[] = [];
@@ -180,6 +204,28 @@ async function collectAllPayload(): Promise<SyncPayload> {
       mutationId: r.mutation_id ?? r.out_at,
       writerDevice: r.writer_device ?? device,
     })),
+    shelves: shelfRows.map<ShelfRecord>((r) => ({
+      id: r.id,
+      sourceId: r.source_id,
+      name: r.name,
+      position: r.position,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      deletedAt: r.deleted_at,
+      mutationId: r.mutation_id ?? r.updated_at,
+      writerDevice: r.writer_device ?? device,
+      baseUpdatedAt: r.base_updated_at,
+    })),
+    shelfBooks: shelfBookRows.map<ShelfBookRecord>((r) => ({
+      bookId: r.book_id,
+      shelfId: r.shelf_id,
+      position: r.position,
+      updatedAt: r.updated_at,
+      deletedAt: r.deleted_at,
+      mutationId: r.mutation_id ?? r.updated_at,
+      writerDevice: r.writer_device ?? device,
+      baseUpdatedAt: r.base_updated_at,
+    })),
   };
 }
 
@@ -190,6 +236,8 @@ export type ApplyReport = {
   tags: number;
   progress: number;
   history: number;
+  shelves: number;
+  shelfBooks: number;
 };
 
 /**
@@ -208,7 +256,9 @@ export async function applyPayload(payload: SyncPayload): Promise<ApplyReport> {
   const known = new Set(
     (await db.getAllAsync<{ id: string }>('SELECT id FROM books')).map((r) => r.id),
   );
-  const report: ApplyReport = { notes: 0, characters: 0, tags: 0, progress: 0, history: 0 };
+  const report: ApplyReport = {
+    notes: 0, characters: 0, tags: 0, progress: 0, history: 0, shelves: 0, shelfBooks: 0,
+  };
 
   await withLockRetry(() =>
     db.withTransactionAsync(async () => {
@@ -311,6 +361,63 @@ export async function applyPayload(payload: SyncPayload): Promise<ApplyReport> {
         );
         report.history += 1;
       }
+
+      /*
+       * Shelves are not filtered by `known`, unlike everything above.
+       *
+       * A note needs its book, or it is a note about nothing. A shelf is a
+       * name and an order, and it is perfectly sensible to receive
+       * "Re-reads" before the scan that finds the books belonging on it —
+       * which is exactly the order a fresh install does things in. An empty
+       * shelf that fills up later beats a shelf thrown away for arriving
+       * early.
+       */
+      for (const shelf of payload.shelves) {
+        await db.runAsync(
+          `INSERT INTO shelves (id, source_id, name, position, created_at,
+                                updated_at, deleted_at, mutation_id, writer_device,
+                                base_updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(id) DO UPDATE SET
+             source_id = excluded.source_id,
+             name = excluded.name,
+             position = excluded.position,
+             updated_at = excluded.updated_at,
+             deleted_at = excluded.deleted_at,
+             mutation_id = excluded.mutation_id,
+             writer_device = excluded.writer_device,
+             base_updated_at = excluded.base_updated_at
+           WHERE (excluded.updated_at, excluded.writer_device, excluded.mutation_id) >= (shelves.updated_at, COALESCE(shelves.writer_device, ''), COALESCE(shelves.mutation_id, ''))`,
+          shelf.id, shelf.sourceId, shelf.name, shelf.position, shelf.createdAt,
+          shelf.updatedAt, shelf.deletedAt ?? null, shelf.mutationId,
+          shelf.writerDevice, shelf.baseUpdatedAt ?? null,
+        );
+        report.shelves += 1;
+      }
+
+      // An assignment does need its book: it says where that book goes.
+      for (const placed of payload.shelfBooks) {
+        if (!known.has(placed.bookId)) continue;
+        await db.runAsync(
+          `INSERT INTO shelf_books (book_id, shelf_id, position, updated_at,
+                                    deleted_at, mutation_id, writer_device,
+                                    base_updated_at)
+           VALUES (?,?,?,?,?,?,?,?)
+           ON CONFLICT(book_id) DO UPDATE SET
+             shelf_id = excluded.shelf_id,
+             position = excluded.position,
+             updated_at = excluded.updated_at,
+             deleted_at = excluded.deleted_at,
+             mutation_id = excluded.mutation_id,
+             writer_device = excluded.writer_device,
+             base_updated_at = excluded.base_updated_at
+           WHERE (excluded.updated_at, excluded.writer_device, excluded.mutation_id) >= (shelf_books.updated_at, COALESCE(shelf_books.writer_device, ''), COALESCE(shelf_books.mutation_id, ''))`,
+          placed.bookId, placed.shelfId, placed.position, placed.updatedAt,
+          placed.deletedAt ?? null, placed.mutationId, placed.writerDevice,
+          placed.baseUpdatedAt ?? null,
+        );
+        report.shelfBooks += 1;
+      }
     }),
   );
 
@@ -383,5 +490,24 @@ export async function collectPayload(libraryId?: string): Promise<SyncPayload> {
   return { identity: payload.identity.filter((b) => ids.has(b.id)), notes, characters,
     tags: payload.tags.filter((t) => noteIds.has(t.noteId) && characterIds.has(t.characterId)),
     progress: payload.progress.filter((p) => ids.has(p.bookId)),
-    history: payload.history.filter((h) => ids.has(h.bookId)) };
+    history: payload.history.filter((h) => ids.has(h.bookId)),
+    /*
+     * Shelves travel whole; their assignments are scoped like everything
+     * else.
+     *
+     * A shelf belongs to a *source*, and a source can be an Audiobookshelf
+     * server, which has no drive and no `library_id`. The drive is the only
+     * durable store this app has, so a server's shelves ride in the drive's
+     * backup or they are lost on reinstall — and losing them is the thing
+     * syncing them was for.
+     *
+     * The assignments are filtered by book, so a shelf whose books are not
+     * in this library simply arrives empty rather than arriving wrong. The
+     * wrinkle that leaves: with two drives, each backup carries the other's
+     * shelf names, so an empty shelf could surface in the wrong library.
+     * One phone and one drive is the only arrangement that has ever existed
+     * here, and an empty shelf is a tidier failure than a lost one.
+     */
+    shelves: payload.shelves,
+    shelfBooks: payload.shelfBooks.filter((sb) => ids.has(sb.bookId)) };
 }
