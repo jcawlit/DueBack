@@ -1,25 +1,17 @@
 /**
- * Something the listener wrote, in their own hand.
+ * Something the listener wrote.
  *
- * The only place `font.hand` is allowed. Names, times, tags and controls keep
- * the app's own faces — the whole point of the handwriting is that it marks
- * what the app did not write, which stops being true the moment the app
- * writes in it too.
- *
- * Instrument Sans is the default; the handwriting is a setting. Caveat sits
- * small for its point size, so a handwritten line is set larger than the same
- * line in Sans. Both are passed one `size`, meaning "as big as body copy",
- * and this decides what that costs in each face — the compensation applies
- * to Caveat only, so Sans renders at exactly the size it was asked for.
+ * One face, Instrument Sans, at the size it was asked for. There was a
+ * setting that set notes in a handwriting face instead, on the idea that a
+ * note should not look like the app talking. It was removed: notes are
+ * re-read far more often than they are written, and Caveat at note length is
+ * tiring to read. Nothing distinguishes the listener's words by typeface now
+ * — the margin they sit in does that.
  */
 
 import type { ReactNode } from 'react';
 import { Text, type StyleProp, type TextStyle } from 'react-native';
 import { color, font } from '@/theme/tokens';
-import { useUi } from '@/store/ui';
-
-/** Caveat's x-height is about three quarters of Instrument Sans's. */
-const HAND_SCALE = 1.35;
 
 export function NoteText({
   children,
@@ -38,15 +30,14 @@ export function NoteText({
   numberOfLines?: number;
   style?: StyleProp<TextStyle>;
 }) {
-  const handwritten = useUi((s) => s.handwritten);
   return (
     <Text
       numberOfLines={numberOfLines}
       style={[
         {
-          fontFamily: handwritten ? font.hand : font.sans,
-          fontSize: handwritten ? Math.round(size * HAND_SCALE) : size,
-          lineHeight: Math.round(size * (handwritten ? 1.6 : 1.45)),
+          fontFamily: font.sans,
+          fontSize: size,
+          lineHeight: Math.round(size * 1.45),
           color: tone === 'muted' ? color.muted : color.paper,
         },
         style,
@@ -59,9 +50,5 @@ export function NoteText({
 
 /** The same face, for a field being typed into. */
 export function useNoteFont(size = 16) {
-  const handwritten = useUi((s) => s.handwritten);
-  return {
-    fontFamily: handwritten ? font.hand : font.sans,
-    fontSize: handwritten ? Math.round(size * HAND_SCALE) : size,
-  };
+  return { fontFamily: font.sans, fontSize: size };
 }

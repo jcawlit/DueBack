@@ -3,15 +3,14 @@
  * rescan, and point the app at a different folder.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { isRemote } from '@/data/types';
-import { useLibrary } from '@/store/library';
+import { committedBytes, useLibrary } from '@/store/library';
 import { countPlaceholderDriveBooks, forgetMissingBooks } from '@/db/books';
 import { countMarginsFor } from '@/db/notes';
-import { useUi } from '@/store/ui';
 import { useBackup } from '@/store/backup';
 import { removeCover } from '@/lib/files/covers';
 import { useScan } from '@/store/scan';
@@ -21,6 +20,8 @@ import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { ChevronLeft } from '@/components/icons';
 import { ScanProgressBar } from '@/components/FirstRun';
 import { AbsTestingSection } from '@/components/AbsTesting';
+import { BudgetSheet } from '@/components/BudgetSheet';
+import { availableBytes } from '@/lib/files/copy';
 import { useSources } from '@/store/sources';
 
 /** "3 notes", "1 character" — the plural done once. */
@@ -80,8 +81,6 @@ function Row({
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const miniPlayerInset = useMiniPlayerInset();
-  const handwritten = useUi((s) => s.handwritten);
-  const setHandwritten = useUi((s) => s.setHandwritten);
   const backupEnabled = useBackup((s) => s.enabled);
   const setBackupEnabled = useBackup((s) => s.setEnabled);
   const backupPending = useBackup((s) => s.pending);
@@ -99,7 +98,10 @@ export default function SettingsScreen() {
   const books = useLibrary((s) => s.books);
   const refresh = useLibrary((s) => s.refresh);
   const budgetBytes = useLibrary((s) => s.budgetBytes);
+  const setBudgetBytes = useLibrary((s) => s.setBudgetBytes);
   const loadSources = useSources((s) => s.load);
+
+  const [editingBudget, setEditingBudget] = useState(false);
 
   const scanning = useScan((s) => s.running);
   const preparing = useScan((s) => s.preparing);
@@ -380,6 +382,7 @@ export default function SettingsScreen() {
           <Row
             label={`Budget ${formatBytes(budgetBytes)}`}
             detail="How much of the phone checked-out books may use"
+            onPress={() => setEditingBudget(true)}
           />
         </View>
 
@@ -416,15 +419,6 @@ export default function SettingsScreen() {
             NOTES
           </Text>
           <Row
-            label="Handwritten notes"
-            detail={
-              handwritten
-                ? 'On — your notes are shown in a handwriting face'
-                : 'Off — your notes are shown in the reading face'
-            }
-            onPress={() => setHandwritten(!handwritten)}
-          />
-          <Row
             label="Back up reading data to the drive"
             detail={
               !backupEnabled
@@ -458,6 +452,22 @@ export default function SettingsScreen() {
           />
         </View>
       </ScrollView>
+
+      <BudgetSheet
+        visible={editingBudget}
+        budgetBytes={budgetBytes}
+        /*
+         * Every book, not just the drive's. What a server's books have
+         * downloaded fills the same phone, and the budget is about the phone.
+         */
+        committedBytes={committedBytes(books)}
+        availableBytes={availableBytes()}
+        onSave={(next) => {
+          setBudgetBytes(next);
+          setEditingBudget(false);
+        }}
+        onCancel={() => setEditingBudget(false)}
+      />
     </View>
   );
 }

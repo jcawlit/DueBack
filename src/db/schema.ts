@@ -111,8 +111,8 @@ export const SETTING_KEYS = {
   budgetBytes: 'bag.budgetBytes',
   /** The book to reopen on launch, so the app comes back where it was left. */
   lastBookId: 'player.lastBookId',
-  /** Whether notes and bios are shown in the handwriting face. */
-  handwrittenNotes: 'notes.handwritten',
+  /** Whether the Library's checked-out tray is shut down to its header. */
+  trayCollapsed: 'library.trayCollapsed',
   /** This library's identity, which outlives the path it is reached through. */
   libraryId: 'library.id',
   /** This phone, for deciding who wrote a record when two devices disagree. */

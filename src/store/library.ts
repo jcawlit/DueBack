@@ -1424,6 +1424,22 @@ export const selectTotalDuration = (s: LibraryState) =>
 export const checkedOutFrom = (books: Book[]) =>
   books.filter((b) => b.local.status !== 'on-shelf');
 
+/**
+ * What the library itself occupies, for a library that is already on the phone.
+ *
+ * The drive's books only. Nothing here is "checked out" when the library is in
+ * phone storage — `checkOut` refuses, because a second copy of a file already
+ * on the phone is the one thing this app exists not to make — so the tray has
+ * no fan to show and the budget has nothing to measure. What is worth saying
+ * is how much room the folder takes, and this is it.
+ *
+ * Summed from the index rather than walked on the drive: it is the figure the
+ * app already knows, it costs nothing, and it counts the audio rather than the
+ * covers and stray files beside it.
+ */
+export const librarySizeBytes = (books: Book[]) =>
+  books.reduce((sum, b) => (isRemote(b) ? sum : sum + b.sizeBytes), 0);
+
 export const onShelfCount = (books: Book[]) =>
   books.reduce((n, b) => (b.local.status === 'on-shelf' ? n + 1 : n), 0);
 

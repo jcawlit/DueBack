@@ -1,0 +1,286 @@
+/**
+ * Setting the storage budget — how much of the phone checked-out books may use.
+ *
+ * A sheet rather than a text field. The budget is a round number of gigabytes
+ * that someone nudges once and forgets, and a keyboard for that invites "4.7"
+ * and a decimal point in a number the ruler draws tick marks from. Presets for
+ * the common answers, a stepper for everything else, and nothing is written
+ * until Save.
+ *
+ * It states the two facts that make a budget make sense — what is checked out
+ * now, and what the phone actually has free — rather than silently refusing
+ * figures it disagrees with. The budget is a preference; the copy path is what
+ * enforces reality, and it does that on the day whatever this says.
+ */
+
+import { useState } from 'react';
+import { Modal, Pressable, Text, View } from 'react-native';
+import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
+import { bytes as formatBytes } from '@/lib/format';
+import {
+  BUDGET_PRESETS_GB,
+  bytesToGB,
+  gbToBytes,
+  MAX_BUDGET_GB,
+  MIN_BUDGET_GB,
+  nextBudgetGB,
+  previousBudgetGB,
+} from '@/lib/library/budget';
+
+type Props = {
+  visible: boolean;
+  budgetBytes: number;
+  /** What checked-out books and holds already commit, for the warning. */
+  committedBytes: number;
+  /** Free space on the phone right now. */
+  availableBytes: number;
+  onSave: (budgetBytes: number) => void;
+  onCancel: () => void;
+};
+
+function StepButton({
+  label,
+  hint,
+  onPress,
+  disabled,
+}: {
+  label: string;
+  hint: string;
+  onPress: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={hint}
+      accessibilityState={{ disabled }}
+      style={({ pressed }) => ({
+        width: TOUCH,
+        height: TOUCH,
+        borderRadius: radius.button,
+        borderWidth: 1,
+        borderColor: color.border,
+        backgroundColor: pressed ? 'rgba(0,0,0,0.12)' : 'transparent',
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: disabled ? 0.35 : 1,
+      })}
+    >
+      <Text style={{ fontFamily: font.mono, fontSize: 22, color: color.inkOnPaper }}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+export function BudgetSheet({
+  visible,
+  budgetBytes,
+  committedBytes,
+  availableBytes,
+  onSave,
+  onCancel,
+}: Props) {
+  /*
+   * `null` means untouched, and reads as whatever the stored budget is.
+   *
+   * Cleared when the sheet closes rather than set when it opens, so the reset
+   * happens in an event handler instead of an effect reacting to `visible` —
+   * and so a store update mid-edit cannot reach in and move the number under
+   * the hand. Nothing is written until Save; this is what holds that.
+   */
+  const [draft, setDraft] = useState<number | null>(null);
+  const draftGB = draft ?? bytesToGB(budgetBytes);
+
+  const cancel = () => {
+    setDraft(null);
+    onCancel();
+  };
+  const save = (next: number) => {
+    setDraft(null);
+    onSave(next);
+  };
+
+  const draftBytes = gbToBytes(draftGB);
+  const belowCommitted = draftBytes < committedBytes;
+  const beyondPhone = draftBytes > availableBytes + committedBytes;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={cancel}>
+      <Pressable
+        onPress={cancel}
+        accessibilityLabel="Dismiss"
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(10,7,5,0.72)',
+          justifyContent: 'flex-end',
+          padding: space.xl,
+        }}
+      >
+        {/* Stop taps inside the card from dismissing it. */}
+        <Pressable
+          onPress={() => {}}
+          style={[
+            {
+              backgroundColor: color.paper,
+              borderRadius: 4,
+              padding: space.xl,
+              gap: space.md,
+            },
+            shadow(20, 0.6),
+          ]}
+        >
+          <Text
+            accessibilityRole="header"
+            style={{ fontFamily: font.serif, fontSize: 21, color: color.inkOnPaper }}
+          >
+            Storage budget
+          </Text>
+          <Text
+            style={{
+              fontFamily: font.sans,
+              fontSize: 14,
+              lineHeight: 14 * 1.45,
+              color: '#4a3c28',
+            }}
+          >
+            How much of this phone checked-out books may fill. The ruler under the
+            tray measures against it.
+          </Text>
+
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingVertical: space.sm,
+            }}
+          >
+            <StepButton
+              label="−"
+              hint="Smaller budget"
+              onPress={() => setDraft(previousBudgetGB(draftGB))}
+              disabled={draftGB <= MIN_BUDGET_GB}
+            />
+            <View
+              accessible
+              accessibilityLabel={`Budget ${draftGB} gigabytes`}
+              accessibilityLiveRegion="polite"
+            >
+              <Text
+                style={{
+                  fontFamily: font.serif,
+                  fontSize: 38,
+                  color: color.inkOnPaper,
+                  textAlign: 'center',
+                }}
+              >
+                {draftGB} GB
+              </Text>
+            </View>
+            <StepButton
+              label="+"
+              hint="Bigger budget"
+              onPress={() => setDraft(nextBudgetGB(draftGB))}
+              disabled={draftGB >= MAX_BUDGET_GB}
+            />
+          </View>
+
+          <View style={{ flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' }}>
+            {BUDGET_PRESETS_GB.map((preset) => {
+              const active = preset === draftGB;
+              return (
+                <Pressable
+                  key={preset}
+                  onPress={() => setDraft(preset)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={`${preset} gigabytes`}
+                  style={({ pressed }) => ({
+                    minHeight: 36,
+                    paddingHorizontal: space.md,
+                    justifyContent: 'center',
+                    borderRadius: radius.button,
+                    borderWidth: 1,
+                    borderColor: active ? color.inkOnPaper : color.border,
+                    backgroundColor: active
+                      ? color.inkOnPaper
+                      : pressed
+                        ? 'rgba(0,0,0,0.08)'
+                        : 'transparent',
+                  })}
+                >
+                  <Text
+                    style={{
+                      fontFamily: font.mono,
+                      fontSize: 13,
+                      color: active ? color.paper : color.inkOnPaper,
+                    }}
+                  >
+                    {preset} GB
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={{ gap: 3 }}>
+            <Text style={{ fontFamily: font.mono, fontSize: 11, color: '#6b5a42' }}>
+              {formatBytes(committedBytes)} checked out now ·{' '}
+              {formatBytes(availableBytes)} free on this phone
+            </Text>
+            {/*
+              Said plainly rather than prevented. Both are legitimate things to
+              want, and the copy path refuses what will not fit regardless.
+            */}
+            {belowCommitted ? (
+              <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.warningInk }}>
+                Less than what is already out. Nothing is deleted — you just
+                cannot check more out until you return something.
+              </Text>
+            ) : null}
+            {beyondPhone ? (
+              <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.warningInk }}>
+                More than this phone has free. Copies stop when the phone is
+                full, whatever the budget says.
+              </Text>
+            ) : null}
+          </View>
+
+          <View style={{ gap: space.sm, marginTop: space.sm }}>
+            <Pressable
+              onPress={() => save(draftBytes)}
+              accessibilityRole="button"
+              style={({ pressed }) => ({
+                minHeight: TOUCH + 4,
+                borderRadius: radius.button,
+                backgroundColor: pressed ? '#2f2416' : color.inkOnPaper,
+                alignItems: 'center',
+                justifyContent: 'center',
+              })}
+            >
+              <Text style={{ fontFamily: font.monoMedium, fontSize: 14, color: color.paper }}>
+                Save
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={cancel}
+              accessibilityRole="button"
+              style={{
+                minHeight: TOUCH,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text style={{ fontFamily: font.mono, fontSize: 13, color: '#6b5a42' }}>
+                Cancel
+              </Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}

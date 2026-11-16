@@ -11,11 +11,12 @@ import { Alert, FlatList, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Book } from '@/data/types';
-import { isCheckedOut } from '@/data/types';
+import { isCheckedOut, isRemote } from '@/data/types';
 import {
   checkedOutFrom,
   heldCount,
   holdBytes,
+  librarySizeBytes,
   selectTotalBooks,
   selectTotalDuration,
   usedBytes,
@@ -45,6 +46,8 @@ export default function LibraryScreen() {
   const setBottomObstruction = useUi((s) => s.setBottomObstruction);
   const activeSourceId = useUi((s) => s.activeSourceId);
   const setActiveSourceId = useUi((s) => s.setActiveSourceId);
+  const trayCollapsed = useUi((s) => s.trayCollapsed);
+  const setTrayCollapsed = useUi((s) => s.setTrayCollapsed);
   const sources = useSources((s) => s.sources);
 
   const loadSources = useSources((s) => s.load);
@@ -88,6 +91,10 @@ export default function LibraryScreen() {
 
   const used = usedBytes(books);
   const heldBytes = holdBytes(books);
+
+  // What the folder takes up, for a library that is already in phone storage.
+  const onDeviceBooks = useMemo(() => books.filter((b) => !isRemote(b)), [books]);
+  const libraryBytes = useMemo(() => librarySizeBytes(books), [books]);
 
   // Shelves show everything, so a checked-out book keeps its place in the
   // stacks with an "OUT" tag rather than vanishing from where the user left it.
@@ -350,6 +357,11 @@ export default function LibraryScreen() {
             onPressBook={openBook}
             onLongPressBook={onMoveBook}
             showRuler
+            collapsed={trayCollapsed}
+            onToggleCollapsed={() => setTrayCollapsed(!trayCollapsed)}
+            onDevice={libraryOnDevice}
+            libraryCount={onDeviceBooks.length}
+            libraryBytes={libraryBytes}
           />
           <View style={{ height: insets.bottom, backgroundColor: color.panel }} />
         </View>
@@ -476,6 +488,11 @@ export default function LibraryScreen() {
           onPressBook={openBook}
           onLongPressBook={onMoveBook}
           showRuler
+          collapsed={trayCollapsed}
+          onToggleCollapsed={() => setTrayCollapsed(!trayCollapsed)}
+          onDevice={libraryOnDevice}
+          libraryCount={onDeviceBooks.length}
+          libraryBytes={libraryBytes}
         />
         <View style={{ height: insets.bottom, backgroundColor: color.panel }} />
       </View>

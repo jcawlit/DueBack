@@ -17,16 +17,16 @@ type UiState = {
   setBottomObstruction: (height: number) => void;
 
   /**
-   * Whether the listener's own writing is shown in a handwriting face.
+   * Whether the checked-out tray is shut down to its header row.
    *
-   * **Off by default.** The idea was that a note in the margin should not
-   * look like the app talking, and that still holds — but Caveat at note
-   * length is tiring to read, and notes are re-read far more often than they
-   * are written. Instrument Sans is the default; the handwriting is a choice
-   * in Settings for anyone who wants it.
+   * A preference rather than screen state, for the same reason the active
+   * source is: the tray is most of the bottom third of the Library, and
+   * someone who has pushed it shut to see their shelves did not mean "until
+   * I next open the app". What stays visible when it is shut is the line that
+   * matters — how many books and how much of the budget they use.
    */
-  handwritten: boolean;
-  setHandwritten: (value: boolean) => void;
+  trayCollapsed: boolean;
+  setTrayCollapsed: (value: boolean) => void;
 
   /**
    * Which source the Library is showing.
@@ -47,11 +47,12 @@ export const useUi = create<UiState>((set) => ({
   setBottomObstruction: (height) =>
     set((s) => (s.bottomObstruction === height ? s : { bottomObstruction: height })),
 
-  handwritten: false,
-  setHandwritten: (value) => {
-    set({ handwritten: value });
-    void setSetting(SETTING_KEYS.handwrittenNotes, value ? '1' : '0').catch(() => {});
+  trayCollapsed: false,
+  setTrayCollapsed: (value) => {
+    set({ trayCollapsed: value });
+    void setSetting(SETTING_KEYS.trayCollapsed, value ? '1' : '0').catch(() => {});
   },
+
   activeSourceId: USB_SOURCE_ID,
   setActiveSourceId: (id) => {
     set({ activeSourceId: id });
@@ -66,15 +67,10 @@ export const useUi = create<UiState>((set) => ({
       // The drive is the default, and the default is fine.
     }
     try {
-      const stored = await getSetting(SETTING_KEYS.handwrittenNotes);
-      /*
-       * Absent means never chosen, so the default stands. Anyone who turned
-       * the handwriting on before it stopped being the default has a stored
-       * '1' and keeps it: the default changed, their choice did not.
-       */
-      if (stored !== null) set({ handwritten: stored !== '0' });
+      const tray = await getSetting(SETTING_KEYS.trayCollapsed);
+      if (tray !== null) set({ trayCollapsed: tray === '1' });
     } catch {
-      // The default stands.
+      // Open is the default, and an open tray is never the wrong guess.
     }
   },
 }));
