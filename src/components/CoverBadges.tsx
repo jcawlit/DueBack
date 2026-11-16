@@ -10,7 +10,6 @@
 import { Pressable, Text, View } from 'react-native';
 import type { Book } from '@/data/types';
 import { color, font, radius, shadow } from '@/theme/tokens';
-import { CheckIcon, HoldIcon, PlusIcon } from './icons';
 
 /** Amber tag for a book on the phone, outlined tag for one still queued. */
 export function StatusTag({
@@ -51,66 +50,6 @@ export function StatusTag({
         {label}
       </Text>
     </View>
-  );
-}
-
-export type TabState = 'on-shelf' | 'on-hold' | 'checked-out';
-
-/**
- * The corner tab: "+" to check a book out, a tick once it is on the phone, an
- * hourglass while it waits for the drive. The visual is 26px so it does not
- * swallow the cover, with hitSlop bringing the touch target up to 44px.
- */
-export function CornerTab({
-  state,
-  onPress,
-  accessibilityLabel,
-  size = 26,
-}: {
-  state: TabState;
-  onPress: () => void;
-  accessibilityLabel: string;
-  size?: number;
-}) {
-  const slop = Math.max(0, Math.round((44 - size) / 2));
-  const look =
-    state === 'checked-out'
-      ? { bg: color.accent, border: color.accent, ink: color.ground }
-      : state === 'on-hold'
-        ? { bg: color.ground, border: color.accent, ink: color.accent }
-        : { bg: 'rgba(27,20,16,0.86)', border: color.border, ink: color.paper };
-
-  return (
-    <Pressable
-      onPress={onPress}
-      hitSlop={slop}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      style={({ pressed }) => [
-        {
-          width: size,
-          height: size,
-          borderRadius: 3,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: look.bg,
-          borderWidth: 1,
-          borderColor: look.border,
-          transform: [{ rotate: '-2deg' }, { scale: pressed ? 0.92 : 1 }],
-          // Above the cover it sits on, which carries elevation 6.
-          zIndex: 12,
-        },
-        shadow(12, 0.45),
-      ]}
-    >
-      {state === 'checked-out' ? (
-        <CheckIcon size={size * 0.54} stroke={look.ink} />
-      ) : state === 'on-hold' ? (
-        <HoldIcon size={size * 0.54} stroke={look.ink} />
-      ) : (
-        <PlusIcon size={size * 0.54} stroke={look.ink} />
-      )}
-    </Pressable>
   );
 }
 
@@ -282,10 +221,4 @@ export function tagForBook(book: Book, long = false) {
     default:
       return null;
   }
-}
-
-export function tabStateForBook(book: Book): TabState {
-  if (book.local.status === 'checked-out') return 'checked-out';
-  if (book.local.status === 'on-hold') return 'on-hold';
-  return 'on-shelf';
 }

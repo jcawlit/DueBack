@@ -240,15 +240,24 @@ export default function LibraryScreen() {
       <Shelf
         shelf={item}
         onPressBook={onPressBook}
-        // With the library already on the phone there is nothing to check out,
-        // so the corner tab and the long-press shortcut would only offer to
-        // store every book a second time. Long-press opens the book instead.
-        onLongPressBook={libraryOnDevice ? onPressBook : onMoveBook}
-        onTabBook={libraryOnDevice ? undefined : onMoveBook}
+        /*
+         * Press and hold is the only way a book moves to or from the phone.
+         *
+         * There was a "+" tab in the corner of every cover as well. It went:
+         * it sat on the art, it needed its own touch target on a thumbnail,
+         * and everything it showed — OUT, HOLD, DONE — is already a tag on
+         * the cover, so it was a button wearing a status badge's clothes.
+         *
+         * The same gesture everywhere, including a library already on the
+         * phone. Checkout is refused there, and the refusal says why — "it
+         * is already on this phone, open it and press play" — which is a
+         * better answer to the gesture than quietly doing something else.
+         */
+        onLongPressBook={onMoveBook}
         onCancelCopy={onCancelCopy}
       />
     ),
-    [onPressBook, onMoveBook, onCancelCopy, libraryOnDevice],
+    [onPressBook, onMoveBook, onCancelCopy],
   );
 
   if (!ready) {

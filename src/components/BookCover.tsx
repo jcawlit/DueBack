@@ -17,17 +17,12 @@ import { TOUCH, color, shadow } from '@/theme/tokens';
 import { CoverFace, type CoverSize, coverDimensions } from './CoverFace';
 import {
   CopyOverlay,
-  CornerTab,
   DrmStamp,
   StatusTag,
-  tabStateForBook,
   tagForBook,
 } from './CoverBadges';
 import { PageEdge } from './PageEdge';
 import { Ribbon } from './Ribbon';
-
-/** The visible check-out control on each cover. */
-const TAB_SIZE = 26;
 
 type Props = {
   book: Book;
@@ -36,7 +31,6 @@ type Props = {
   onPress?: () => void;
   onLongPress?: () => void;
   /** The visible tab's action. Omit to hide the tab entirely. */
-  onTab?: () => void;
   showEdge?: boolean;
   showRibbon?: boolean;
   showTag?: boolean;
@@ -64,7 +58,6 @@ export function BookCover({
   size = 'shelf',
   onPress,
   onLongPress,
-  onTab,
   showEdge = true,
   showRibbon = true,
   showTag = true,
@@ -159,22 +152,7 @@ export function BookCover({
               onCancel={size === 'tray' ? undefined : onCancelCopy}
             />
           ) : null}
-          {onTab && !copying ? (
-            <View style={{ position: 'absolute', bottom: 8, right: 8 }}>
-              <CornerTab
-                state={tabStateForBook(book)}
-                size={TAB_SIZE}
-                onPress={onTab}
-                accessibilityLabel={
-                  isCheckedOut(book)
-                    ? `Return ${book.title}, frees ${bytes(book.sizeBytes)}`
-                    : book.local.status === 'on-hold'
-                      ? `Take ${book.title} off hold`
-                      : `Check out ${book.title}, ${bytes(book.sizeBytes)}`
-                }
-              />
-            </View>
-          ) : null}
+
         </View>
         {showEdge && size !== 'tray' ? (
           <PageEdge
