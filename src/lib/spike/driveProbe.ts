@@ -102,10 +102,31 @@ export type ListingReport = {
   files: ScannedFile[];
 };
 
+export type ListingOptions = {
+  /**
+   * How deep to walk. Bounded on purpose, and shallow by default.
+   *
+   * `listTree` defaults to 8, which over Google Drive does not come back:
+   * `entry.size` and `entry.modificationTime` are synchronous stats, and the
+   * provider answers each one over the network. A deep folder therefore costs
+   * thousands of serial round trips with the JS thread parked between them,
+   * which on a phone is indistinguishable from a freeze.
+   */
+  maxDepth?: number;
+  /** Called as files accumulate, so a slow provider still shows movement. */
+  onProgress?: (filesSoFar: number) => void;
+};
+
 /** One listing of the folder, timed. */
-export async function probeListing(uri: string): Promise<ListingReport> {
+export async function probeListing(
+  uri: string,
+  options: ListingOptions = {},
+): Promise<ListingReport> {
   const started = Date.now();
-  const listing = await listTree(uri);
+  const listing = await listTree(uri, {
+    maxDepth: options.maxDepth ?? 1,
+    onProgress: options.onProgress,
+  });
   const ms = Date.now() - started;
 
   const books = groupIntoBooks(listing.files);
@@ -132,6 +153,33 @@ export async function probeListing(uri: string): Promise<ListingReport> {
     keys,
     books,
   };
+}
+
+/**
+ * The deciding measurement, reachable without a full walk.
+ *
+ * The tag step used to depend on a completed listing, so a provider slow
+ * enough to stall the walk also withheld the one number the spike exists to
+ * get. This lists the root's immediate files only — depth 0, no recursion —
+ * takes the largest, and reads that.
+ *
+ * One file is enough. The question is whether a range read on a large file
+ * returns its bytes at all, and if so how many; a second file says nothing
+ * the first did not.
+ */
+export async function probeShallowRead(
+  uri: string,
+): Promise<{ listMs: number; fileCount: number; sample: MetadataSample | null }> {
+  const started = Date.now();
+  const listing = await listTree(uri, { maxDepth: 0 });
+  const listMs = Date.now() - started;
+
+  const biggest = [...listing.files].sort((a, b) => b.sizeBytes - a.sizeBytes)[0];
+  if (!biggest) {
+    return { listMs, fileCount: listing.files.length, sample: null };
+  }
+  const [sample] = await probeMetadata([biggest], 1);
+  return { listMs, fileCount: listing.files.length, sample: sample ?? null };
 }
 
 export type MetadataSample = {

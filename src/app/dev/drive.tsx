@@ -18,6 +18,7 @@ import {
   probeCopy,
   probeListing,
   probeMetadata,
+  probeShallowRead,
   sameBooks,
   savedFolder,
   type ListingReport,
@@ -26,6 +27,17 @@ import {
 import { bytes as formatBytes } from '@/lib/format';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 import { ChevronLeft } from '@/components/icons';
+
+/**
+ * How deep the timed listing walks.
+ *
+ * One, not `listTree`'s default of eight. Over Google Drive each file's
+ * `size` is a synchronous stat the provider answers over the network, so a
+ * deep tree costs thousands of serial round trips and the screen sits on
+ * "Listing…" for long enough to look broken. A library's books are one level
+ * under the root anyway, which is all the grouping question needs.
+ */
+const LIST_DEPTH = 1;
 
 function Button({
   label,
@@ -72,8 +84,16 @@ export default function DriveSpikeScreen() {
   /** Set by Stop, read by the copy between files. */
   const [cancelled, setCancelled] = useState(false);
 
-  const say = useCallback((line: string) => {
-    setLog((l) => [...l, line]);
+  /**
+   * Appends a line, or overwrites the last one.
+   *
+   * A running count wants to tick in place rather than fill the log with
+   * every multiple of 50 it passed through.
+   */
+  const say = useCallback((line: string, options: { replaceLast?: boolean } = {}) => {
+    setLog((l) =>
+      options.replaceLast && l.length > 0 ? [...l.slice(0, -1), line] : [...l, line],
+    );
   }, []);
 
   // On arrival, report whether a folder picked earlier is still reachable.
@@ -124,8 +144,20 @@ export default function DriveSpikeScreen() {
   const list = () =>
     run('list', async () => {
       if (!folder) return;
-      say('Listing…');
-      const report = await probeListing(folder.uri);
+      /*
+       * Shallow, and saying so. A deep walk over Drive does not return in
+       * any time worth waiting through — every `entry.size` is a network
+       * round trip — and a probe that never finishes answers nothing.
+       */
+      say(`Listing (depth ${LIST_DEPTH}, root and immediate subfolders)…`);
+      // A line for the count to tick in place of, so the first tick has
+      // something of its own to overwrite.
+      say('  …counting');
+      const report = await probeListing(folder.uri, {
+        maxDepth: LIST_DEPTH,
+        // Movement on screen is the difference between slow and hung.
+        onProgress: (soFar) => say(`  …${soFar} files so far`, { replaceLast: true }),
+      });
       setListing(report);
       say(`Listed in ${report.ms} ms`);
       say(`  readable: ${report.rootReadable}`);
@@ -155,6 +187,47 @@ export default function DriveSpikeScreen() {
       } else {
         setFirstKeys(report.keys);
         say('  (list again to compare identities)');
+      }
+    });
+
+  /**
+   * The deciding measurement, with nothing in front of it.
+   *
+   * Deliberately does not need a completed listing: a provider slow enough
+   * to stall the walk would otherwise withhold the one number the spike is
+   * for. Depth 0, largest file in the root, one read.
+   */
+  const shallowRead = () =>
+    run('shallow', async () => {
+      if (!folder) return;
+      say('Listing the root only (no recursion)…');
+      const result = await probeShallowRead(folder.uri);
+      say(`  ${result.fileCount} files in the root, listed in ${result.listMs} ms`);
+      if (!result.sample) {
+        say('  NO FILE IN THE ROOT — nothing to read. No verdict.');
+        say('  Try a Drive folder with an audio file directly inside it.');
+        return;
+      }
+      const s = result.sample;
+      say(`  largest: "${s.file}" [${s.extension}]`);
+      say(`  size reported by the listing: ${formatBytes(s.sizeBytes)}`);
+      if (s.error) {
+        // The whole point. This string carries handle size and file size.
+        say(`  READ FAILED: ${s.error}`);
+        say('  → a handle size of 0 against a real file size is a pipe:');
+        say('    the descriptor is a stream, so range reads cannot work.');
+        return;
+      }
+      const share = s.sizeBytes > 0 ? Math.round((s.bytesRead / s.sizeBytes) * 100) : 0;
+      say(`  READ OK: ${formatBytes(s.bytesRead)} returned (${share}%) in ${Math.round(s.ms)} ms`);
+      say(`  ${s.readCount} reads`);
+      if (s.bytesRead === 0) {
+        say('  but ZERO bytes came back, so this proved nothing.');
+      } else if (share < 25) {
+        say('  → range reads work and stayed small. Seekable, app-side.');
+        say('    Drive network cost is still unmeasured; this counter cannot see it.');
+      } else {
+        say('  → a large share of the file came back for a tag read.');
       }
     });
 
@@ -287,14 +360,25 @@ export default function DriveSpikeScreen() {
 
         <View style={{ gap: space.sm, paddingTop: space.md }}>
           <Button label="1 · Pick a folder" onPress={pick} disabled={busy !== null} tone="accent" />
-          <Button label="2 · List it (time a scan)" onPress={list} disabled={busy !== null || !folder} />
+          {/*
+            Second, not fourth. This is the measurement the spike turns on,
+            and it needs only a folder — so a listing too slow to finish
+            cannot stand between the probe and its answer.
+          */}
           <Button
-            label="3 · Read tags (bytes returned)"
+            label="2 · Read the largest file (the deciding one)"
+            onPress={shallowRead}
+            disabled={busy !== null || !folder}
+            tone="accent"
+          />
+          <Button label="3 · List it (time a scan)" onPress={list} disabled={busy !== null || !folder} />
+          <Button
+            label="4 · Read tags (bytes returned)"
             onPress={metadata}
             disabled={busy !== null || !listing}
           />
           <Button
-            label="4 · Copy the first book"
+            label="5 · Copy the first book"
             onPress={copy}
             disabled={busy !== null || !listing}
           />

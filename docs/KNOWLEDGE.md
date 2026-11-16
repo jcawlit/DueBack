@@ -1389,7 +1389,7 @@ grant is distinguishable from an empty folder.
 
 *`src/lib/spike/driveProbe.ts`, `src/app/dev/drive.tsx`*
 
-## Google Drive via SAF: probe limits (2026-10-19)
+### Probe limits, and the empty reads (2026-10-19)
 
 Device report: the large m4b returned 0 bytes across 5 reads despite a
 171 MB listing size. This is not a successful partial read. CachingReader
@@ -1407,3 +1407,101 @@ read errors/sizes and copy throughput. No SAF/REST decision is established.
 Opaque Drive document names still prevent extension-based grouping; do not
 build native identification or REST until the device evidence and Jake's
 architecture decision exist. ABS work and real accounts remain outside this probe.
+
+### The likely mechanism: a pipe, not a file
+
+Not yet confirmed on hardware, but it explains the symptom and costs nothing
+to check. A `DocumentsProvider` satisfies `openDocument` by returning a
+`ParcelFileDescriptor`, and it is free to return one backed by a **pipe**
+rather than a real file. A cloud provider streaming bytes it does not hold
+locally has every reason to. A pipe is a stream: it has no length and cannot
+seek, so `AssetFileDescriptor.getStatSize()` returns
+`AssetFileDescriptor.UNKNOWN_LENGTH` (−1) and a `FileChannel` over it reports
+size 0. That is exactly the condition under which Expo's installed
+`FileSystemFileHandle.read` hands back an empty array — which is the 0-byte
+read, with the 171 MB coming from the *listing*, where the provider does
+report a size.
+
+`getStatSize()` is Java and Expo does not surface it, so probing it directly
+means writing native code. Do not start there. The error thrown by
+`openReader` already prints `handle size` alongside `file size`, so a
+`handle size` of 0 against a 171 MB `file size` is the pipe signature, and the
+next device run produces it with no code at all. Write native only if that
+reading is ambiguous.
+
+A seekable descriptor would also not be good news on its own. The most likely
+way Drive produces one is by having already downloaded the whole file into its
+own cache — every read succeeds, every seek works, and indexing the library
+downloaded the library. Seekability and cost are separate questions and the
+app-visible counters answer neither.
+
+Three independent things have to hold before SAF can carry a live Drive shelf,
+and they are worth keeping apart: whether reads **seek**, whether audio can be
+**recognised** (see below), and what a cold-cache read **costs**. Settle
+recognition first — it is the cheapest, and it gates everything else.
+
+### Audio recognition is extension-only, and every way in stands on it
+
+`isSupportedAudio` compares `extensionOf(name)` against `SUPPORTED_EXTENSIONS`
+and nothing else. Three places stand on it:
+
+- `groupIntoBooks`, so a scan forms no book from a file it cannot name;
+- `importBookFromFile`, which answers "That file is not an .m4b, .m4a or .mp3";
+- `importBookFromFolder`, which answers "No .m4b, .m4a or .mp3 files in that
+  folder."
+
+So when a provider hands back opaque document ids instead of filenames — which
+is what Google Drive does — **the import path is as dead as the scan path, and
+for the same reason.** Reaching for "import from Drive instead" as the simpler
+fallback does not avoid the blocker; it meets the same gate one function later.
+The blocker is recognition, not the scanner.
+
+The way through is probably MIME rather than names. `importBookFromFile`
+already picks with `mimeTypes: ['audio/*']`, which only works because the
+provider knows each document's type even when its name carries nothing — so
+the type is there to be read. Whether it is reachable from JS is unsettled:
+expo-file-system 57.0.7's typings show no MIME property on `File`, so it may
+need a device check or a small native addition. That question is cheaper than
+the seek probe and decides whether either a live shelf or an import path is
+available at all, so it goes first.
+
+If names stay opaque and the descriptor is a pipe, the Drive REST API is the
+remaining option, and not a demotion: it gives real filenames, real sizes and
+HTTP Range requests — the same shape as the Audiobookshelf source already
+working on this branch. Import-only is not the only alternative to a live
+shelf. Note too that import-only Drive carries no library identity and no
+`.dueback/` backup, because both live on a library root; those books would be
+phone-only. That is a product decision, not merely the loss of live sync.
+
+*`src/lib/metadata/index.ts`, `src/lib/library/grouping.ts`,
+`src/lib/files/import.ts`, `src/lib/files/access.ts`*
+
+### A deep walk over Drive does not come back (2026-11-11)
+
+Device behaviour: the probe's listing step sat on "Listing…" and never
+finished. Not a hang in the usual sense — it was doing exactly what it was
+told, serially, over a network.
+
+`listTree` reads `entry.size` and `entry.modificationTime` per file, and both
+are synchronous accessors. Over a USB provider they are a local stat. Over
+Google Drive each one is answered by the provider over the network, so a walk
+costs one serial round trip per file, with `breathe()` yielding only every 64
+entries. `maxDepth` defaults to **8**. On a folder of any size that is
+thousands of sequential round trips, and the screen cannot paint between them.
+
+Two things follow for anything pointed at a cloud provider:
+
+- **Bound the walk and report progress.** The probe lists at depth 1 and
+  passes `onProgress`, so a slow provider shows a rising count instead of a
+  frozen screen. `listTree` already accepted both options; `probeListing`
+  simply never passed them.
+- **Never put a full listing in front of the measurement.** The tag step
+  required a completed listing, so the provider slow enough to stall the walk
+  was also the one withholding the number the spike exists to produce.
+  `probeShallowRead` lists the root at depth 0, takes the largest file and
+  reads that — one file answers it, and a second says nothing the first did
+  not.
+
+*`src/lib/files/access.ts`, `src/lib/spike/driveProbe.ts`,
+`src/app/dev/drive.tsx`*
+
