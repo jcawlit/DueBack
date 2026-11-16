@@ -23,12 +23,15 @@ import {
   useLibrary,
 } from '@/store/library';
 import { useScan } from '@/store/scan';
+import { useShelves } from '@/store/shelves';
+import { DragGhost, useShelfDrag } from '@/components/ShelfDrag';
+import { NewShelfRow, ShelfNameSheet } from '@/components/ShelfNameSheet';
 import { useUi } from '@/store/ui';
 import { switchableSources, useSources } from '@/store/sources';
 import { USB_SOURCE_ID } from '@/db/sources';
 import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { safFolderPath } from '@/lib/files/safNames';
-import { buildShelves } from '@/lib/shelves';
+import { buildShelves, type CustomShelf, type Shelf as ShelfModel } from '@/lib/shelves';
 import { searchBooks } from '@/lib/library/search';
 import { daysOfListening, relativeTime, relativeTimeShort } from '@/lib/format';
 import { color, font, space } from '@/theme/tokens';
@@ -38,7 +41,6 @@ import { FirstRun, ScanProgressBar, ScanningLibrary } from '@/components/FirstRu
 import { NoSearchResults } from '@/components/NoSearchResults';
 import { LibraryHeader } from '@/components/LibraryHeader';
 import { Shelf } from '@/components/Shelf';
-import type { Shelf as ShelfModel } from '@/lib/shelves';
 
 export default function LibraryScreen() {
   const insets = useSafeAreaInsets();
@@ -47,6 +49,13 @@ export default function LibraryScreen() {
   const setBottomObstruction = useUi((s) => s.setBottomObstruction);
   const activeSourceId = useUi((s) => s.activeSourceId);
   const setActiveSourceId = useUi((s) => s.setActiveSourceId);
+  const customShelves = useShelves((s) => s.shelves);
+  const loadShelvesFor = useShelves((s) => s.load);
+  const editing = useShelves((s) => s.editing);
+  const setEditing = useShelves((s) => s.setEditing);
+  const placeOnShelf = useShelves((s) => s.place);
+  const takeOffShelf = useShelves((s) => s.unplace);
+  const addShelf = useShelves((s) => s.add);
   const trayCollapsed = useUi((s) => s.trayCollapsed);
   const setTrayCollapsed = useUi((s) => s.setTrayCollapsed);
   const sources = useSources((s) => s.sources);
@@ -130,7 +139,32 @@ export default function LibraryScreen() {
     ? safFolderPath(libraryRoot.uri) || libraryRoot.name
     : '';
   const found = useMemo(() => searchBooks(inSource, search), [inSource, search]);
-  const shelves = useMemo(() => buildShelves(found, sort), [found, sort]);
+
+  /*
+   * Shelves belong to a source, so they are reloaded when it changes.
+   *
+   * `USB_SOURCE_ID` is the Library's name for the drive; the tables use
+   * NULL for it, matching `books`. Translated here rather than in the
+   * store, so the store speaks the database's language throughout.
+   */
+  useEffect(() => {
+    void loadShelvesFor(activeSourceId === USB_SOURCE_ID ? null : activeSourceId);
+  }, [activeSourceId, loadShelvesFor]);
+
+  // Leaving custom mode leaves arranging. An edit mode that outlives the
+  // view it belongs to is a gesture that does something unexpected later.
+  useEffect(() => {
+    if (sort !== 'custom' && editing) setEditing(false);
+  }, [sort, editing, setEditing]);
+
+  const customRows = useMemo<CustomShelf[]>(
+    () => customShelves.map((s) => ({ id: s.id, name: s.name, bookIds: s.bookIds })),
+    [customShelves],
+  );
+  const shelves = useMemo(
+    () => buildShelves(found, sort, customRows),
+    [found, sort, customRows],
+  );
   const searching = search.trim().length > 0;
 
   /**
@@ -235,9 +269,55 @@ export default function LibraryScreen() {
 
   const onCancelCopy = useCallback((book: Book) => cancelCopy(book.id), [cancelCopy]);
 
-  const renderShelf = useCallback(
-    ({ item }: { item: ShelfModel }) => (
-      <Shelf
+  /*
+   * The list, for the drag to scroll and to measure against.
+   *
+   * A shelf's `onLayout` gives its box in content coordinates; a finger
+   * arrives in page coordinates. The drag turns one into the other, which
+   * needs where the list starts on screen and how far it has scrolled.
+   */
+  const listRef = useRef<FlatList<ShelfModel> | null>(null);
+  const scrolled = useRef(0);
+
+  const scrollBy = useCallback((delta: number) => {
+    const next = Math.max(0, scrolled.current + delta);
+    listRef.current?.scrollToOffset({ offset: next, animated: false });
+  }, []);
+
+  const { drag, handlersFor, measure, setViewport, setScrollOffset } = useShelfDrag({
+    enabled: editing && sort === 'custom',
+    onDrop: (bookId, shelfId) => void placeOnShelf(bookId, shelfId),
+    onDropOff: (bookId) => void takeOffShelf(bookId),
+    scrollBy,
+  });
+
+  const arranging = editing && sort === 'custom';
+
+  /*
+   * Naming a shelf: `null` id means a new one, which is the same question
+   * with an empty starting value.
+   */
+  const [naming, setNaming] = useState<{ id: string | null; name: string } | null>(null);
+  const promptNewShelf = () => setNaming({ id: null, name: '' });
+  const renameShelfAt = useShelves((s) => s.rename);
+  const removeShelfAt = useShelves((s) => s.remove);
+  const shelfSourceId = activeSourceId === USB_SOURCE_ID ? null : activeSourceId;
+  const shelfNameOf = (id: string) =>
+    customShelves.find((sh) => sh.id === id)?.name ?? '';
+
+
+  /*
+   * Not wrapped in `useCallback` any more.
+   *
+   * It was, for the reason in the note on `Shelf`'s `memo`: redrawing every
+   * mounted shelf as the list scrolls is what made scrolling stutter. But
+   * the drag made the hand-written memo unpreservable, and the compiler's
+   * answer to that is to skip the whole component — no memoization at all
+   * rather than slightly wrong memoization. `Shelf` is still `memo`'d on
+   * its props, which is what actually stops the redraw.
+   */
+  const renderShelf = ({ item }: { item: ShelfModel }) => (
+    <Shelf
         shelf={item}
         onPressBook={onPressBook}
         /*
@@ -255,9 +335,27 @@ export default function LibraryScreen() {
          */
         onLongPressBook={onMoveBook}
         onCancelCopy={onCancelCopy}
+        /*
+         * Only while arranging. Out of edit mode a shelf is exactly what it
+         * was, responders and measuring included, so the common case pays
+         * nothing for a feature it is not using.
+         */
+        dragHandlersFor={arranging ? handlersFor : undefined}
+        onMeasure={arranging ? measure : undefined}
+        isDropTarget={
+          !!drag &&
+          ((!!item.shelfId && item.shelfId === drag.overShelfId) ||
+            (!!item.unshelved && drag.overUnshelved))
+        }
+        liftedBookId={drag?.book.id ?? null}
+        // Only a hand-arranged shelf has a name to change. The loose pile
+        // is not a shelf, and a generated label is not ours to rewrite.
+        onPressLabel={
+          arranging && item.shelfId
+            ? () => setNaming({ id: item.shelfId!, name: shelfNameOf(item.shelfId!) })
+            : undefined
+        }
       />
-    ),
-    [onPressBook, onMoveBook, onCancelCopy],
   );
 
   if (!ready) {
@@ -326,6 +424,8 @@ export default function LibraryScreen() {
           onSelectSource={setActiveSourceId}
           sort={sort}
           onSort={setSort}
+          editing={editing}
+          onToggleEditing={() => setEditing(!editing)}
           search={search}
           onSearch={setSearch}
         />
@@ -372,6 +472,19 @@ export default function LibraryScreen() {
             initialNumToRender={4}
             maxToRenderPerBatch={4}
             windowSize={7}
+            ref={listRef}
+            scrollEnabled={!drag}
+            scrollEventThrottle={16}
+            onScroll={(e) => {
+              scrolled.current = e.nativeEvent.contentOffset.y;
+              setScrollOffset(scrolled.current);
+            }}
+            onLayout={(e) => {
+              e.currentTarget.measure?.((_x, _y, _w, h, _px, py) => setViewport(py ?? 0, h));
+            }}
+            ListFooterComponent={
+              arranging ? <NewShelfRow onPress={promptNewShelf} /> : null
+            }
           />
         )}
 
@@ -393,6 +506,27 @@ export default function LibraryScreen() {
           />
           <View style={{ height: insets.bottom, backgroundColor: color.panel }} />
         </View>
+        {/* Over everything, because a lifted book has to clear the tray too. */}
+        <DragGhost drag={drag} />
+        <ShelfNameSheet
+          visible={!!naming}
+          shelfId={naming?.id ?? null}
+          initialName={naming?.name ?? ''}
+          onSave={(name) => {
+            const target = naming;
+            setNaming(null);
+            if (!target) return;
+            void (target.id
+              ? renameShelfAt(target.id, name)
+              : addShelf(shelfSourceId, name));
+          }}
+          onDelete={() => {
+            const target = naming;
+            setNaming(null);
+            if (target?.id) void removeShelfAt(target.id);
+          }}
+          onCancel={() => setNaming(null)}
+        />
       </View>
     );
   }
@@ -439,6 +573,8 @@ export default function LibraryScreen() {
         onOpenSettings={() => router.push('/settings')}
         sort={sort}
         onSort={setSort}
+        editing={editing}
+        onToggleEditing={() => setEditing(!editing)}
         search={search}
         onSearch={setSearch}
         sources={switchable}
@@ -479,26 +615,43 @@ export default function LibraryScreen() {
           initialNumToRender={4}
           maxToRenderPerBatch={4}
           windowSize={7}
+          ref={listRef}
+          scrollEnabled={!drag}
+          scrollEventThrottle={16}
+          onScroll={(e) => {
+            scrolled.current = e.nativeEvent.contentOffset.y;
+            setScrollOffset(scrolled.current);
+          }}
+          onLayout={(e) => {
+            e.currentTarget.measure?.((_x, _y, _w, h, _px, py) => setViewport(py ?? 0, h));
+          }}
           /*
            * No disconnected-drive banner: the header's drive button and
            * subtitle already say it, and the drive being unplugged is the
            * app's normal condition rather than news. The held count moved into
            * the subtitle.
+           *
+           * While arranging, the folder's name gives way to the one control
+           * the mode needs that is not a drag.
            */
           ListFooterComponent={
-            <Text
-              numberOfLines={1}
-              style={{
-                fontFamily: font.mono,
-                fontSize: 11,
-                color: color.faint,
-                textAlign: 'center',
-                paddingTop: space.xl,
-                paddingHorizontal: space.xl,
-              }}
-            >
-              {libraryRoot.name}
-            </Text>
+            arranging ? (
+              <NewShelfRow onPress={promptNewShelf} />
+            ) : (
+              <Text
+                numberOfLines={1}
+                style={{
+                  fontFamily: font.mono,
+                  fontSize: 11,
+                  color: color.faint,
+                  textAlign: 'center',
+                  paddingTop: space.xl,
+                  paddingHorizontal: space.xl,
+                }}
+              >
+                {libraryRoot.name}
+              </Text>
+            )
           }
         />
       )}
@@ -525,6 +678,27 @@ export default function LibraryScreen() {
         />
         <View style={{ height: insets.bottom, backgroundColor: color.panel }} />
       </View>
+      {/* Over everything, because a lifted book has to clear the tray too. */}
+      <DragGhost drag={drag} />
+      <ShelfNameSheet
+        visible={!!naming}
+        shelfId={naming?.id ?? null}
+        initialName={naming?.name ?? ''}
+        onSave={(name) => {
+          const target = naming;
+          setNaming(null);
+          if (!target) return;
+          void (target.id
+            ? renameShelfAt(target.id, name)
+            : addShelf(shelfSourceId, name));
+        }}
+        onDelete={() => {
+          const target = naming;
+          setNaming(null);
+          if (target?.id) void removeShelfAt(target.id);
+        }}
+        onCancel={() => setNaming(null)}
+      />
     </View>
   );
 }

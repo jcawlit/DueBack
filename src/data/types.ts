@@ -107,11 +107,12 @@ export const isRemote = (b: Book) => b.sourceId !== undefined && b.remoteId !== 
  * look at and no way to find a book, and "untouched since" sorted a
  * library into a list of reproaches.
  */
-export type SortMode = 'length' | 'author';
+export type SortMode = 'length' | 'author' | 'custom';
 
 export const SORT_LABELS: Record<SortMode, string> = {
   length: 'by length',
   author: 'by author',
+  custom: 'custom',
 };
 
 export const isCheckedOut = (b: Book) => b.local.status === 'checked-out';
