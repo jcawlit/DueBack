@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import { Animated, Easing, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SORT_LABELS, type SortMode } from '@/data/types';
+import { FitText } from './FitText';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 import { DriveIcon, RefreshIcon, SearchIcon } from './icons';
 
@@ -299,19 +300,33 @@ export function LibraryHeader({
           gap: space.md,
         }}
       >
-        <View style={{ gap: space.xs, flexShrink: 1 }}>
-          <Text
+        {/*
+          `flex: 1` rather than `flexShrink: 1`, so this column is handed the
+          row minus the switcher and `FitText` has a width to measure. Shrink
+          alone sizes the column to its text, which tells the text nothing.
+        */}
+        <View style={{ gap: space.xs, flex: 1, minWidth: 0 }}>
+          <FitText
             accessibilityRole="header"
-            style={{ fontFamily: font.serif, fontSize: 26, lineHeight: 28, color: color.paper }}
+            size={26}
+            // Below about 18 a 26pt title stops reading as the title.
+            minSize={18}
+            face="serif"
+            lineHeightRatio={1.08}
+            style={{ fontFamily: font.serif, color: color.paper }}
           >
             {title}
-          </Text>
-          <Text
-            numberOfLines={1}
-            style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}
+          </FitText>
+          <FitText
+            size={11}
+            // Mono at 9 is still legible; past that the ellipsis is kinder.
+            minSize={9}
+            face="mono"
+            lineHeightRatio={1.3}
+            style={{ fontFamily: font.mono, color: color.muted }}
           >
             {subtitle}
-          </Text>
+          </FitText>
         </View>
         {sources && sources.length > 1 && activeSourceId && onSelectSource ? (
           <SourceSwitcher
