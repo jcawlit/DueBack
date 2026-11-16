@@ -8,6 +8,7 @@ import { Pressable, Text, View, type PanResponderInstance } from 'react-native';
 import type { Book } from '@/data/types';
 import { color, font, shadow, space } from '@/theme/tokens';
 import { BookCover } from './BookCover';
+import { MoveIcon } from './icons';
 import type { Shelf as ShelfModel } from '@/lib/shelves';
 
 type Props = {
@@ -16,13 +17,14 @@ type Props = {
   onLongPressBook: (book: Book) => void;
   onCancelCopy: (book: Book) => void;
   /**
-   * Arranging, so a cover is something you pick up rather than open.
+   * The grip, in the bottom-right corner of every cover.
    *
-   * When set, each cover gets its own responder and the row reports where
-   * it is, so a finger can be matched to a shelf. Absent the whole time
-   * anyone is only reading, which is almost all of the time.
+   * Its own small view with its own responder, which is what lets press
+   * and hold mean two things on one cover: drag by the grip, check out
+   * anywhere else. Absent outside custom mode, where there are no
+   * hand-arranged shelves to drag between.
    */
-  dragHandlersFor?: (book: Book) => PanResponderInstance;
+  dragHandlersFor?: (bookId: string) => PanResponderInstance;
   /**
    * Where this row is, in list content coordinates, and what it can take.
    *
@@ -32,12 +34,19 @@ type Props = {
    */
   onMeasure?: (
     key: string,
-    box: { top: number; height: number; shelfId?: string; unshelved?: boolean },
+    box: { pageY: number; height: number; shelfId?: string },
   ) => void;
   /** The row a held book would land on, drawn so the drop is not a guess. */
   isDropTarget?: boolean;
-  /** Renaming, while arranging. Absent for a generated or loose row. */
-  onPressLabel?: () => void;
+  /**
+   * Renaming. Absent for a generated or loose row, which has no name of
+   * its own to change.
+   *
+   * Takes the shelf id rather than being a closure over it, so the screen
+   * can hand down one callback that never changes — a fresh arrow per row
+   * defeats the `memo` below and redraws every shelf on every frame.
+   */
+  onRenameShelf?: (shelfId: string, name: string) => void;
   /** The book currently in the air, which should not also be on the shelf. */
   liftedBookId?: string | null;
 };
@@ -51,20 +60,28 @@ function ShelfRow({
   onMeasure,
   isDropTarget,
   liftedBookId,
-  onPressLabel,
+  onRenameShelf,
 }: Props) {
+  // Only a hand-arranged shelf has a name of its own to change.
+  const renameable = !!onRenameShelf && !!shelf.shelfId;
+
   return (
     <View
       style={{ paddingTop: 26, paddingHorizontal: space.lg }}
+      /*
+        Measured in window coordinates, not from the layout event.
+
+        `e.nativeEvent.layout.y` is relative to the cell the `FlatList`
+        wraps each item in, which is zero for every row — so every row
+        claimed the same box and every drop landed on whichever was found
+        first. `measureInWindow` asks where the row actually is.
+      */
       onLayout={
         onMeasure
           ? (e) =>
-              onMeasure(shelf.key, {
-                top: e.nativeEvent.layout.y,
-                height: e.nativeEvent.layout.height,
-                shelfId: shelf.shelfId,
-                unshelved: shelf.unshelved,
-              })
+              e.currentTarget.measureInWindow((_x, pageY, _w, height) =>
+                onMeasure(shelf.key, { pageY, height, shelfId: shelf.shelfId }),
+              )
           : undefined
       }
     >
@@ -83,28 +100,66 @@ function ShelfRow({
           elevation: 12,
         }}
       >
-        {shelf.books.map((book) =>
-          dragHandlersFor ? (
-            // The responder wraps the cover rather than going inside it, so
-            // `BookCover` stays a thing that draws a book and nothing else.
-            <View
-              key={book.id}
-              {...dragHandlersFor(book).panHandlers}
-              // Faded where it came from, so the shelf shows the gap it left.
-              style={{ opacity: liftedBookId === book.id ? 0.25 : 1 }}
-            >
-              <BookCover book={book} onCancelCopy={() => onCancelCopy(book)} />
-            </View>
-          ) : (
+        {shelf.books.map((book) => (
+          <View
+            key={book.id}
+            // Faded where it came from, so the shelf shows the gap it left.
+            style={{ opacity: liftedBookId === book.id ? 0.25 : 1 }}
+          >
             <BookCover
-              key={book.id}
               book={book}
               onPress={() => onPressBook(book)}
               onLongPress={() => onLongPressBook(book)}
               onCancelCopy={() => onCancelCopy(book)}
             />
-          ),
-        )}
+            {dragHandlersFor ? (
+              /*
+                The bottom-right quadrant of the cover, which is a target
+                worth aiming at on a small cover — and far enough from the
+                middle that a press meant for the book is not a press meant
+                for this. The icon sits in its corner rather than its
+                centre, so it reads as a grip on the cover and not a badge
+                over the art.
+              */
+              <View
+                {...dragHandlersFor(book.id).panHandlers}
+                accessibilityRole="button"
+                accessibilityLabel={`Move ${book.title} to another shelf`}
+                accessibilityHint="Press and hold, then drag"
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  bottom: 0,
+                  width: '50%',
+                  height: '50%',
+                  alignItems: 'flex-end',
+                  justifyContent: 'flex-end',
+                  padding: 4,
+                  zIndex: 20,
+                  // Android stacks on elevation, and the cover it sits on
+                  // carries 6. Without this the grip is under the art and
+                  // the touches go to the cover instead.
+                  elevation: 20,
+                }}
+              >
+                <View
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: 3,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'rgba(27,20,16,0.82)',
+                    borderWidth: 1,
+                    borderColor: color.border,
+                  }}
+                >
+                  <MoveIcon size={13} stroke={color.paper} />
+                </View>
+              </View>
+            ) : null}
+          </View>
+        ))}
         {shelf.books.length === 0 ? (
           <Text
             style={{
@@ -141,10 +196,10 @@ function ShelfRow({
           pencil beside it would be a second thing meaning the same.
         */}
         <Pressable
-          onPress={onPressLabel}
-          disabled={!onPressLabel}
-          accessibilityRole={onPressLabel ? 'button' : undefined}
-          accessibilityLabel={onPressLabel ? `Rename ${shelf.label}` : undefined}
+          onPress={renameable ? () => onRenameShelf!(shelf.shelfId!, shelf.shelfName ?? '') : undefined}
+          disabled={!renameable}
+          accessibilityRole={renameable ? 'button' : undefined}
+          accessibilityLabel={renameable ? `Rename ${shelf.label}` : undefined}
           style={[
             {
               marginTop: space.sm,
@@ -154,7 +209,7 @@ function ShelfRow({
               paddingVertical: 3,
               transform: [{ rotate: '-1deg' }],
               // Dashed while arranging, so it reads as editable.
-              borderWidth: onPressLabel ? 1 : 0,
+              borderWidth: renameable ? 1 : 0,
               borderStyle: 'dashed',
               borderColor: color.inkOnLabel,
             },

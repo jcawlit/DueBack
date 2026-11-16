@@ -13,7 +13,8 @@ import assert from 'node:assert/strict';
 import {
   buildCustomShelves,
   buildShelves,
-  UNSHELVED_LABEL,
+  PER_SHELF,
+  seedShelvesFromLength,
   type CustomShelf,
 } from '../src/lib/shelves.ts';
 import type { Book } from '../src/data/types.ts';
@@ -41,28 +42,25 @@ const shelf = (id: string, name: string, bookIds: string[]): CustomShelf => ({ i
 const shown = (rows: { books: Book[] }[]) => rows.flatMap((r) => r.books.map((b) => b.id));
 
 describe('rows for hand-arranged shelves', () => {
-  it('puts a book on its shelf and the rest in the loose pile', () => {
-    const books = [book('a'), book('b'), book('c')];
+  it('shows a shelf and the books on it', () => {
+    const books = [book('a'), book('b')];
     const rows = buildCustomShelves(books, [shelf('s1', 'Sci-fi', ['b'])]);
 
+    assert.equal(rows.length, 1, 'no pile row for the unplaced book');
     assert.equal(rows[0].label, 'Sci-fi');
     assert.deepEqual(rows[0].books.map((b) => b.id), ['b']);
     assert.equal(rows[0].shelfId, 's1');
-
-    const loose = rows.filter((r) => r.unshelved);
-    assert.deepEqual(shown(loose), ['a', 'c']);
-    assert.equal(loose[0].label, UNSHELVED_LABEL);
-    assert.equal(loose[0].shelfId, undefined, 'the pile is not a shelf');
   });
 
-  it('shows every book exactly once', () => {
+  it('shows only what is on a shelf, since nothing is ever unplaced', () => {
+    // Custom mode is seeded from the by-length shelves, so a book with no
+    // shelf is a transient state rather than something to draw a row for.
     const books = ['a', 'b', 'c', 'd', 'e'].map((id) => book(id));
     const rows = buildCustomShelves(books, [
       shelf('s1', 'Sci-fi', ['a', 'c']),
       shelf('s2', 'Re-reads', ['e']),
     ]);
-    const ids = shown(rows).sort();
-    assert.deepEqual(ids, ['a', 'b', 'c', 'd', 'e'], 'nothing lost, nothing doubled');
+    assert.deepEqual(shown(rows).sort(), ['a', 'c', 'e']);
   });
 
   it('keeps the order the books were arranged in', () => {
@@ -71,16 +69,28 @@ describe('rows for hand-arranged shelves', () => {
     assert.deepEqual(shown(rows), ['c', 'a', 'b']);
   });
 
-  it('splits a long shelf into rows that are all the same drop target', () => {
-    const books = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id) => book(id));
+  it('keeps a shelf to one row, however many books are on it', () => {
+    /*
+     * One shelf is one ledge, and one ledge is one drop target. Splitting
+     * an over-full shelf into extra rows moved every row below it mid-drag
+     * and left the hit-testing aiming at positions that had shifted.
+     */
+    const books = ['a', 'b', 'c', 'd'].map((id) => book(id));
+    const rows = buildCustomShelves(books, [shelf('s1', 'Sci-fi', ['a', 'b', 'c', 'd'])]);
+
+    assert.equal(rows.length, 1, 'a transiently over-full shelf is still one row');
+    assert.deepEqual(shown(rows), ['a', 'b', 'c', 'd']);
+    assert.equal(rows[0].label, 'Sci-fi', 'and no · CONT. label');
+  });
+
+  it('gives one row per shelf, in the order the shelves are in', () => {
+    const books = ['a', 'b', 'c'].map((id) => book(id));
     const rows = buildCustomShelves(books, [
-      shelf('s1', 'Sci-fi', ['a', 'b', 'c', 'd', 'e', 'f', 'g']),
+      shelf('s1', 'One', ['a']),
+      shelf('s2', 'Two', ['b']),
+      shelf('s3', 'Three', ['c']),
     ]);
-    assert.equal(rows.length, 3, 'three covers to a ledge');
-    assert.deepEqual(rows.map((r) => r.shelfId), ['s1', 's1', 's1']);
-    assert.equal(rows[0].label, 'Sci-fi');
-    assert.equal(rows[1].label, 'Sci-fi · CONT.');
-    assert.deepEqual(shown(rows), ['a', 'b', 'c', 'd', 'e', 'f', 'g']);
+    assert.deepEqual(rows.map((r) => r.shelfId), ['s1', 's2', 's3']);
   });
 
   it('gives an empty shelf a row to drop onto', () => {
@@ -95,21 +105,26 @@ describe('rows for hand-arranged shelves', () => {
     // the books, and on any library that has had a book removed.
     const rows = buildCustomShelves([book('a')], [shelf('s1', 'Sci-fi', ['gone', 'a'])]);
     assert.deepEqual(shown(rows), ['a']);
-    assert.equal(rows.filter((r) => r.unshelved).length, 0);
   });
 
-  it('has no loose row when everything is on a shelf', () => {
-    const rows = buildCustomShelves([book('a')], [shelf('s1', 'Sci-fi', ['a'])]);
-    assert.equal(rows.filter((r) => r.unshelved).length, 0);
+  it('seeds from the by-length shelves, one ledge to a shelf', () => {
+    // What custom mode starts from, so the first thing a listener does is
+    // reorder and rename rather than build from nothing.
+    const books = Array.from({ length: 7 }, (_, i) => book(`b${i}`));
+    const seeded = seedShelvesFromLength(books);
+
+    assert.equal(seeded.length, Math.ceil(7 / PER_SHELF));
+    assert.ok(seeded.every((sh) => sh.bookIds.length <= PER_SHELF));
+    assert.deepEqual(
+      seeded.flatMap((sh) => sh.bookIds).sort(),
+      books.map((b) => b.id).sort(),
+      'every book is seeded exactly once',
+    );
+    assert.ok(seeded[0].name.length > 0, 'the band label becomes the first name');
   });
 
-  it('is reached through buildShelves, and needs no shelves to work', () => {
-    const books = [book('a'), book('b')];
-    // No shelves yet: everything is loose, which is what a first visit to
-    // custom mode looks like and has to be draggable from.
-    const rows = buildShelves(books, 'custom', []);
-    assert.deepEqual(shown(rows), ['a', 'b']);
-    assert.ok(rows.every((r) => r.unshelved));
+  it('seeds nothing from an empty library', () => {
+    assert.deepEqual(seedShelvesFromLength([]), []);
   });
 
   it('gives every row a distinct key, including across shelves', () => {

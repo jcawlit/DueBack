@@ -193,14 +193,9 @@ export function DriveStatusButton({
 export function SortChips({
   sort,
   onChange,
-  editing,
-  onToggleEditing,
 }: {
   sort: SortMode;
   onChange: (next: SortMode) => void;
-  /** Arranging rather than browsing. Only ever true in custom mode. */
-  editing?: boolean;
-  onToggleEditing?: () => void;
 }) {
   return (
     /*
@@ -247,40 +242,6 @@ export function SortChips({
           </Pressable>
         );
       })}
-      {/*
-        Only in custom mode, because there is nothing to arrange in a sort
-        the app generated — you cannot move a book out of "40h+" without
-        making it shorter. Green while it is on, the same green as checking
-        a book out: both are "this press changes something".
-      */}
-      {sort === 'custom' && onToggleEditing ? (
-        <Pressable
-          onPress={onToggleEditing}
-          accessibilityRole="button"
-          accessibilityState={{ selected: !!editing }}
-          accessibilityLabel={editing ? 'Finish arranging shelves' : 'Arrange shelves'}
-          style={({ pressed }) => ({
-            minHeight: CHIP_HEIGHT,
-            justifyContent: 'center',
-            paddingHorizontal: 9,
-            borderRadius: radius.chip,
-            borderWidth: 1,
-            borderColor: editing ? color.checkout : color.borderSoft,
-            backgroundColor: editing ? color.checkout : 'transparent',
-            opacity: pressed ? 0.7 : 1,
-          })}
-        >
-          <Text
-            style={{
-              fontFamily: font.mono,
-              fontSize: 11,
-              color: editing ? color.ground : color.muted,
-            }}
-          >
-            {editing ? 'done' : 'edit'}
-          </Text>
-        </Pressable>
-      ) : null}
     </ScrollView>
   );
 }
@@ -293,8 +254,6 @@ export function LibraryHeader({
   onCheckDrive,
   sort,
   onSort,
-  editing,
-  onToggleEditing,
   checking,
   onOpenSettings,
   search,
@@ -312,8 +271,6 @@ export function LibraryHeader({
   onOpenSettings?: () => void;
   sort?: SortMode;
   onSort?: (next: SortMode) => void;
-  editing?: boolean;
-  onToggleEditing?: () => void;
   search?: string;
   onSearch?: (next: string) => void;
   /**
@@ -446,12 +403,7 @@ export function LibraryHeader({
           {/* minWidth 0 so the scroller gives way to the two fixed chips
               instead of pushing them off the edge. */}
           <View style={{ flex: 1, minWidth: 0 }}>
-            <SortChips
-              sort={sort}
-              onChange={onSort}
-              editing={editing}
-              onToggleEditing={onToggleEditing}
-            />
+            <SortChips sort={sort} onChange={onSort} />
           </View>
           {onOpenSettings ? (
             <Pressable

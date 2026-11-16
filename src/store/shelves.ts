@@ -9,32 +9,28 @@
 
 import { create } from 'zustand';
 import {
+  applyArrangement,
   createShelf,
   loadShelves,
-  placeBookOnShelf,
   removeBookFromShelves,
   renameShelf,
   softDeleteShelf,
   type Shelf,
 } from '@/db/shelves';
+import {
+  cascade,
+  placementChanges,
+  SHELF_CAPACITY,
+  withoutShelf,
+} from '@/lib/library/cascade';
 
 type ShelvesState = {
   /** For the source the Library is currently showing. */
   shelves: Shelf[];
   /** Which source `shelves` was loaded for, so a stale load is ignored. */
   loadedFor: string | null | undefined;
-  /**
-   * Arranging rather than browsing.
-   *
-   * Not a preference: it is a mode you are in for a minute, and coming back
-   * to the app mid-drag-mode would be a surprise rather than a convenience.
-   * It also decides what press-and-hold does, and a gesture that means
-   * something different depending on state the app remembered from yesterday
-   * is how a listener loses a book.
-   */
-  editing: boolean;
-
-  setEditing: (value: boolean) => void;
+  // There was an `editing` mode here. The grip on each cover replaced it:
+  // a gesture of its own needs no mode to tell it apart from another.
   load: (sourceId: string | null) => Promise<void>;
   add: (sourceId: string | null, name: string) => Promise<void>;
   rename: (shelfId: string, name: string) => Promise<void>;
@@ -43,14 +39,20 @@ type ShelvesState = {
   place: (bookId: string, shelfId: string) => Promise<void>;
   /** Takes a book off whatever shelf it was on. */
   unplace: (bookId: string) => Promise<void>;
+  /**
+   * Creates the starting shelves, once, if this source has none.
+   *
+   * Returns whether it made any, so the caller knows to reload.
+   */
+  seed: (
+    sourceId: string | null,
+    shelves: { name: string; bookIds: string[] }[],
+  ) => Promise<boolean>;
 };
 
 export const useShelves = create<ShelvesState>((set, get) => ({
   shelves: [],
   loadedFor: undefined,
-  editing: false,
-
-  setEditing: (editing) => set({ editing }),
 
   load: async (sourceId) => {
     try {
@@ -85,22 +87,75 @@ export const useShelves = create<ShelvesState>((set, get) => ({
   },
 
   remove: async (shelfId) => {
+    /*
+     * The shelf goes; its books do not.
+     *
+     * `softDeleteShelf` tombstones the placements with it, which was right
+     * when there was a loose pile to catch them. There is not one now, so
+     * they are moved onto the remaining shelves **first** — and anything
+     * that will not fit gets a shelf of its own, because a book with no
+     * shelf is a book that has left the Library.
+     */
+    const sourceId = get().loadedFor ?? null;
+    const before = get().shelves.map((s) => ({ id: s.id, bookIds: s.bookIds }));
+    const { shelves: after, overflow } = withoutShelf(before, shelfId);
+
+    const changes = placementChanges(before, { shelves: after, loose: [] })
+      // The deleted shelf's own rows are rewritten below or carried into
+      // `overflow`; nothing here should point at a shelf that is going.
+      .filter((change) => change.shelfId !== shelfId);
+    if (changes.length > 0) await applyArrangement(changes);
+
+    for (let i = 0; i < overflow.length; i += SHELF_CAPACITY) {
+      const made = await createShelf(sourceId, 'Shelf');
+      await applyArrangement(
+        overflow
+          .slice(i, i + SHELF_CAPACITY)
+          .map((bookId, position) => ({ bookId, shelfId: made.id, position })),
+      );
+    }
+
     await softDeleteShelf(shelfId);
-    await get().load(get().loadedFor ?? null);
+    await get().load(sourceId);
   },
 
   place: async (bookId, shelfId) => {
-    const shelf = get().shelves.find((s) => s.id === shelfId);
-    const last = shelf?.bookIds[shelf.bookIds.length - 1] ?? null;
-    // Appended, so a drop lands at the end of the shelf it was dropped on.
-    // Where within a shelf is not something a drop onto a row of three covers
-    // can say, and guessing from an x coordinate would be guessing.
-    await placeBookOnShelf(bookId, shelfId, last, null);
+    /*
+     * The same arithmetic the drag has been drawing all along.
+     *
+     * `cascade` is pure and the Library renders its result on every frame of
+     * a drag, so committing through it means what is written is exactly what
+     * was on screen when the finger came up. Two code paths for "where does
+     * this book go" would be two chances to disagree.
+     */
+    const before = get().shelves.map((s) => ({ id: s.id, bookIds: s.bookIds }));
+    const after = cascade(before, bookId, shelfId);
+    await applyArrangement(placementChanges(before, after));
     await get().load(get().loadedFor ?? null);
   },
 
   unplace: async (bookId) => {
     await removeBookFromShelves(bookId);
     await get().load(get().loadedFor ?? null);
+  },
+
+  seed: async (sourceId, shelves) => {
+    /*
+     * Only ever on an empty source, and read from the database rather than
+     * from this store's state: the guard has to hold against a second call
+     * arriving while the first is still writing, or opening custom mode
+     * twice in quick succession seeds the library twice.
+     */
+    const existing = await loadShelves(sourceId);
+    if (existing.length > 0 || shelves.length === 0) return false;
+
+    for (const shelf of shelves) {
+      const made = await createShelf(sourceId, shelf.name);
+      await applyArrangement(
+        shelf.bookIds.map((bookId, position) => ({ bookId, shelfId: made.id, position })),
+      );
+    }
+    await get().load(sourceId);
+    return true;
   },
 }));

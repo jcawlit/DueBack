@@ -31,7 +31,13 @@ import { switchableSources, useSources } from '@/store/sources';
 import { USB_SOURCE_ID } from '@/db/sources';
 import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { safFolderPath } from '@/lib/files/safNames';
-import { buildShelves, type CustomShelf, type Shelf as ShelfModel } from '@/lib/shelves';
+import {
+  buildShelves,
+  seedShelvesFromLength,
+  type CustomShelf,
+  type Shelf as ShelfModel,
+} from '@/lib/shelves';
+import { cascade } from '@/lib/library/cascade';
 import { searchBooks } from '@/lib/library/search';
 import { daysOfListening, relativeTime, relativeTimeShort } from '@/lib/format';
 import { color, font, space } from '@/theme/tokens';
@@ -51,11 +57,9 @@ export default function LibraryScreen() {
   const setActiveSourceId = useUi((s) => s.setActiveSourceId);
   const customShelves = useShelves((s) => s.shelves);
   const loadShelvesFor = useShelves((s) => s.load);
-  const editing = useShelves((s) => s.editing);
-  const setEditing = useShelves((s) => s.setEditing);
   const placeOnShelf = useShelves((s) => s.place);
-  const takeOffShelf = useShelves((s) => s.unplace);
   const addShelf = useShelves((s) => s.add);
+  const seedShelves = useShelves((s) => s.seed);
   const trayCollapsed = useUi((s) => s.trayCollapsed);
   const setTrayCollapsed = useUi((s) => s.setTrayCollapsed);
   const sources = useSources((s) => s.sources);
@@ -151,19 +155,101 @@ export default function LibraryScreen() {
     void loadShelvesFor(activeSourceId === USB_SOURCE_ID ? null : activeSourceId);
   }, [activeSourceId, loadShelvesFor]);
 
-  // Leaving custom mode leaves arranging. An edit mode that outlives the
-  // view it belongs to is a gesture that does something unexpected later.
+  /*
+   * Custom mode starts from the by-length shelves.
+   *
+   * Seeded the first time it is opened for a source, and never again — the
+   * store checks the database rather than its own state, so opening twice
+   * quickly cannot seed twice. It writes on a view, which is unusual, but
+   * the alternative is a wall of books belonging to nothing and a shelf to
+   * invent before anything can be arranged.
+   *
+   * `inSource`, not the searched list: seeding half a library because a
+   * search box had something in it would be a mess to undo by hand.
+   */
   useEffect(() => {
-    if (sort !== 'custom' && editing) setEditing(false);
-  }, [sort, editing, setEditing]);
+    if (sort !== 'custom' || inSource.length === 0) return;
+    void seedShelves(
+      activeSourceId === USB_SOURCE_ID ? null : activeSourceId,
+      seedShelvesFromLength(inSource),
+    );
+  }, [sort, inSource, activeSourceId, seedShelves]);
+
 
   const customRows = useMemo<CustomShelf[]>(
     () => customShelves.map((s) => ({ id: s.id, name: s.name, bookIds: s.bookIds })),
     [customShelves],
   );
+
+  /*
+   * The list, for the drag to scroll and to measure against.
+   *
+   * A shelf's `onLayout` gives its box in content coordinates; a finger
+   * arrives in page coordinates. The drag turns one into the other, which
+   * needs where the list starts on screen and how far it has scrolled.
+   */
+  const listRef = useRef<FlatList<ShelfModel> | null>(null);
+  const scrolled = useRef(0);
+
+  const scrollBy = useCallback((delta: number) => {
+    /*
+     * The offset is advanced here as well as read from `onScroll`.
+     *
+     * Edge scrolling ticks every 16ms and `onScroll` is throttled to the
+     * same, so reading back the last reported offset meant ticks landing on
+     * a stale number and cancelling each other out. Advancing it optimistically
+     * lets the ticks accumulate; the next real `onScroll` corrects any drift.
+     */
+    const next = Math.max(0, scrolled.current + delta);
+    scrolled.current = next;
+    listRef.current?.scrollToOffset({ offset: next, animated: false });
+  }, []);
+
+  const { drag, handlersFor, measure, retainBoxes, setViewport, setScrollOffset } = useShelfDrag({
+    onDrop: (bookId, shelfId) => void placeOnShelf(bookId, shelfId),
+    scrollBy,
+  });
+  /*
+   * What the shelves would look like if the finger let go here.
+   *
+   * The cascade runs on every frame and the Library is drawn from its
+   * result, so pushing a book onto a full shelf shows the far one sliding
+   * down while you are still deciding. The same function commits the drop,
+   * so what is written is what was on screen.
+   *
+   * **The dragged book itself is pinned where it started.** This is not
+   * cosmetic. The gesture lives on a responder attached to that book's
+   * cover, and moving the book to another shelf in the preview unmounts
+   * the cover from one row and mounts a new one in another — which
+   * terminates the gesture mid-drag, so the finger coming up never
+   * reaches `onPanResponderRelease` and the drop is never committed. It
+   * looked exactly like dragging not working at all.
+   *
+   * So the preview shows the consequences — the far book sliding down the
+   * shelves — while the dragged book stays faded in its own slot and the
+   * ghost under the finger shows where it is going. The green ledge says
+   * where it will land.
+   */
+  const previewRows = useMemo<CustomShelf[]>(() => {
+    if (!drag || !drag.overShelfId) return customRows;
+
+    const origin = customRows.find((s) => s.bookIds.includes(drag.bookId));
+    const at = origin ? origin.bookIds.indexOf(drag.bookId) : -1;
+    const names = new Map(customRows.map((s) => [s.id, s.name]));
+
+    const moved = cascade(customRows, drag.bookId, drag.overShelfId).shelves;
+    return moved.map((s) => {
+      const without = s.bookIds.filter((id) => id !== drag.bookId);
+      const bookIds =
+        origin && s.id === origin.id
+          ? [...without.slice(0, at), drag.bookId, ...without.slice(at)]
+          : without;
+      return { id: s.id, name: names.get(s.id) ?? '', bookIds };
+    });
+  }, [customRows, drag]);
   const shelves = useMemo(
-    () => buildShelves(found, sort, customRows),
-    [found, sort, customRows],
+    () => buildShelves(found, sort, previewRows),
+    [found, sort, previewRows],
   );
   const searching = search.trim().length > 0;
 
@@ -269,29 +355,29 @@ export default function LibraryScreen() {
 
   const onCancelCopy = useCallback((book: Book) => cancelCopy(book.id), [cancelCopy]);
 
+
   /*
-   * The list, for the drag to scroll and to measure against.
+   * Custom mode is the whole condition now; there is no edit mode.
    *
-   * A shelf's `onLayout` gives its box in content coordinates; a finger
-   * arrives in page coordinates. The drag turns one into the other, which
-   * needs where the list starts on screen and how far it has scrolled.
+   * There was one, because press and hold already checked a book out and a
+   * gesture cannot mean two things. A grip of its own solves that without
+   * a mode: hold the grip to drag, hold anywhere else to check out. One
+   * fewer state to be in, and the shelf names are editable whenever you
+   * are looking at them.
    */
-  const listRef = useRef<FlatList<ShelfModel> | null>(null);
-  const scrolled = useRef(0);
+  const arranging = sort === 'custom';
 
-  const scrollBy = useCallback((delta: number) => {
-    const next = Math.max(0, scrolled.current + delta);
-    listRef.current?.scrollToOffset({ offset: next, animated: false });
-  }, []);
-
-  const { drag, handlersFor, measure, setViewport, setScrollOffset } = useShelfDrag({
-    enabled: editing && sort === 'custom',
-    onDrop: (bookId, shelfId) => void placeOnShelf(bookId, shelfId),
-    onDropOff: (bookId) => void takeOffShelf(bookId),
-    scrollBy,
-  });
-
-  const arranging = editing && sort === 'custom';
+  /*
+   * Forget the rows that are gone, and keep the ones still up.
+   *
+   * This runs on every frame of a drag, because the preview makes a new
+   * row array each time — so it must not throw away boxes that are still
+   * true. A row only re-measures itself when its layout changes, and a
+   * box nobody replaces is a row that cannot be found.
+   */
+  useEffect(() => {
+    retainBoxes(shelves.map((row) => row.key));
+  }, [shelves, retainBoxes]);
 
   /*
    * Naming a shelf: `null` id means a new one, which is the same question
@@ -302,8 +388,22 @@ export default function LibraryScreen() {
   const renameShelfAt = useShelves((s) => s.rename);
   const removeShelfAt = useShelves((s) => s.remove);
   const shelfSourceId = activeSourceId === USB_SOURCE_ID ? null : activeSourceId;
-  const shelfNameOf = (id: string) =>
-    customShelves.find((sh) => sh.id === id)?.name ?? '';
+  /*
+   * Stable, with no dependencies, and that is the point.
+   *
+   * Every row used to get a fresh arrow for this, so `Shelf`'s `memo`
+   * compared unequal props and redrew every mounted shelf on every frame
+   * of a drag. That is the half-second of treacle a second into picking a
+   * book up. The name is read from the store at the moment it is wanted
+   * instead of closed over, which is what lets the callback never change.
+   */
+  const onRenameShelf = useCallback(
+    (shelfId: string, name: string) => setNaming({ id: shelfId, name }),
+    // A setState function never changes, so this stays one callback for the
+    // life of the screen. Listed because the compiler infers it and refuses
+    // to optimise the component over the discrepancy.
+    [setNaming],
+  );
 
 
   /*
@@ -342,19 +442,11 @@ export default function LibraryScreen() {
          */
         dragHandlersFor={arranging ? handlersFor : undefined}
         onMeasure={arranging ? measure : undefined}
-        isDropTarget={
-          !!drag &&
-          ((!!item.shelfId && item.shelfId === drag.overShelfId) ||
-            (!!item.unshelved && drag.overUnshelved))
-        }
-        liftedBookId={drag?.book.id ?? null}
+        isDropTarget={!!drag && !!item.shelfId && item.shelfId === drag.overShelfId}
+        liftedBookId={drag?.bookId ?? null}
         // Only a hand-arranged shelf has a name to change. The loose pile
         // is not a shelf, and a generated label is not ours to rewrite.
-        onPressLabel={
-          arranging && item.shelfId
-            ? () => setNaming({ id: item.shelfId!, name: shelfNameOf(item.shelfId!) })
-            : undefined
-        }
+        onRenameShelf={arranging ? onRenameShelf : undefined}
       />
   );
 
@@ -424,8 +516,6 @@ export default function LibraryScreen() {
           onSelectSource={setActiveSourceId}
           sort={sort}
           onSort={setSort}
-          editing={editing}
-          onToggleEditing={() => setEditing(!editing)}
           search={search}
           onSearch={setSearch}
         />
@@ -507,7 +597,7 @@ export default function LibraryScreen() {
           <View style={{ height: insets.bottom, backgroundColor: color.panel }} />
         </View>
         {/* Over everything, because a lifted book has to clear the tray too. */}
-        <DragGhost drag={drag} />
+        <DragGhost drag={drag} books={inSource} />
         <ShelfNameSheet
           visible={!!naming}
           shelfId={naming?.id ?? null}
@@ -573,8 +663,6 @@ export default function LibraryScreen() {
         onOpenSettings={() => router.push('/settings')}
         sort={sort}
         onSort={setSort}
-        editing={editing}
-        onToggleEditing={() => setEditing(!editing)}
         search={search}
         onSearch={setSearch}
         sources={switchable}
@@ -679,7 +767,7 @@ export default function LibraryScreen() {
         <View style={{ height: insets.bottom, backgroundColor: color.panel }} />
       </View>
       {/* Over everything, because a lifted book has to clear the tray too. */}
-      <DragGhost drag={drag} />
+      <DragGhost drag={drag} books={inSource} />
       <ShelfNameSheet
         visible={!!naming}
         shelfId={naming?.id ?? null}

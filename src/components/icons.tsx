@@ -159,6 +159,27 @@ export function SkipPreviousIcon({ size = 22, stroke = color.paper }: IconProps)
   );
 }
 
+/** Four arrows from a centre: the grip you drag a book by. */
+export function MoveIcon({ size = 16, stroke = color.paper }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M12 3v18M3 12h18"
+        stroke={stroke}
+        strokeWidth={2}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"
+        stroke={stroke}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
 export function PlusIcon({ size = 14, stroke = color.ground }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 14 14" fill="none">

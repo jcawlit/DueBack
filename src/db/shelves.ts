@@ -225,6 +225,59 @@ export async function placeBookOnShelf(
   readingDataChanged();
 }
 
+/**
+ * Writes a whole rearrangement in one transaction.
+ *
+ * A drop onto a full shelf moves more than one book: the book you dropped,
+ * the ones that shifted along, and whatever was pushed down. They have to
+ * land together or a crash between two writes leaves a shelf holding four
+ * books and another holding none.
+ *
+ * `shelfId: null` means the book belongs to no shelf — it fell off the
+ * bottom — which is a tombstone rather than a row saying "nowhere".
+ *
+ * Positions are indexes here, not midpoints. A shelf holds three, so
+ * rewriting all three costs nothing and leaves the numbers tidy; the
+ * fractional machinery in `shelfOrder` is for inserting without
+ * renumbering, which a shelf this small never needs.
+ */
+export async function applyArrangement(
+  changes: { bookId: string; shelfId: string | null; position: number }[],
+): Promise<void> {
+  if (changes.length === 0) return;
+  const db = await getDb();
+  const { at, mutationId, device } = await stamp();
+  await withLockRetry(() =>
+    db.withTransactionAsync(async () => {
+      for (const change of changes) {
+        if (change.shelfId === null) {
+          await db.runAsync(
+            `UPDATE shelf_books
+                SET deleted_at = ?, updated_at = ?, mutation_id = ?, writer_device = ?
+              WHERE book_id = ? AND deleted_at IS NULL`,
+            at, at, mutationId, device, change.bookId,
+          );
+          continue;
+        }
+        await db.runAsync(
+          `INSERT INTO shelf_books (book_id, shelf_id, position, updated_at,
+                                    mutation_id, writer_device, deleted_at)
+           VALUES (?, ?, ?, ?, ?, ?, NULL)
+           ON CONFLICT(book_id) DO UPDATE SET
+             shelf_id = excluded.shelf_id,
+             position = excluded.position,
+             updated_at = excluded.updated_at,
+             mutation_id = excluded.mutation_id,
+             writer_device = excluded.writer_device,
+             deleted_at = NULL`,
+          change.bookId, change.shelfId, change.position, at, mutationId, device,
+        );
+      }
+    }),
+  );
+  readingDataChanged();
+}
+
 /** Takes a book off whatever shelf it was on, without deleting the shelf. */
 export async function removeBookFromShelves(bookId: string): Promise<void> {
   const db = await getDb();

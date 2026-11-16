@@ -17,8 +17,13 @@ export type Shelf = {
    * for a generated shelf, which is not a thing you can drop a book onto.
    */
   shelfId?: string;
-  /** True for the row holding books that are on no shelf at all. */
-  unshelved?: boolean;
+  /**
+   * The shelf's plain name, without the "· CONT." a later row's label
+   * carries. Travels with the row so renaming needs no lookup, which is
+   * what keeps the screen's rename callback free of dependencies.
+   */
+  shelfName?: string;
+
 };
 
 /** A hand-arranged shelf, as the Library needs it to lay one out. */
@@ -28,11 +33,15 @@ export type CustomShelf = {
   bookIds: string[];
 };
 
-/** The label on the row holding everything not yet put anywhere. */
-export const UNSHELVED_LABEL = 'NOT ON A SHELF';
-
-/** Books per shelf. The mockup fits three face-out covers on a ledge. */
-const PER_SHELF = 3;
+/**
+ * Books per shelf. The mockup fits three face-out covers on a ledge.
+ *
+ * Exported because it is also a hand-arranged shelf's **capacity** — one
+ * shelf is one ledge — and `cascade` has to agree with it exactly. Two
+ * constants for one fact is a shelf that draws three books and accepts
+ * four.
+ */
+export const PER_SHELF = 3;
 
 const LENGTH_BANDS = [
   { label: 'DOORSTOPPERS · 40h+', minHours: 40 },
@@ -92,59 +101,66 @@ function banded(
 /**
  * Rows for the shelves the listener arranged.
  *
- * Every book in the library appears exactly once: on its shelf if it has
- * one, and in a final row if it does not. Without that row a fresh custom
- * mode would be empty and there would be nothing to drag — and a book
- * taken off a shelf would vanish from the Library rather than going back
- * to the pile.
+ * Every book is on a shelf. There was a "not on a shelf" pile at the
+ * bottom holding anything unplaced, and it went: custom mode now starts
+ * from the by-length shelves, so nothing is ever unplaced, and a pile for
+ * the empty case is a row that exists to explain a state nobody is in.
  *
- * An empty shelf still gets a row, because an empty shelf is the thing you
- * just made and are about to drag a book onto.
+ * A shelf holds `PER_SHELF` books and no more — the cascade keeps it that
+ * way. More than that only arrives from a merge with another phone, and
+ * it is drawn as extra ledges rather than hidden, because a book that is
+ * there should be visible until the next drag settles it.
+ *
+ * An empty shelf still gets a row: it is the one you just made.
  */
 export function buildCustomShelves(books: Book[], custom: CustomShelf[]): Shelf[] {
   const byId = new Map(books.map((b) => [b.id, b]));
-  const placed = new Set<string>();
-  const rows: Shelf[] = [];
-
-  for (const shelf of custom) {
-    const onIt = shelf.bookIds
-      .map((id) => byId.get(id))
-      .filter((b): b is Book => !!b);
-    for (const id of shelf.bookIds) placed.add(id);
-
-    if (onIt.length === 0) {
-      rows.push({ key: `custom-${shelf.id}`, label: shelf.name, books: [], shelfId: shelf.id });
-      continue;
-    }
-    for (let i = 0; i < onIt.length; i += PER_SHELF) {
-      rows.push({
-        key: `custom-${shelf.id}-${i}`,
-        label: i === 0 ? shelf.name : `${shelf.name} · CONT.`,
-        books: onIt.slice(i, i + PER_SHELF),
-        shelfId: shelf.id,
-      });
-    }
-  }
-
-  const loose = books.filter((b) => !placed.has(b.id));
-  if (loose.length === 0) return rows;
-  for (let i = 0; i < loose.length; i += PER_SHELF) {
-    rows.push({
-      key: `unshelved-${i}`,
-      label: i === 0 ? UNSHELVED_LABEL : `${UNSHELVED_LABEL} · CONT.`,
-      books: loose.slice(i, i + PER_SHELF),
-      unshelved: true,
-    });
-  }
-  return rows;
+  /*
+   * One shelf is exactly one row, however many books are on it.
+   *
+   * It used to split an over-full shelf into extra ledges, and that broke
+   * dragging: a shelf going from three books to four mid-drag inserted a
+   * row, which moved every row below it — and a row only re-measures when
+   * its own layout changes, so the drag was left hit-testing against
+   * positions that had quietly moved.
+   *
+   * A shelf over capacity is only ever transient now: the dragged book is
+   * held in its own slot while a preview runs, and a merge from another
+   * phone can deliver four until the next drop settles it. Four covers on
+   * one ledge is tight for a moment, which is a better failure than books
+   * landing on the wrong shelf.
+   */
+  return custom.map((shelf) => ({
+    key: `custom-${shelf.id}`,
+    label: shelf.name,
+    books: shelf.bookIds.map((id) => byId.get(id)).filter((b): b is Book => !!b),
+    shelfId: shelf.id,
+    shelfName: shelf.name,
+  }));
 }
 
-/*
- * There was a `now = Date.now()` parameter here, unused by any branch and
- * passed by nobody. It went: a default argument that calls the clock makes
- * the function impure to anything reading it from a render, for a value no
- * sort has ever looked at.
+/**
+ * The shelves custom mode starts from: the by-length ones, as they stand.
+ *
+ * Custom mode used to begin empty, which meant a wall of unplaced books
+ * and a shelf to make before anything could be arranged. Starting from
+ * what is already on screen means the first thing a listener does is
+ * reorder and rename, not build from nothing.
+ *
+ * Pure, and returns what to create rather than creating it. One ledge
+ * becomes one shelf, keeping the band's own label as its first name —
+ * "DOORSTOPPERS · 40h+" says more than "Shelf 1" does, and it is the name
+ * already under that ledge a moment earlier.
  */
+export function seedShelvesFromLength(
+  books: Book[],
+): { name: string; bookIds: string[] }[] {
+  return buildShelves(books, 'length').map((row) => ({
+    name: row.label,
+    bookIds: row.books.map((b) => b.id),
+  }));
+}
+
 export function buildShelves(
   books: Book[],
   sort: SortMode,

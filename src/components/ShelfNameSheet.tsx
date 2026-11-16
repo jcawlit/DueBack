@@ -13,6 +13,7 @@
 
 import { useState } from 'react';
 import { Modal, Pressable, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, KeyboardProvider } from 'react-native-keyboard-controller';
 import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
 
 export function NewShelfRow({ onPress }: { onPress: () => void }) {
@@ -78,16 +79,27 @@ export function ShelfNameSheet({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
-      <Pressable
-        onPress={close}
-        accessibilityLabel="Dismiss"
-        style={{
-          flex: 1,
-          backgroundColor: 'rgba(10,7,5,0.72)',
-          justifyContent: 'flex-end',
-          padding: space.xl,
-        }}
-      >
+      {/*
+        The sheet rides the keyboard rather than hiding under it.
+
+        It sits at the bottom of the screen and the field is focused on
+        open, so without this the keyboard covers the thing you are typing
+        into and you type blind. Its own provider, because a Modal is a
+        separate window and the one wrapping the app cannot see this one's
+        insets — the same reason `NoteSheet` has one.
+      */}
+      <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
+        <Pressable
+          onPress={close}
+          accessibilityLabel="Dismiss"
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(10,7,5,0.72)',
+            justifyContent: 'flex-end',
+            padding: space.xl,
+          }}
+        >
+        <KeyboardAvoidingView behavior="padding">
         <Pressable
           onPress={() => {}}
           style={[
@@ -174,7 +186,9 @@ export function ShelfNameSheet({
             </Pressable>
           </View>
         </Pressable>
-      </Pressable>
+        </KeyboardAvoidingView>
+        </Pressable>
+      </KeyboardProvider>
     </Modal>
   );
 }
