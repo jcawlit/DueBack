@@ -4,6 +4,8 @@
  */
 
 import { create } from 'zustand';
+import { forgetPlaceholderDriveBooks } from '@/db/books';
+import { removeCover } from '@/lib/files/covers';
 import { isReachable, pickLibraryRoot } from '@/lib/files/access';
 import { scanLibrary, type ScanProgress, type ScanResult } from '@/lib/scan/scanner';
 import { setScanning } from '@/lib/scanBusy';
@@ -73,12 +75,31 @@ export const useScan = create<ScanState>((set, get) => ({
 
   chooseFolderAndScan: async () => {
     set({ error: null });
+    const previousRoot = useLibrary.getState().libraryRoot;
     const root = await pickLibraryRoot();
     if (!root) return;
     // Say something the instant the picker closes. Saving the root checks that
     // it is readable, which on a large drive is a wait of its own.
     set({ preparing: true, progress: OPENING_PROGRESS });
     try {
+      /*
+       * The old root's catalogue goes before the new one is read.
+       *
+       * Done here, ahead of the scan, rather than left to the scan's own
+       * reconciliation. That sweep marks books missing on the evidence of a
+       * walk, and a walk of a different folder is not evidence about this
+       * one: pointing the picker at a folder it could list but find no books
+       * in — a cloud provider whose names carry no extension, say — flagged
+       * the whole library and left "Forget missing books" standing over it.
+       *
+       * A switch is a deliberate act with its own warning, so it speaks for
+       * itself. Only the rows with no audio on the phone go; a book you are
+       * holding is yours whatever drive is plugged in.
+       */
+      if (previousRoot && previousRoot.uri !== root.uri) {
+        const dropped = await forgetPlaceholderDriveBooks();
+        dropped.forEach(removeCover);
+      }
       // Claimed before `setLibraryRoot`, which reports the drive as connected
       // and would otherwise kick off an incremental scan that blocks this
       // forced one.

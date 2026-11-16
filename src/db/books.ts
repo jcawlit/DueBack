@@ -11,7 +11,7 @@ import { fallbackPalette } from '@/lib/library/palette';
 import { fingerprintKey } from '@/lib/library/grouping';
 import { newUuid } from '@/lib/library/ids';
 import { ensureDeviceId, getDb, getSetting, SETTING_KEYS } from './schema';
-import { DRIVE_BOOKS } from './scope';
+import { DRIVE_BOOKS, PLACEHOLDER_DRIVE_BOOKS } from './scope';
 
 export type BookRow = {
   id: string;
@@ -687,6 +687,53 @@ export async function forgetMissingBooks(): Promise<string[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<{ id: string }>(
     `SELECT id FROM books WHERE missing = 1 AND ${DRIVE_BOOKS}`,
+  );
+  const ids = rows.map((r) => r.id);
+  if (ids.length === 0) return [];
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    const CHUNK = 400;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const chunk = ids.slice(i, i + CHUNK);
+      const q = chunk.map(() => '?').join(',');
+      await txn.runAsync(`DELETE FROM chapters WHERE book_id IN (${q})`, ...chunk);
+      await txn.runAsync(`DELETE FROM parts WHERE book_id IN (${q})`, ...chunk);
+      await txn.runAsync(`DELETE FROM checkouts WHERE book_id IN (${q})`, ...chunk);
+      await txn.runAsync(`DELETE FROM books WHERE id IN (${q})`, ...chunk);
+    }
+  });
+  return ids;
+}
+
+/** How many books a root switch would drop, for the warning that precedes it. */
+export async function countPlaceholderDriveBooks(): Promise<number> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM books WHERE ${PLACEHOLDER_DRIVE_BOOKS}`,
+  );
+  return row?.n ?? 0;
+}
+
+/**
+ * Drops the old root's index on the way to a new one.
+ *
+ * Switching library folders used to mark every book missing and keep the
+ * rows, which left a shelf full of books that could not be opened and a
+ * "Forget missing books" button standing over the lot. Switching a drive is
+ * a deliberate act and it means the old drive's catalogue is not this
+ * library's any more, so the catalogue goes and what is on the phone stays.
+ *
+ * Notes and characters are left where they are, exactly as
+ * `forgetMissingBooks` leaves them: they are the only things here a listener
+ * authored, the drive's own `.dueback` backup carries them, and switching
+ * back restores them. Nothing in this function is the right place to decide
+ * to destroy writing.
+ *
+ * Returns the ids dropped, so their covers can be swept after.
+ */
+export async function forgetPlaceholderDriveBooks(): Promise<string[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ id: string }>(
+    `SELECT id FROM books WHERE ${PLACEHOLDER_DRIVE_BOOKS}`,
   );
   const ids = rows.map((r) => r.id);
   if (ids.length === 0) return [];

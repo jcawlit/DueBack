@@ -1505,3 +1505,44 @@ Two things follow for anything pointed at a cloud provider:
 *`src/lib/files/access.ts`, `src/lib/spike/driveProbe.ts`,
 `src/app/dev/drive.tsx`*
 
+### Switching library roots drops the old root's catalogue (2026-11-11)
+
+A root switch used to leave every book from the old folder flagged
+`missing = 1`, keeping the rows. That was defensible when a switch meant
+swapping between two real USB drives, and it was wrong the first time a
+folder listed successfully but yielded no books: a Google Drive folder, whose
+opaque document names mean nothing reads as audio, flagged a whole real
+library and left "Forget missing books" standing over it.
+
+Two separate faults made that possible, and both are worth keeping apart:
+
+- `markMissingExcept` takes its evidence from `completed && rootReadable`. A
+  Drive listing satisfies both while finding nothing, so the sweep ran with an
+  empty `seenIds` and flagged everything.
+- The sweep is scoped to `source_id IS NULL` but **not to the library that was
+  scanned**, so a scan of one root speaks for books bound to another.
+
+The behaviour now: switching to a different root deletes the old root's
+**placeholder** books before the new one is read — rows with no audio on the
+phone — and keeps everything else. `PLACEHOLDER_DRIVE_BOOKS` in
+`src/db/scope.ts` is the predicate, beside `DRIVE_BOOKS` and for the same
+reason: a test holds the real one rather than a copy.
+
+What is kept, and why each matters:
+
+- **A book with a part carrying `local_rel_path`.** It plays with no drive
+  attached, so another drive is no reason to take it away.
+- **An import never pushed** (`source_kind = 'imported' AND on_drive = 0`).
+  It belongs to no drive, so no drive's departure can speak for it. Guarded
+  explicitly rather than left to the parts check.
+- **Anything with a `source_id`.** A server's books are not the drive's to
+  forget.
+
+Notes and characters are deliberately **not** deleted, exactly as
+`forgetMissingBooks` leaves them. They are the only things in this database a
+listener authored, the drive's own `.dueback` backup carries them, and
+switching back restores them — which is what lets the warning promise that
+switching back brings the books and the notes with it.
+
+*`src/db/scope.ts`, `src/db/books.ts`, `src/store/scan.ts`,
+`src/app/settings.tsx`, tests in `tests/root-switch.test.ts`*

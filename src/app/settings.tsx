@@ -9,7 +9,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { isRemote } from '@/data/types';
 import { useLibrary } from '@/store/library';
-import { forgetMissingBooks } from '@/db/books';
+import { countPlaceholderDriveBooks, forgetMissingBooks } from '@/db/books';
 import { countMarginsFor } from '@/db/notes';
 import { useUi } from '@/store/ui';
 import { useBackup } from '@/store/backup';
@@ -128,26 +128,52 @@ export default function SettingsScreen() {
   const missing = onDrive.filter((b) => b.missingFromDrive).length;
 
   /**
-   * Switching folders re-indexes everything, so books from the old one end up
-   * flagged missing and cannot be checked out. That is recoverable but
-   * surprising, so it is spelled out first.
+   * Switching folders drops the old folder's catalogue, so the count that
+   * will go is read before the question is asked and the question names it.
+   *
+   * It says "taken off the shelves" rather than "deleted": what goes is the
+   * index, the drive's own backup still holds the writing, and switching back
+   * brings the books and their notes with it. What never goes is a book with
+   * audio on the phone.
    */
   const confirmChangeFolder = () => {
     if (books.length === 0) {
       void chooseFolderAndScan();
       return;
     }
-    Alert.alert(
-      'Switch library folder?',
-      `The ${books.length} ${books.length === 1 ? 'book' : 'books'} from the current folder will be ` +
-        'marked as no longer on the drive, and you will not be able to check them out ' +
-        'until you switch back. Progress and checkout history are kept, and anything ' +
-        'already copied to your phone stays playable.',
-      [
-        { text: 'Keep this folder', style: 'cancel' },
-        { text: 'Switch', style: 'destructive', onPress: () => void chooseFolderAndScan() },
-      ],
-    );
+    void (async () => {
+      const dropping = await countPlaceholderDriveBooks();
+      const held = onDrive.length - dropping;
+      if (dropping === 0) {
+        Alert.alert(
+          'Switch library folder?',
+          'Everything on your shelves is already copied to your phone, so nothing ' +
+            'is taken off them. The new folder is scanned and added.',
+          [
+            { text: 'Keep this folder', style: 'cancel' },
+            { text: 'Switch', onPress: () => void chooseFolderAndScan() },
+          ],
+        );
+        return;
+      }
+      Alert.alert(
+        'Switch library folder?',
+        `${dropping} ${dropping === 1 ? 'book' : 'books'} on the shelves ${dropping === 1 ? 'is' : 'are'} ` +
+          'only an entry pointing at the current folder, with no audio on this phone. ' +
+          `${dropping === 1 ? 'It goes' : 'They go'} off the shelves, along with ` +
+          `${dropping === 1 ? 'its' : 'their'} listening progress and checkout history.` +
+          (held > 0
+            ? ` The ${held} ${held === 1 ? 'book' : 'books'} already copied to your phone ` +
+              `${held === 1 ? 'stays' : 'stay'} exactly where ${held === 1 ? 'it is' : 'they are'}.`
+            : '') +
+          '\n\nAnything you wrote is kept on the drive, so switching back brings the ' +
+          'books and your notes with them.',
+        [
+          { text: 'Keep this folder', style: 'cancel' },
+          { text: 'Switch', style: 'destructive', onPress: () => void chooseFolderAndScan() },
+        ],
+      );
+    })();
   };
 
   /**
@@ -270,7 +296,7 @@ export default function SettingsScreen() {
           />
           <Row
             label="Change library folder"
-            detail="Pick a different folder and scan it"
+            detail="Books not copied to your phone leave the shelves"
             onPress={confirmChangeFolder}
             disabled={running}
           />
