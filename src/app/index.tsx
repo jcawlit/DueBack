@@ -11,7 +11,7 @@ import { Alert, FlatList, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Book } from '@/data/types';
-import { isCheckedOut, isRemote } from '@/data/types';
+import { belongsToSource, isCheckedOut, isRemote } from '@/data/types';
 import {
   checkedOutFrom,
   heldCount,
@@ -27,6 +27,7 @@ import { useUi } from '@/store/ui';
 import { switchableSources, useSources } from '@/store/sources';
 import { USB_SOURCE_ID } from '@/db/sources';
 import { useMiniPlayerInset } from '@/components/MiniPlayer';
+import { safFolderPath } from '@/lib/files/safNames';
 import { buildShelves } from '@/lib/shelves';
 import { searchBooks } from '@/lib/library/search';
 import { daysOfListening, relativeTime, relativeTimeShort } from '@/lib/format';
@@ -84,33 +85,50 @@ export default function LibraryScreen() {
   const scanBusy = scanRunning || scanPreparing;
   const chooseFolderAndScan = useScan((s) => s.chooseFolderAndScan);
 
-  // Derived from `books` here rather than inside a store selector: a selector
-  // that builds a new array every call re-renders without end under zustand v5.
-  const checkedOut = useMemo(() => checkedOutFrom(books), [books]);
-  const onHoldCount = useMemo(() => heldCount(books), [books]);
-
-  const used = usedBytes(books);
-  const heldBytes = holdBytes(books);
-
-  // What the folder takes up, for a library that is already in phone storage.
-  const onDeviceBooks = useMemo(() => books.filter((b) => !isRemote(b)), [books]);
-  const libraryBytes = useMemo(() => librarySizeBytes(books), [books]);
-
   // Shelves show everything, so a checked-out book keeps its place in the
   // stacks with an "OUT" tag rather than vanishing from where the user left it.
   /*
-   * The shelves show one library at a time.
+   * One library at a time, shelves and tray alike.
    *
    * A book's source is where it is kept, and mixing two of them into one set
    * of generated shelves would produce a "6 hours or less" shelf containing
-   * books you cannot reach. The checked-out tray below is deliberately not
-   * filtered: what is on the phone is on the phone, whichever library it
-   * came from.
+   * books you cannot reach.
+   *
+   * The tray was global once — what is on the phone is on the phone, whichever
+   * library it came from. That broke down as soon as a second source could put
+   * books on the phone: standing in an Audiobookshelf library and seeing the
+   * drive's checkouts in the tray below answers a question nobody asked. A
+   * library's tray now holds that library's books, and a book downloaded from
+   * a server appears under that server.
    */
   const inSource = useMemo(
-    () => books.filter((b) => (b.sourceId ?? USB_SOURCE_ID) === activeSourceId),
+    () => books.filter((b) => belongsToSource(b, activeSourceId, USB_SOURCE_ID)),
     [books, activeSourceId],
   );
+
+  // Derived here rather than in a store selector: a selector that builds a new
+  // array every call re-renders without end under zustand v5.
+  const checkedOut = useMemo(() => checkedOutFrom(inSource), [inSource]);
+  const onHoldCount = useMemo(() => heldCount(inSource), [inSource]);
+
+  /*
+   * The ruler measures this library's share of the budget.
+   *
+   * The budget itself is global, because it is about the phone — so with
+   * downloads in more than one source, no single tray shows everything the
+   * phone is holding. The alternative was a ruler that disagreed with the fan
+   * above it, which is worse: a reader can switch libraries to see the rest.
+   */
+  const used = usedBytes(inSource);
+  const heldBytes = holdBytes(inSource);
+
+  // What the folder takes up, for a library that is already in phone storage.
+  const onDeviceBooks = useMemo(() => inSource.filter((b) => !isRemote(b)), [inSource]);
+  const libraryBytes = useMemo(() => librarySizeBytes(inSource), [inSource]);
+  // The picker's name is the last segment only, which could be anywhere.
+  const libraryPath = libraryRoot
+    ? safFolderPath(libraryRoot.uri) || libraryRoot.name
+    : '';
   const found = useMemo(() => searchBooks(inSource, search), [inSource, search]);
   const shelves = useMemo(() => buildShelves(found, sort), [found, sort]);
   const searching = search.trim().length > 0;
@@ -359,9 +377,10 @@ export default function LibraryScreen() {
             showRuler
             collapsed={trayCollapsed}
             onToggleCollapsed={() => setTrayCollapsed(!trayCollapsed)}
-            onDevice={libraryOnDevice}
+            onDevice={libraryOnDevice && !onRemote}
             libraryCount={onDeviceBooks.length}
             libraryBytes={libraryBytes}
+            libraryPath={libraryPath}
           />
           <View style={{ height: insets.bottom, backgroundColor: color.panel }} />
         </View>
@@ -490,9 +509,10 @@ export default function LibraryScreen() {
           showRuler
           collapsed={trayCollapsed}
           onToggleCollapsed={() => setTrayCollapsed(!trayCollapsed)}
-          onDevice={libraryOnDevice}
+          onDevice={libraryOnDevice && !onRemote}
           libraryCount={onDeviceBooks.length}
           libraryBytes={libraryBytes}
+          libraryPath={libraryPath}
         />
         <View style={{ height: insets.bottom, backgroundColor: color.panel }} />
       </View>

@@ -41,6 +41,8 @@ type Props = {
   /** Books in the library, and their total size. Only read when `onDevice`. */
   libraryCount?: number;
   libraryBytes?: number;
+  /** Where they are, so the panel can name the folder rather than imply one. */
+  libraryPath?: string;
 };
 
 /** Rotations reused from the mockup, so the fan looks hand-stacked. */
@@ -82,6 +84,7 @@ export function CheckedOutTray({
   onDevice = false,
   libraryCount = 0,
   libraryBytes = 0,
+  libraryPath = '',
 }: Props) {
   const revealHeight = FAN_HEIGHT + (showRuler ? space.md + RULER_HEIGHT : 0);
 
@@ -124,14 +127,18 @@ export function CheckedOutTray({
   );
 
   /*
-   * A library in phone storage gets one line and stops.
+   * A library in phone storage, holding nothing, gets one line and stops.
    *
-   * No fan, because nothing can be checked out of it; no ruler, because the
-   * budget governs copies and there are none; and no collapse, because a
-   * single line is already as small as this gets. The panel keeps its edge
-   * and its shadow so the bottom of the Library still ends the same way.
+   * No fan and no ruler: its own books cannot be checked out, so the fan
+   * would be empty and the ruler would read zero, and "Nothing checked out"
+   * was the wrong reading of a shelf where everything is already here.
+   *
+   * **Only when nothing is checked out.** An import is checked out from the
+   * moment it exists — the phone holds the only copy — and it does occupy the
+   * budget, so a tray with imports in it has a fan to show and a ruler that
+   * means something. Taking the panel for the whole tray hid them.
    */
-  if (onDevice) {
+  if (onDevice && books.length === 0) {
     return (
       <View style={[{ backgroundColor: color.panel }, shadow(14, 0.45)]}>
         <DashedEdge color="#6a5038" />
@@ -139,26 +146,42 @@ export function CheckedOutTray({
           style={{
             paddingHorizontal: space.xl,
             paddingVertical: space.lg,
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'baseline',
-            gap: space.md,
+            gap: 4,
           }}
         >
-          <Text
-            accessibilityRole="header"
-            style={{ fontFamily: font.serif, fontSize: 22, color: color.paper }}
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              gap: space.md,
+            }}
           >
-            On this phone
-          </Text>
+            <Text
+              accessibilityRole="header"
+              style={{ fontFamily: font.serif, fontSize: 22, color: color.paper }}
+            >
+              On this phone
+            </Text>
+            <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.muted }}>
+              {gigabytes(libraryBytes)}
+            </Text>
+          </View>
+          {/*
+            The folder, named. "Nothing checked out" was the old reading of
+            this state and it was the wrong one twice over: nothing can be
+            checked out of a library already on the phone, and the books are
+            not absent — they are all here, in a folder the listener chose.
+          */}
           <Text
-            style={{ fontFamily: font.mono, fontSize: 12, color: color.muted }}
-            // Read as one thing, so it is not announced as two loose numbers.
-            accessibilityLabel={`${libraryCount} ${
-              libraryCount === 1 ? 'book' : 'books'
-            }, ${gigabytes(libraryBytes)} in the library folder`}
+            style={{ fontFamily: font.mono, fontSize: 11, color: color.faint }}
+            numberOfLines={2}
           >
-            {`${libraryCount} ${libraryCount === 1 ? 'book' : 'books'} · ${gigabytes(libraryBytes)}`}
+            {libraryCount === 0
+              ? 'No books indexed yet'
+              : `All ${libraryCount} ${libraryCount === 1 ? 'book is' : 'books are'} in ${
+                  libraryPath || 'your library folder'
+                }`}
           </Text>
         </View>
       </View>

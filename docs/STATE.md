@@ -127,8 +127,16 @@ cancel, which have only ever been reasoned about.
   drive. A refresh diffs on the server's own `updatedAt` and marks a
   vanished book missing rather than deleting it, mirroring what a USB scan
   does.
-- **Shelves and search show one source at a time.** The checked-out tray
-  stays global: what is on the phone is on the phone.
+- **Shelves, search and the checked-out tray show one source at a time.**
+  The tray was global at first — what is on the phone is on the phone —
+  which held while the drive was the only thing that could put a book
+  there. With a second source it stopped holding: standing in a server's
+  library and seeing the drive's checkouts answers a question nobody
+  asked, and a book downloaded from the server did not appear under it.
+  The consequence to know: the budget is global because it is about the
+  phone, so the ruler shows the active library's share of it, and with
+  downloads in two sources no single tray shows everything the phone
+  holds. `tests/tray-scope.test.ts` pins the rule.
 - **A book on a server opens on its own plain screen**, `src/app/abs/[id]`,
   not the polished Book screen. That one is built around checking out,
   returning and holding, none of which mean anything yet for a book with no

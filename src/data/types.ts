@@ -115,6 +115,21 @@ export const SORT_LABELS: Record<SortMode, string> = {
 };
 
 export const isCheckedOut = (b: Book) => b.local.status === 'checked-out';
+
+/**
+ * Whether a book belongs to the library currently being shown.
+ *
+ * The drive is the implicit source and has no row, so its books carry no
+ * `sourceId` and answer to the drive's id. Imports answer to the drive too:
+ * they have no server, they live on the phone, and the drive's library is
+ * where someone goes looking for a book they added themselves.
+ *
+ * Here rather than inline in the Library screen because the shelves, the
+ * search and the checked-out tray all have to agree about it — a tray that
+ * disagreed with the shelves above it was the bug that made this a function.
+ */
+export const belongsToSource = (b: Book, sourceId: string, driveSourceId: string) =>
+  (b.sourceId ?? driveSourceId) === sourceId;
 /** A book counts against the storage budget as soon as a copy is under way. */
 export const occupiesBudget = (b: Book) =>
   b.local.status === 'checked-out' || b.local.status === 'copying';

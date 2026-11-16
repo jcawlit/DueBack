@@ -102,6 +102,14 @@ export default function SettingsScreen() {
   const loadSources = useSources((s) => s.load);
 
   const [editingBudget, setEditingBudget] = useState(false);
+  /*
+   * Free space, read when the sheet opens rather than on every render.
+   *
+   * `availableBytes` is a synchronous native stat. It is quick, but a
+   * screen's render is not the place to ask the filesystem anything, and
+   * the figure only has to be true at the moment the question is asked.
+   */
+  const [freeBytes, setFreeBytes] = useState(0);
 
   const scanning = useScan((s) => s.running);
   const preparing = useScan((s) => s.preparing);
@@ -382,7 +390,10 @@ export default function SettingsScreen() {
           <Row
             label={`Budget ${formatBytes(budgetBytes)}`}
             detail="How much of the phone checked-out books may use"
-            onPress={() => setEditingBudget(true)}
+            onPress={() => {
+              setFreeBytes(availableBytes());
+              setEditingBudget(true);
+            }}
           />
         </View>
 
@@ -461,7 +472,7 @@ export default function SettingsScreen() {
          * downloaded fills the same phone, and the budget is about the phone.
          */
         committedBytes={committedBytes(books)}
-        availableBytes={availableBytes()}
+        availableBytes={freeBytes}
         onSave={(next) => {
           setBudgetBytes(next);
           setEditingBudget(false);

@@ -7,7 +7,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { isDeviceStorage, safDisplayName } from '../src/lib/files/safNames.ts';
+import { isDeviceStorage, safDisplayName, safFolderPath } from '../src/lib/files/safNames.ts';
 import { safeLocalName } from '../src/lib/files/localNames.ts';
 import { cleanName, naturalCompare, resolveName, splitAuthorTitle } from '../src/lib/library/names.ts';
 import { orderParts, workKey, type ScannedFile } from '../src/lib/library/grouping.ts';
@@ -249,5 +249,41 @@ describe('isDeviceStorage', () => {
   it('does not guess at anything else', () => {
     assert.ok(!isDeviceStorage('content://com.example.provider/tree/whatever'));
     assert.ok(!isDeviceStorage(''));
+  });
+});
+
+describe('safFolderPath', () => {
+  it('gives the path inside the volume, not just the last segment', () => {
+    assert.equal(
+      safFolderPath('content://com.android.externalstorage.documents/tree/primary%3AAudiobooks%2FFiction'),
+      'Audiobooks/Fiction',
+    );
+  });
+
+  it('handles a folder straight off the volume root', () => {
+    assert.equal(
+      safFolderPath('content://com.android.externalstorage.documents/tree/primary%3AAudiobooks'),
+      'Audiobooks',
+    );
+  });
+
+  it('names the volume when the root itself was picked', () => {
+    // A bare `VOLUME:` has no path below it, so the volume is the answer.
+    assert.equal(
+      safFolderPath('content://com.android.externalstorage.documents/tree/BC72-B058%3A'),
+      'BC72-B058',
+    );
+  });
+
+  it('drops a trailing slash rather than ending on one', () => {
+    assert.equal(
+      safFolderPath('content://com.android.externalstorage.documents/tree/primary%3ABooks%2F'),
+      'Books',
+    );
+  });
+
+  it('is empty for a URI carrying no volume, so a caller can fall back', () => {
+    assert.equal(safFolderPath('file:///storage/emulated/0/Books'), '');
+    assert.equal(safFolderPath(''), '');
   });
 });

@@ -46,6 +46,27 @@ export function isDeviceStorage(rootUri: string): boolean {
   return false;
 }
 
+/**
+ * Where a folder sits inside its volume — `Audiobooks/Fiction`.
+ *
+ * `safDisplayName` gives the last segment, which is what a header wants. This
+ * gives the path, which is what someone being told where all their books are
+ * kept wants: "in Fiction" could be anywhere, and a tree URI's own text is a
+ * volume id and percent-escapes.
+ *
+ * Empty when the URI carries no volume to read, so a caller falls back to the
+ * name the picker gave.
+ */
+export function safFolderPath(rootUri: string): string {
+  const uri = decodeURIComponent(rootUri);
+  const tree = /\/tree\/([^/]+?):([^?]*)/.exec(uri);
+  if (!tree) return '';
+  const [, volume, path] = tree;
+  const trimmed = path.replace(/\/+$/, '');
+  // A bare `VOLUME:` is the volume's own root, and has no path below it.
+  return trimmed || volume;
+}
+
 export function safDisplayName(rawName: string): string {
   const lastSegment = rawName.slice(rawName.lastIndexOf('/') + 1);
   const match = /^([A-Za-z0-9_-]+):(.*)$/.exec(lastSegment);
