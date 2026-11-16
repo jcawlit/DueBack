@@ -8,7 +8,7 @@ import { Pressable, Text, View, type PanResponderInstance } from 'react-native';
 import type { Book } from '@/data/types';
 import { color, font, shadow, space } from '@/theme/tokens';
 import { BookCover } from './BookCover';
-import { MoveIcon } from './icons';
+import { ChevronDown, MoveIcon } from './icons';
 import type { Shelf as ShelfModel } from '@/lib/shelves';
 
 type Props = {
@@ -47,9 +47,48 @@ type Props = {
    * defeats the `memo` below and redraws every shelf on every frame.
    */
   onRenameShelf?: (shelfId: string, name: string) => void;
+  /** Moves this shelf one place. Absent at the end it cannot move toward. */
+  onMoveShelf?: (shelfId: string, by: -1 | 1) => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
   /** The book currently in the air, which should not also be on the shelf. */
   liftedBookId?: string | null;
 };
+
+/** One nudge of a shelf, up or down. */
+function ShelfStep({
+  direction,
+  disabled,
+  label,
+  onPress,
+}: {
+  direction: -1 | 1;
+  disabled?: boolean;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
+      hitSlop={8}
+      style={({ pressed }) => ({
+        width: 30,
+        height: 30,
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: disabled ? 0.25 : pressed ? 0.6 : 1,
+        // Pointing the one chevron the app has in the direction it means.
+        transform: [{ rotate: direction === -1 ? '180deg' : '0deg' }],
+      })}
+    >
+      <ChevronDown size={16} stroke={color.muted} />
+    </Pressable>
+  );
+}
 
 function ShelfRow({
   shelf,
@@ -61,6 +100,9 @@ function ShelfRow({
   isDropTarget,
   liftedBookId,
   onRenameShelf,
+  onMoveShelf,
+  canMoveUp,
+  canMoveDown,
 }: Props) {
   // Only a hand-arranged shelf has a name of its own to change.
   const renameable = !!onRenameShelf && !!shelf.shelfId;
@@ -226,6 +268,29 @@ function ShelfRow({
             {shelf.label}
           </Text>
         </Pressable>
+
+        {/*
+          Beside the name, because moving a shelf is a thing you do to the
+          shelf and its name is where the shelf is addressed. A step at a
+          time: shelves are few, and a second drag on this screen would
+          need telling apart from the one that moves books.
+        */}
+        {renameable && onMoveShelf ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: space.sm }}>
+            <ShelfStep
+              direction={-1}
+              disabled={!canMoveUp}
+              label={`Move ${shelf.label} up`}
+              onPress={() => onMoveShelf(shelf.shelfId!, -1)}
+            />
+            <ShelfStep
+              direction={1}
+              disabled={!canMoveDown}
+              label={`Move ${shelf.label} down`}
+              onPress={() => onMoveShelf(shelf.shelfId!, 1)}
+            />
+          </View>
+        ) : null}
       </View>
     </View>
   );

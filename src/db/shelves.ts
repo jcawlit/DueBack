@@ -108,6 +108,37 @@ export async function createShelf(sourceId: string | null, name: string): Promis
   return { id, sourceId, name: name.trim(), position, bookIds: [] };
 }
 
+/**
+ * Writes the order of the shelves, as the ids are given.
+ *
+ * Positions are indexes rather than midpoints. A library has a handful of
+ * shelves and moving one by a place rewrites them all for nothing, where a
+ * midpoint would leave the numbers drifting apart over time for a list
+ * short enough that tidiness costs nothing.
+ *
+ * One stamp for the lot: they moved together, and a merge that tried to
+ * take half of one phone's ordering and half of another's would produce an
+ * order neither of them chose.
+ */
+export async function reorderShelves(shelfIds: string[]): Promise<void> {
+  if (shelfIds.length === 0) return;
+  const db = await getDb();
+  const { at, mutationId, device } = await stamp();
+  await withLockRetry(() =>
+    db.withTransactionAsync(async () => {
+      for (let i = 0; i < shelfIds.length; i += 1) {
+        await db.runAsync(
+          `UPDATE shelves SET position = ?, updated_at = ?, mutation_id = ?,
+                              writer_device = ?
+            WHERE id = ?`,
+          i * STEP, at, mutationId, device, shelfIds[i],
+        );
+      }
+    }),
+  );
+  readingDataChanged();
+}
+
 export async function renameShelf(shelfId: string, name: string): Promise<void> {
   const db = await getDb();
   const { at, mutationId, device } = await stamp();

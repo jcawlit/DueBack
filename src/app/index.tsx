@@ -42,6 +42,7 @@ import { searchBooks } from '@/lib/library/search';
 import { daysOfListening, relativeTime, relativeTimeShort } from '@/lib/format';
 import { color, font, space } from '@/theme/tokens';
 import { CheckedOutTray } from '@/components/CheckedOutTray';
+import { CheckoutHint } from '@/components/CheckoutHint';
 import { DriveNotConnected } from '@/components/DriveNotConnected';
 import { FirstRun, ScanProgressBar, ScanningLibrary } from '@/components/FirstRun';
 import { NoSearchResults } from '@/components/NoSearchResults';
@@ -60,6 +61,9 @@ export default function LibraryScreen() {
   const placeOnShelf = useShelves((s) => s.place);
   const addShelf = useShelves((s) => s.add);
   const seedShelves = useShelves((s) => s.seed);
+  const moveShelfBy = useShelves((s) => s.moveShelf);
+  const checkoutHintDone = useUi((s) => s.checkoutHintDone);
+  const markCheckoutHintDone = useUi((s) => s.markCheckoutHintDone);
   const trayCollapsed = useUi((s) => s.trayCollapsed);
   const setTrayCollapsed = useUi((s) => s.setTrayCollapsed);
   const sources = useSources((s) => s.sources);
@@ -368,6 +372,22 @@ export default function LibraryScreen() {
   const arranging = sort === 'custom';
 
   /*
+   * Anyone holding a book has already found the gesture.
+   *
+   * Covers the reader who had the "+" before it went, and anyone who
+   * worked it out without being told — neither should be shown a hint
+   * about something they are plainly doing.
+   */
+  useEffect(() => {
+    if (!checkoutHintDone && checkedOut.length > 0) markCheckoutHintDone();
+  }, [checkoutHintDone, checkedOut.length, markCheckoutHintDone]);
+
+  const hint =
+    checkoutHintDone || checkedOut.length > 0 ? null : (
+      <CheckoutHint onDismiss={markCheckoutHintDone} />
+    );
+
+  /*
    * Forget the rows that are gone, and keep the ones still up.
    *
    * This runs on every frame of a drag, because the preview makes a new
@@ -397,6 +417,11 @@ export default function LibraryScreen() {
    * book up. The name is read from the store at the moment it is wanted
    * instead of closed over, which is what lets the callback never change.
    */
+  const onMoveShelf = useCallback(
+    (shelfId: string, by: -1 | 1) => void moveShelfBy(shelfId, by),
+    [moveShelfBy],
+  );
+
   const onRenameShelf = useCallback(
     (shelfId: string, name: string) => setNaming({ id: shelfId, name }),
     // A setState function never changes, so this stays one callback for the
@@ -447,6 +472,11 @@ export default function LibraryScreen() {
         // Only a hand-arranged shelf has a name to change. The loose pile
         // is not a shelf, and a generated label is not ours to rewrite.
         onRenameShelf={arranging ? onRenameShelf : undefined}
+        onMoveShelf={arranging ? onMoveShelf : undefined}
+        canMoveUp={!!item.shelfId && item.shelfId !== customShelves[0]?.id}
+        canMoveDown={
+          !!item.shelfId && item.shelfId !== customShelves[customShelves.length - 1]?.id
+        }
       />
   );
 
@@ -563,6 +593,7 @@ export default function LibraryScreen() {
             maxToRenderPerBatch={4}
             windowSize={7}
             ref={listRef}
+            ListHeaderComponent={hint}
             scrollEnabled={!drag}
             scrollEventThrottle={16}
             onScroll={(e) => {
@@ -704,6 +735,7 @@ export default function LibraryScreen() {
           maxToRenderPerBatch={4}
           windowSize={7}
           ref={listRef}
+          ListHeaderComponent={hint}
           scrollEnabled={!drag}
           scrollEventThrottle={16}
           onScroll={(e) => {

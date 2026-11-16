@@ -17,6 +17,20 @@ type UiState = {
   setBottomObstruction: (height: number) => void;
 
   /**
+   * Whether the hint that press-and-hold checks a book out has been seen.
+   *
+   * There used to be a "+" in the corner of every cover. It went, for good
+   * reasons — it sat on the art and duplicated a tag — but it was also the
+   * only visible sign that a book could be taken at all. A gesture nobody
+   * is told about is a feature nobody has.
+   *
+   * Set when the hint is dismissed, and also the moment anything is
+   * checked out: whoever has done it once does not need telling.
+   */
+  checkoutHintDone: boolean;
+  markCheckoutHintDone: () => void;
+
+  /**
    * Whether the checked-out tray is shut down to its header row.
    *
    * A preference rather than screen state, for the same reason the active
@@ -47,6 +61,13 @@ export const useUi = create<UiState>((set) => ({
   setBottomObstruction: (height) =>
     set((s) => (s.bottomObstruction === height ? s : { bottomObstruction: height })),
 
+  checkoutHintDone: false,
+  markCheckoutHintDone: () => {
+    if (useUi.getState().checkoutHintDone) return;
+    set({ checkoutHintDone: true });
+    void setSetting(SETTING_KEYS.checkoutHintDone, '1').catch(() => {});
+  },
+
   trayCollapsed: false,
   setTrayCollapsed: (value) => {
     set({ trayCollapsed: value });
@@ -65,6 +86,12 @@ export const useUi = create<UiState>((set) => ({
       if (source) set({ activeSourceId: source });
     } catch {
       // The drive is the default, and the default is fine.
+    }
+    try {
+      const hint = await getSetting(SETTING_KEYS.checkoutHintDone);
+      if (hint === '1') set({ checkoutHintDone: true });
+    } catch {
+      // Showing the hint once more is a smaller cost than hiding it wrongly.
     }
     try {
       const tray = await getSetting(SETTING_KEYS.trayCollapsed);

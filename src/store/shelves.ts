@@ -14,6 +14,7 @@ import {
   loadShelves,
   removeBookFromShelves,
   renameShelf,
+  reorderShelves,
   softDeleteShelf,
   type Shelf,
 } from '@/db/shelves';
@@ -23,6 +24,7 @@ import {
   SHELF_CAPACITY,
   withoutShelf,
 } from '@/lib/library/cascade';
+import { moveWithin } from '@/lib/library/shelfOrder';
 
 type ShelvesState = {
   /** For the source the Library is currently showing. */
@@ -35,6 +37,14 @@ type ShelvesState = {
   add: (sourceId: string | null, name: string) => Promise<void>;
   rename: (shelfId: string, name: string) => Promise<void>;
   remove: (shelfId: string) => Promise<void>;
+  /**
+   * Moves a shelf one place up or down.
+   *
+   * A step at a time rather than a drag: shelves are few, moving one is
+   * rare beside moving books, and a second drag on the same screen would
+   * have to be told apart from the first by something.
+   */
+  moveShelf: (shelfId: string, by: -1 | 1) => Promise<void>;
   /** Puts a book on a shelf, at the end of it. */
   place: (bookId: string, shelfId: string) => Promise<void>;
   /** Takes a book off whatever shelf it was on. */
@@ -117,6 +127,16 @@ export const useShelves = create<ShelvesState>((set, get) => ({
 
     await softDeleteShelf(shelfId);
     await get().load(sourceId);
+  },
+
+  moveShelf: async (shelfId, by) => {
+    const order = get().shelves.map((s) => s.id);
+    const from = order.indexOf(shelfId);
+    if (from === -1) return;
+    const to = from + by;
+    if (to < 0 || to >= order.length) return;
+    await reorderShelves(moveWithin(order, from, to));
+    await get().load(get().loadedFor ?? null);
   },
 
   place: async (bookId, shelfId) => {
