@@ -377,6 +377,60 @@ export const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
         WHERE source_id IS NULL AND title_source = 'server' AND missing = 0`,
     );
   },
+
+  /*
+   * Shelves the listener arranges by hand.
+   *
+   * Both tables carry a full sync stamp, because a shelf and its name are
+   * the listener's own work in the way a note is: a rescan cannot rebuild
+   * them, so they have to survive a reinstall and reach a second phone.
+   * Same columns, same merge rule, same reason.
+   *
+   * `position` is REAL, not an index. Dropping a book between two others is
+   * then one write of the midpoint, rather than renumbering everything below
+   * it — which over a drag, on a shelf of a hundred books, is the difference
+   * between a write and a hundred writes.
+   *
+   * `source_id` is nullable and NULL means the drive, matching `books`: a
+   * shelf belongs to one library, because the Library shows one at a time.
+   */
+  async (db) => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS shelves (
+        id              TEXT PRIMARY KEY NOT NULL,
+        source_id       TEXT,
+        name            TEXT NOT NULL,
+        position        REAL NOT NULL DEFAULT 0,
+        created_at      TEXT NOT NULL,
+        updated_at      TEXT NOT NULL,
+        writer_device   TEXT NOT NULL,
+        mutation_id     TEXT NOT NULL,
+        deleted_at      TEXT,
+        base_updated_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_shelves_source ON shelves(source_id, position);
+
+      /*
+        One shelf per book, so the key is the book. A book cannot be in two
+        places on the same set of shelves, and keying on the book means two
+        phones disagreeing about where it goes merges to one answer instead
+        of putting it on both.
+      */
+      CREATE TABLE IF NOT EXISTS shelf_books (
+        book_id         TEXT PRIMARY KEY NOT NULL,
+        shelf_id        TEXT NOT NULL,
+        position        REAL NOT NULL DEFAULT 0,
+        updated_at      TEXT NOT NULL,
+        writer_device   TEXT NOT NULL,
+        mutation_id     TEXT NOT NULL,
+        deleted_at      TEXT,
+        base_updated_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_shelf_books_shelf ON shelf_books(shelf_id, position);
+    `);
+  },
 ];
 
 export async function migrate(db: SQLite.SQLiteDatabase) {

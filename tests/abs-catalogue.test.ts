@@ -431,11 +431,21 @@ describe('the sweep for ghosts left by the old removal', () => {
       async closeAsync() {},
     };
     try {
-      // Migrate to just before the sweep, then plant what the old code left.
-      for (const migration of MIGRATIONS.slice(0, MIGRATIONS.length - 1)) {
+      /*
+       * Migrate to just before the sweep, then plant what the old code left.
+       *
+       * By index, not by `length - 1`. The sweep was the last migration when
+       * this was written, so the test said "last" and meant "the sweep" —
+       * and the next migration appended after it made the test pass through
+       * the sweep before planting the ghost, so it swept nothing and the
+       * assertion failed with no bug to find. Migrations are append-only, so
+       * an index is stable where a count is not.
+       */
+      const GHOST_SWEEP = 13;
+      for (const migration of MIGRATIONS.slice(0, GHOST_SWEEP)) {
         await migration(db as never);
       }
-      fresh.exec(`PRAGMA user_version = ${MIGRATIONS.length - 1};
+      fresh.exec(`PRAGMA user_version = ${GHOST_SWEEP};
         INSERT INTO books(id, folder_rel_path, raw_folder_name, title, title_source)
           VALUES ('ghost','','','Orphaned Server Book','server');
         INSERT INTO books(id, folder_rel_path, raw_folder_name, title, title_source)
