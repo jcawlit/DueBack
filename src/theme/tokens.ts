@@ -26,6 +26,15 @@ export const color = {
   accentGlow: 'rgba(232,162,58,0.22)',
   /** Bookmark ribbons, the player playhead. */
   ribbon: '#c8402f',
+  /**
+   * Taking a book: the check-out button, and the line that offers to.
+   *
+   * The one green thing in a palette of lamp amber, paper and wood, so it
+   * reads as the agreeing action without shouting. Olive rather than a
+   * signal green, which beside this paper would look like a different app.
+   */
+  checkout: '#6d9a4f',
+  checkoutInk: '#5b8341',
   /** Over-budget warning: the ruler past 85%, the "won't fit" stamp. */
   warning: '#d0553e',
   warningInk: '#b8402f',

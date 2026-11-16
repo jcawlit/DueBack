@@ -51,13 +51,33 @@ type Action = {
   onPress?: () => void;
   /** A copy in flight: shown as a percentage in place of the glyph. */
   busy?: string;
+  /**
+   * What kind of action it is, which decides its colour.
+   *
+   * `play` is the lamp amber everything else in the app uses for "go".
+   * `checkout` is the green, for the one action that puts a book on the
+   * phone — it is the decision on this screen, so it is the thing the eye
+   * should land on.
+   */
+  tone?: 'play' | 'checkout';
 };
 
 /**
  * Giving the book back, or giving up a place in the queue. Two different
  * moves and two different glyphs, but the same disc beside the same play.
  */
-type Secondary = { label: string; kind: 'return' | 'cancel' | 'download'; onPress: () => void };
+/**
+ * The quieter line under the button.
+ *
+ * `checkout` is green and `return` is red, because they are the two moves
+ * that change what the phone is holding and they are opposites. `cancel`
+ * stays grey: backing out of a queue costs nothing either way.
+ */
+type Secondary = {
+  label: string;
+  kind: 'return' | 'cancel' | 'checkout';
+  onPress: () => void;
+};
 
 /**
  * The one action, as a bar across the page.
@@ -84,7 +104,11 @@ function PrimaryAction({ action, playing }: { action: Action; playing: boolean }
         gap: 12,
         paddingHorizontal: 18,
         borderRadius: 10,
-        backgroundColor: live ? color.accent : color.panel,
+        backgroundColor: live
+          ? action.tone === 'checkout'
+            ? color.checkout
+            : color.accent
+          : color.panel,
         borderWidth: live ? 0 : 1,
         borderColor: color.border,
         opacity: pressed ? 0.85 : 1,
@@ -505,6 +529,8 @@ export default function BookScreen() {
                     },
                   }
                 : {
+                    // The decision on this screen, so it wears the green.
+                    tone: 'checkout',
                     label: driveConnected
                       ? `Check out and play · ${bytes(book.sizeBytes)}`
                       : `Put on hold · ${bytes(book.sizeBytes)}`,
@@ -520,9 +546,13 @@ export default function BookScreen() {
 
   const secondary: Secondary | null = out
     ? {
-        label: remote
-          ? `Delete the download · frees ${bytes(book.sizeBytes)}`
-          : `Return to shelves · frees ${bytes(book.sizeBytes)}`,
+        /*
+         * One word for it, whichever library it came from. "Delete the
+         * download" described the plumbing; returning a book is what the
+         * reader is doing, and the server's copy goes back to being a
+         * book on a shelf exactly as the drive's does.
+         */
+        label: `Return book · frees ${bytes(book.sizeBytes)}`,
         kind: 'return',
         onPress: () => returnBook(book.id),
       }
@@ -541,12 +571,35 @@ export default function BookScreen() {
              * download needs it once and then never again. That is the
              * whole trade, and it is why this is the one that names the
              * size — it is what the choice actually costs.
+             *
+             * "Check out", not "download": a book reaching the phone is a
+             * checkout wherever it came from, and this app has one word
+             * for that. The server fetches rather than copies, which is a
+             * fact about plumbing and not about what the reader is doing.
              */
-            label: `Download to phone · ${bytes(book.sizeBytes)}`,
-            kind: 'download',
+            label: `Check out · ${bytes(book.sizeBytes)}`,
+            kind: 'checkout',
             onPress: () => checkOutAndPlay(book.id, openPlayer),
           }
-        : null;
+        : playable && !copying && driveConnected && !libraryOnDevice
+          ? {
+              /*
+               * Check it out without starting it.
+               *
+               * The button above copies and then plays, which is what you
+               * want standing in front of a book you mean to read now. It
+               * is not what you want filling a bag for a flight, and until
+               * this line the only way to take a book without starting it
+               * was to press play and then pause.
+               *
+               * The server library has had this split since streaming
+               * became the way in; this is the drive's half of it.
+               */
+              label: `Check out · ${bytes(book.sizeBytes)}`,
+              kind: 'checkout',
+              onPress: () => checkOut(book.id),
+            }
+          : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: color.ground, paddingTop: insets.top }}>
@@ -730,7 +783,12 @@ export default function BookScreen() {
                   style={{
                     fontFamily: font.mono,
                     fontSize: 12,
-                    color: secondary.kind === 'download' ? color.accent : color.muted,
+                    color:
+                      secondary.kind === 'checkout'
+                        ? color.checkout
+                        : secondary.kind === 'return'
+                          ? color.warning
+                          : color.muted,
                   }}
                 >
                   {secondary.label}
