@@ -57,7 +57,7 @@ type Action = {
  * Giving the book back, or giving up a place in the queue. Two different
  * moves and two different glyphs, but the same disc beside the same play.
  */
-type Secondary = { label: string; kind: 'return' | 'cancel' | 'stream'; onPress: () => void };
+type Secondary = { label: string; kind: 'return' | 'cancel' | 'download'; onPress: () => void };
 
 /**
  * The one action, as a bar across the page.
@@ -297,7 +297,19 @@ export default function BookScreen() {
    * refusal — a book already on the phone, and one checked out before its
    * files went bad — and both offered Play on a book with no parts at all.
    */
-  const playable = book.files.length > 0 && book.durationSec > 0;
+  /*
+   * `files` is what a scan found in a folder, so a drive book with none has
+   * nothing that can be opened and is genuinely dead.
+   *
+   * A book on a server has none until it is downloaded, which is simply its
+   * state on the shelf. Testing it the same way put "No audio that can be
+   * read" — a dead end with no button — over a book that streams and
+   * downloads perfectly well, while the stream link sat underneath it
+   * contradicting the sentence above it.
+   */
+  const playable = remote
+    ? book.durationSec > 0
+    : book.files.length > 0 && book.durationSec > 0;
 
   const backupLine = libraryOnDevice
     ? 'Saved on phone'
@@ -471,13 +483,26 @@ export default function BookScreen() {
                 }
               : remote
                 ? {
-                    // No drive to wait for: it downloads when its turn in
-                    // the queue comes, and fails plainly if the server
-                    // cannot be reached.
-                    label: `Download and play · ${bytes(book.sizeBytes)}`,
-                    sentence: 'Download and play',
-                    context: `Fetches ${bytes(book.sizeBytes)} from ${sourceLabel}`,
-                    onPress: () => checkOutAndPlay(book.id, openPlayer),
+                    /*
+                     * Streaming is the way in for a book on a server.
+                     *
+                     * Downloading was, and it made the shelf feel like a
+                     * queue of chores: every book asked for a wait and a
+                     * few hundred megabytes before it would make a sound.
+                     * A server is on the network, and the thing you
+                     * usually want from it is to hear the book now.
+                     *
+                     * The download is still there, underneath, for the
+                     * listening you do without a network. It is the one
+                     * that needs saying out loud — "to phone" — because it
+                     * is the one that takes room.
+                     */
+                    label: started ? 'Keep listening' : 'Start listening',
+                    sentence: started ? 'Keep listening' : 'Start listening',
+                    context: `Streams from ${sourceLabel} · ${placeLine}`,
+                    onPress: () => {
+                      void stream(book.id).then(() => openPlayer(book.id));
+                    },
                   }
                 : {
                     label: driveConnected
@@ -510,16 +535,16 @@ export default function BookScreen() {
     : remote && !copying
         ? {
             /*
-             * The other way to listen, under the one that downloads and
-             * across from the library card. It is the quieter of the two
-             * on purpose: streaming needs the network for as long as you
-             * listen, where a download needs it once.
+             * The other way to listen, under the one that streams.
+             *
+             * Streaming needs the network for as long as you listen; a
+             * download needs it once and then never again. That is the
+             * whole trade, and it is why this is the one that names the
+             * size — it is what the choice actually costs.
              */
-            label: 'or stream it · no download',
-            kind: 'stream',
-            onPress: () => {
-              void stream(book.id).then(() => router.navigate(`/player/${book.id}`));
-            },
+            label: `Download to phone · ${bytes(book.sizeBytes)}`,
+            kind: 'download',
+            onPress: () => checkOutAndPlay(book.id, openPlayer),
           }
         : null;
 
@@ -705,7 +730,7 @@ export default function BookScreen() {
                   style={{
                     fontFamily: font.mono,
                     fontSize: 12,
-                    color: secondary.kind === 'stream' ? color.accent : color.muted,
+                    color: secondary.kind === 'download' ? color.accent : color.muted,
                   }}
                 >
                   {secondary.label}
