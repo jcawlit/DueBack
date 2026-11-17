@@ -463,6 +463,11 @@ export default function SettingsScreen() {
             detail="A feature, or a change to one"
             onPress={() => setContacting(true)}
           />
+          <Row
+            label="Scan report"
+            detail="Every book, its parts, timings and warnings"
+            onPress={() => router.push('/dev/metadata')}
+          />
         </View>
       </ScrollView>
 

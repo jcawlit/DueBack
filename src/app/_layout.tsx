@@ -17,7 +17,6 @@ import { YoungSerif_400Regular } from '@expo-google-fonts/young-serif/400Regular
 import { IBMPlexMono_400Regular } from '@expo-google-fonts/ibm-plex-mono/400Regular';
 import { IBMPlexMono_500Medium } from '@expo-google-fonts/ibm-plex-mono/500Medium';
 import { InstrumentSans_400Regular } from '@expo-google-fonts/instrument-sans/400Regular';
-import { Caveat_400Regular } from '@expo-google-fonts/caveat/400Regular';
 import { color } from '@/theme/tokens';
 import { GlobalConfirm } from '@/components/GlobalConfirm';
 import { GlobalReconnect } from '@/components/GlobalReconnect';
@@ -167,7 +166,6 @@ export default function RootLayout() {
     IBMPlexMono_400Regular,
     IBMPlexMono_500Medium,
     InstrumentSans_400Regular,
-    Caveat_400Regular,
   });
 
   /**
