@@ -431,6 +431,18 @@ export const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
       CREATE INDEX IF NOT EXISTS idx_shelf_books_shelf ON shelf_books(shelf_id, position);
     `);
   },
+
+  /*
+   * Where a book sits in its series.
+   *
+   * `series` has been here since the Audiobookshelf catalogue, which reads it
+   * from the server. A scan can read it from the files now, and the number is
+   * what lets a series shelf run in story order instead of alphabetically —
+   * "The Fall of Hyperion" before "Hyperion" is not a series, it is a list.
+   */
+  async (db) => {
+    await db.execAsync('ALTER TABLE books ADD COLUMN series_index REAL');
+  },
 ];
 
 export async function migrate(db: SQLite.SQLiteDatabase) {

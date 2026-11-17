@@ -93,6 +93,8 @@ export type Book = {
   remoteId?: string;
   /** Series as the server flattens it, e.g. "Keepers #1". */
   series?: string;
+  /** Where in the series, when the tags or the server say. */
+  seriesIndex?: number;
   /** When the server last said anything about this book. */
   remoteUpdatedAt?: number;
 };
@@ -107,11 +109,22 @@ export const isRemote = (b: Book) => b.sourceId !== undefined && b.remoteId !== 
  * look at and no way to find a book, and "untouched since" sorted a
  * library into a list of reproaches.
  */
-export type SortMode = 'length' | 'author' | 'custom';
+export type SortMode =
+  | 'length'
+  | 'author'
+  | 'series'
+  | 'narrator'
+  | 'dust'
+  | 'unfinished'
+  | 'custom';
 
 export const SORT_LABELS: Record<SortMode, string> = {
   length: 'by length',
   author: 'by author',
+  series: 'by series',
+  narrator: 'by narrator',
+  dust: 'gathering dust',
+  unfinished: 'unfinished',
   custom: 'custom',
 };
 

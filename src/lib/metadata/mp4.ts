@@ -24,6 +24,8 @@ export type ParsedMetadata = {
   author?: string;
   narrator?: string;
   album?: string;
+  series?: string;
+  seriesIndex?: number;
   year?: string;
   /** From `trkn`; used to order the parts of a multi-file book. */
   trackNumber?: number;
@@ -110,6 +112,8 @@ async function parseIlst(r: ByteReader, ilst: Atom, wantCover: boolean) {
     author?: string;
     narrator?: string;
     album?: string;
+    series?: string;
+    seriesIndex?: number;
     year?: string;
     trackNumber?: number;
     cover?: { bytes: Uint8Array; mime: string };
@@ -147,6 +151,24 @@ async function parseIlst(r: ByteReader, ilst: Atom, wantCover: boolean) {
       case '©alb':
         out.album = text();
         break;
+      /*
+       * The series. iTunes' movement atoms are what Apple Books and most
+       * taggers use for it; grouping is the older convention and only taken
+       * if nothing better turned up.
+       */
+      case '©mvn':
+        out.series = text();
+        break;
+      case '©grp':
+        if (!out.series) out.series = text();
+        break;
+      case '©mvi': {
+        // An integer atom, but some taggers write the number as text.
+        const n = bytes.length >= 4 ? u32(bytes, 0) : NaN;
+        const parsed = Number.isFinite(n) && n > 0 && n < 10000 ? n : parseInt(text(), 10);
+        if (Number.isFinite(parsed) && parsed > 0) out.seriesIndex = parsed;
+        break;
+      }
       case '©day':
         out.year = text();
         break;

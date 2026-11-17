@@ -48,6 +48,19 @@ export type FileMetadata = {
   author?: string;
   narrator?: string;
   album?: string;
+  /**
+   * The series a book belongs to, and where in it.
+   *
+   * No standard field holds this. Taggers borrow whatever is to hand —
+   * iTunes' movement atoms, ID3's content group, a freeform frame — so both
+   * parsers read several places and take the first that says something.
+   *
+   * `album` is deliberately not one of them. For an audiobook it is usually
+   * the book's own title, so guessing from it would file every standalone
+   * book as a one-book series.
+   */
+  series?: string;
+  seriesIndex?: number;
   year?: string;
   trackNumber?: number;
   durationSec: number;

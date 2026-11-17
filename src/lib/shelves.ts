@@ -55,6 +55,53 @@ function hours(b: Book) {
 }
 
 /** Surnames that do not start with a Latin letter get their own ledge. */
+const NO_SERIES = 'NOT IN A SERIES';
+const NARRATOR_UNKNOWN = 'NARRATOR UNKNOWN';
+
+/**
+ * How long a book has been left alone, as a band.
+ *
+ * `now` is a parameter so this can be tested; `buildShelves` passes the
+ * clock. Keeping the impurity inside this module is what lets a screen call
+ * `buildShelves` from a render without reading the clock itself.
+ */
+export const DUST_BANDS = [
+  'NEVER OPENED',
+  'OVER A YEAR',
+  'SIX MONTHS TO A YEAR',
+  'THREE TO SIX MONTHS',
+  'ONE TO THREE MONTHS',
+  'THIS MONTH',
+] as const;
+
+const DAY = 24 * 60 * 60 * 1000;
+
+export function dustBand(lastPlayedAt: string | undefined, now: number): string {
+  if (!lastPlayedAt) return 'NEVER OPENED';
+  const at = Date.parse(lastPlayedAt);
+  // An unparseable date is not evidence of listening, but it is not evidence
+  // of neglect either. Treated as never opened, which is where it will be
+  // noticed and can be fixed.
+  if (!Number.isFinite(at)) return 'NEVER OPENED';
+  const days = (now - at) / DAY;
+  if (days >= 365) return 'OVER A YEAR';
+  if (days >= 182) return 'SIX MONTHS TO A YEAR';
+  if (days >= 91) return 'THREE TO SIX MONTHS';
+  if (days >= 30) return 'ONE TO THREE MONTHS';
+  return 'THIS MONTH';
+}
+
+/** How far through a book someone is, as a band. */
+export const PROGRESS_BANDS = ['NEARLY DONE', 'PART WAY', 'JUST STARTED'] as const;
+
+export function progressBand(book: Book): string {
+  const share = book.durationSec > 0 ? book.progressSec / book.durationSec : 0;
+  if (share >= 0.75) return 'NEARLY DONE';
+  if (share >= 0.25) return 'PART WAY';
+  return 'JUST STARTED';
+}
+
+/** Surnames that do not start with a Latin letter get their own ledge. */
 const OTHER_ALPHABETS = 'OTHER ALPHABETS';
 /** A book whose author could not be read has no letter to file it under. */
 const AUTHOR_UNKNOWN = 'AUTHOR UNKNOWN';
@@ -201,6 +248,93 @@ export function buildShelves(
         OTHER_ALPHABETS,
         AUTHOR_UNKNOWN,
       ]);
+    }
+
+    case 'series': {
+      /*
+       * One ledge per series, in story order.
+       *
+       * The number is why this is worth reading from the tags at all:
+       * alphabetically, "The Fall of Hyperion" comes before "Hyperion",
+       * which is a list rather than a series. A book with no number falls
+       * to the end of its own series, by title.
+       */
+      const named = books.filter((b) => (b.series ?? '').trim() !== '');
+      const loose = books.filter((b) => (b.series ?? '').trim() === '');
+      const order = [...new Set(named.map((b) => b.series!.trim()))].sort((a2, b2) =>
+        a2.localeCompare(b2),
+      );
+      const sorted = [...named].sort((a2, b2) => {
+        const bySeries = a2.series!.trim().localeCompare(b2.series!.trim());
+        if (bySeries !== 0) return bySeries;
+        const ai = a2.seriesIndex ?? Number.POSITIVE_INFINITY;
+        const bi = b2.seriesIndex ?? Number.POSITIVE_INFINITY;
+        if (ai !== bi) return ai - bi;
+        return a2.title.localeCompare(b2.title);
+      });
+      const shelves = banded(sorted, (b) => b.series!.trim(), order);
+      if (loose.length > 0) {
+        const byTitle = [...loose].sort((a2, b2) => a2.title.localeCompare(b2.title));
+        shelves.push(...banded(byTitle, () => NO_SERIES, [NO_SERIES]));
+      }
+      return shelves;
+    }
+
+    case 'narrator': {
+      /*
+       * One ledge per narrator, not a letter range.
+       *
+       * "Books read by this person" is the question being asked, and a
+       * letter range answers a different one. A library of many narrators
+       * therefore gets many short shelves — which is the truth about that
+       * library rather than a fault in the sort.
+       */
+       const named = books.filter((b) => (b.narrator ?? '').trim() !== '');
+      const unknown = books.filter((b) => (b.narrator ?? '').trim() === '');
+      const order = [...new Set(named.map((b) => b.narrator!.trim()))].sort((a2, b2) =>
+        a2.localeCompare(b2),
+      );
+      const sorted = [...named].sort(
+        (a2, b2) =>
+          a2.narrator!.trim().localeCompare(b2.narrator!.trim()) ||
+          a2.title.localeCompare(b2.title),
+      );
+      const shelves = banded(sorted, (b) => b.narrator!.trim(), order);
+      if (unknown.length > 0) {
+        const byTitle = [...unknown].sort((a2, b2) => a2.title.localeCompare(b2.title));
+        shelves.push(...banded(byTitle, () => NARRATOR_UNKNOWN, [NARRATOR_UNKNOWN]));
+      }
+      return shelves;
+    }
+
+    case 'dust': {
+      // Longest neglected first, which is the whole point of looking.
+      const now = Date.now();
+      const age = (b: Book) => {
+        const at = b.lastPlayedAt ? Date.parse(b.lastPlayedAt) : NaN;
+        return Number.isFinite(at) ? at : 0;
+      };
+      const sorted = [...books].sort((a2, b2) => age(a2) - age(b2));
+      return banded(sorted, (b) => dustBand(b.lastPlayedAt, now), [...DUST_BANDS]);
+    }
+
+    case 'unfinished': {
+      /*
+       * The one sort that leaves books out.
+       *
+       * Every other mode shows the whole library arranged differently; this
+       * one answers "what am I in the middle of", and a book never started
+       * or already finished is not an answer to it. Most recent first,
+       * because the book you put down yesterday is the one you want.
+       */
+      const started = books.filter(
+        (b) => b.progressSec > 60 && !b.finishedAt && b.progressSec < b.durationSec,
+      );
+      const recent = [...started].sort((a2, b2) => {
+        const at = (b: Book) => (b.lastPlayedAt ? Date.parse(b.lastPlayedAt) : 0);
+        return (at(b2) || 0) - (at(a2) || 0);
+      });
+      return banded(recent, progressBand, [...PROGRESS_BANDS]);
     }
 
     case 'custom':

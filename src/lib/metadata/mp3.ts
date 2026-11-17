@@ -17,6 +17,9 @@ export type ParsedMp3 = {
   author?: string;
   narrator?: string;
   album?: string;
+  /** The series, from whichever convention the tagger used. */
+  series?: string;
+  seriesIndex?: number;
   year?: string;
   durationSec: number;
   durationSource: 'xing' | 'vbri' | 'bitrate-estimate' | 'none';
@@ -339,6 +342,45 @@ export async function readMp3Metadata(
       case 'TAL':
         out.album = textFrame(f.body);
         break;
+      /*
+       * The series, from whichever of the three conventions a tagger used.
+       * `MVNM` is ID3v2.4's movement name and the closest thing to standard;
+       * `TIT1` is the older content-group habit; `TXXX:SERIES` is what
+       * Audiobookshelf and Beets write. First one wins, in that order.
+       */
+      case 'MVNM':
+        out.series = textFrame(f.body);
+        break;
+      case 'TIT1':
+      case 'TT1':
+        if (!out.series) out.series = textFrame(f.body);
+        break;
+      case 'MVIN': {
+        // "2" or "2/7" — only the leading number places the book.
+        const n = parseInt(textFrame(f.body), 10);
+        if (Number.isFinite(n) && n > 0) out.seriesIndex = n;
+        break;
+      }
+      case 'TXXX': {
+        /*
+         * A freeform frame: a description, a NUL, then the value. The only
+         * ones worth reading here are the two series conventions.
+         */
+        const whole = textFrame(f.body);
+        const split = whole.indexOf(' ');
+        if (split <= 0) break;
+        const name = whole.slice(0, split).trim().toUpperCase();
+        const value = whole.slice(split + 1).trim();
+        if (!value) break;
+        if (name === 'SERIES' && !out.series) out.series = value;
+        if (name === 'SERIES-PART' || name === 'SERIESPART') {
+          const n = parseInt(value, 10);
+          if (Number.isFinite(n) && n > 0 && out.seriesIndex === undefined) {
+            out.seriesIndex = n;
+          }
+        }
+        break;
+      }
       case 'TYER':
       case 'TDRC':
         out.year = textFrame(f.body);

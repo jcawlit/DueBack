@@ -438,6 +438,8 @@ async function buildBook(
     title: name.title,
     author: name.author,
     narrator: meta?.narrator,
+    series: meta?.series,
+    seriesIndex: meta?.seriesIndex,
     titleSource: name.titleSource,
     authorSource: name.authorSource,
     durationSec,

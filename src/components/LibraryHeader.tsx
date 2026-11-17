@@ -10,7 +10,19 @@ import { FitText } from './FitText';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 import { DriveIcon, RefreshIcon, SearchIcon } from './icons';
 
-const SORTS: SortMode[] = ['length', 'author', 'custom'];
+/*
+ * The order the chips sit in: the two that arrange the whole library, the
+ * three that answer a question about it, then the one you arrange yourself.
+ */
+const SORTS: SortMode[] = [
+  'length',
+  'author',
+  'series',
+  'narrator',
+  'dust',
+  'unfinished',
+  'custom',
+];
 
 /**
  * The chip row's height. Deliberately under the 44pt touch minimum: these are

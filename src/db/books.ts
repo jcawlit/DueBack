@@ -48,6 +48,7 @@ export type BookRow = {
   remote_id: string | null;
   remote_updated_at: number | null;
   series: string | null;
+  series_index: number | null;
   genres: string | null;
 };
 
@@ -84,6 +85,8 @@ export type ScannedBook = {
   title: string;
   author?: string;
   narrator?: string;
+  series?: string;
+  seriesIndex?: number;
   titleSource: string;
   authorSource: string;
   durationSec: number;
@@ -154,8 +157,9 @@ export async function upsertBook(book: ScannedBook, options: UpsertOptions = {})
          cover_file, cover_source, dominant_color,
          missing, drm, warnings, skipped_files, last_scanned_at,
          scan_ms, bytes_read, read_count, chapters_from_parts,
-         path_key, library_id, part_sizes, sample_hash, sample_version
-       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         path_key, library_id, part_sizes, sample_hash, sample_version,
+         series, series_index
+       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET
          folder_rel_path = excluded.folder_rel_path,
          raw_folder_name = excluded.raw_folder_name,
@@ -184,7 +188,11 @@ export async function upsertBook(book: ScannedBook, options: UpsertOptions = {})
          -- A scan that did not sample keeps the sample it has: the hash is
          -- what proves a moved book, and dropping it would cost a prompt.
          sample_hash     = COALESCE(excluded.sample_hash, books.sample_hash),
-         sample_version  = MAX(excluded.sample_version, books.sample_version)`,
+         sample_version  = MAX(excluded.sample_version, books.sample_version),
+         -- Kept when a scan finds none. The Audiobookshelf catalogue may
+         -- have supplied it, and files often carry no series at all.
+         series          = COALESCE(excluded.series, books.series),
+         series_index    = COALESCE(excluded.series_index, books.series_index)`,
       book.id,
       book.folderRelPath,
       book.rawFolderName,
@@ -211,6 +219,8 @@ export async function upsertBook(book: ScannedBook, options: UpsertOptions = {})
       book.partSizes ? JSON.stringify(book.partSizes) : null,
       book.sampleHash ?? null,
       book.sampleVersion ?? 0,
+      book.series ?? null,
+      book.seriesIndex ?? null,
     );
 
     /*
@@ -456,6 +466,7 @@ export async function loadBooks(): Promise<Book[]> {
       sourceId: row.source_id ?? undefined,
       remoteId: row.remote_id ?? undefined,
       series: row.series ?? undefined,
+      seriesIndex: row.series_index ?? undefined,
       remoteUpdatedAt: row.remote_updated_at ?? undefined,
     } satisfies Book;
   });

@@ -87,7 +87,12 @@ describe('buildShelves across every sort', () => {
     }),
   ];
 
-  for (const sort of ['length', 'author'] as const) {
+  /*
+   * Every mode but `unfinished`, which leaves books out on purpose, and
+   * `custom`, which needs shelves handed to it. `tests/sorts.test.ts` has
+   * the same assertion for the four newer ones.
+   */
+  for (const sort of ['length', 'author', 'series', 'narrator', 'dust'] as const) {
     it(`loses no books sorting by ${sort}`, () => {
       assertNoneLost(books, buildShelves(books, sort));
     });
