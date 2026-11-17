@@ -36,6 +36,17 @@ const PRELOAD_BUFFER_SEC = 15;
 const END_EPSILON_SEC = 0.35;
 
 /**
+ * How long after switching parts a "finished" report is disbelieved.
+ *
+ * `replace()` reuses the same ExoPlayer, so a status carrying the previous
+ * item's `didJustFinish` can arrive after the switch has already happened.
+ * Taken at face value it ends a part that has just started, which skips the
+ * one after it. A new part is seconds from its end for nobody, so nothing
+ * true is lost by not believing it for a moment.
+ */
+const SETTLE_MS = 600;
+
+/**
  * Keeps voices sounding like voices at speed. iOS honours the quality hint;
  * Android's ExoPlayer pitch-corrects regardless, so passing it is harmless
  * there and necessary here.
@@ -58,6 +69,8 @@ export function createExpoAudioEngine(): AudioEngine {
    */
   let wantsToPlay = false;
   let preloadedFor = -1;
+  /** When the current part was switched to, for the settle window above. */
+  let switchedAt = 0;
   let statusSub: { remove: () => void } | null = null;
   const listeners = new Set<(status: EngineStatus) => void>();
 
@@ -131,7 +144,20 @@ export function createExpoAudioEngine(): AudioEngine {
       // the MediaSession survives it — but the rate is reset and the injected
       // metadata needs pushing again.
       player.setPlaybackRate(Math.min(rate, MAX_RATE), PITCH_QUALITY);
-      await player.seekTo(Math.max(0, offsetSec));
+      /*
+       * Only seek when there is somewhere to seek to.
+       *
+       * This used to seek unconditionally, and at a part boundary the offset
+       * is always 0 — so it asked the player to go to the start of a source
+       * that was still loading. The seek landed on the item still current,
+       * which was the part that had just ended, and rewound it to zero: the
+       * section played again instead of the next one, over and over, until
+       * a manual skip broke the pattern by seeking somewhere non-zero.
+       *
+       * A replaced source begins at its start anyway, so for a boundary
+       * there was never anything to gain by asking.
+       */
+      if (offsetSec > 0) await player.seekTo(offsetSec);
       refreshLockScreen();
       if (resume) player.play();
       /*
@@ -142,6 +168,7 @@ export function createExpoAudioEngine(): AudioEngine {
        */
       announceSession();
     } finally {
+      switchedAt = Date.now();
       switching = false;
     }
   };
@@ -156,9 +183,18 @@ export function createExpoAudioEngine(): AudioEngine {
 
     // A part running out is the normal way to reach the next one.
     const partDuration = status.duration > 0 ? status.duration : part.durationSec;
+    /*
+     * Not believed for a moment after a switch.
+     *
+     * A status carrying the previous item's `didJustFinish` can arrive once
+     * the switch has already happened, and ending a part that has just
+     * begun skips the next one entirely.
+     */
+    const settled = Date.now() - switchedAt > SETTLE_MS;
     const atEnd =
-      status.didJustFinish ||
-      (partDuration > 0 && status.currentTime >= partDuration - END_EPSILON_SEC);
+      settled &&
+      (status.didJustFinish ||
+        (partDuration > 0 && status.currentTime >= partDuration - END_EPSILON_SEC));
 
     if (atEnd && !isLastPart) {
       void switchToPart(partIndex + 1, 0, wantsToPlay);

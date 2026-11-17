@@ -21,6 +21,7 @@ import { ChevronLeft } from '@/components/icons';
 import { ScanProgressBar } from '@/components/FirstRun';
 import { AbsTestingSection } from '@/components/AbsTesting';
 import { BudgetSheet } from '@/components/BudgetSheet';
+import { ContactSheet } from '@/components/ContactSheet';
 import { availableBytes } from '@/lib/files/copy';
 import { useSources } from '@/store/sources';
 
@@ -102,6 +103,7 @@ export default function SettingsScreen() {
   const loadSources = useSources((s) => s.load);
 
   const [editingBudget, setEditingBudget] = useState(false);
+  const [contacting, setContacting] = useState(false);
   /*
    * Free space, read when the sheet opens rather than on every render.
    *
@@ -449,20 +451,22 @@ export default function SettingsScreen() {
 
         <View style={{ gap: space.sm }}>
           <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}>
-            DEVELOPER
+            CONTACT
           </Text>
           <Row
-            label="Scan report"
-            detail="Every book, its parts, timings and warnings"
-            onPress={() => router.push('/dev/metadata')}
+            label="Report a problem"
+            detail="Something went wrong, or did not work the way it reads"
+            onPress={() => setContacting(true)}
           />
           <Row
-            label="Drive folder spike"
-            detail="Throwaway probe: can a cloud folder carry the library pipeline?"
-            onPress={() => router.push('/dev/drive')}
+            label="Ask for something"
+            detail="A feature, or a change to one"
+            onPress={() => setContacting(true)}
           />
         </View>
       </ScrollView>
+
+      <ContactSheet visible={contacting} onClose={() => setContacting(false)} />
 
       <BudgetSheet
         visible={editingBudget}
