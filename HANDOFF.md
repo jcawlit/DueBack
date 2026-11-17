@@ -10,7 +10,8 @@
 >   `expo-audio` behind the engine interface in `src/lib/audio/engine.ts`.
 > - The build order is done.
 >
-> For how things actually work: [README.md](README.md), `npm run kb`, and
+> For how things actually work: [README.md](README.md),
+> [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), `npm run kb`, and
 > [CHANGES.md](CHANGES.md).
 
 A phone app for managing a large audiobook library that lives on a USB drive. The whole point: keep phone storage low by carrying only a few books at a time, and make moving books between USB and phone feel effortless.

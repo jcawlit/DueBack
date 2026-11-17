@@ -1885,3 +1885,35 @@ library and were skipped everywhere else, CI included.
 `marginsSuite.ts`, `syncSuite.ts`, `src/app/dev/selftest.tsx`,
 `scripts/make-fixtures.ts`, `make-testlib.ts`, `verify-testlib.ts`,
 `docs/EMULATOR.md`, `tests/fixtures-parse.test.ts`*
+
+## A front door, and a workshop behind it
+
+The README was a build document with a vocabulary table on the front. It served
+the two people who had the repository checked out and nobody else: a reader
+arriving from a link met 249 lines whose third section was
+`-PreactNativeArchitectures` and whose fourth was the Gradle cache.
+
+It is now the front door. What the app is and why it exists, what it does, the
+vocabulary, how a library gets made, then an **Engineering notes** section —
+the byte-range reads, sampled identity, the atomic resumable copy, whole-book
+seconds over many files, the serverless merge, derived palettes, the drag built
+on `PanResponder` alone, and what 582 tests do and do not cover. Each one is
+a constraint and what it cost, because that is the part worth reading.
+
+Everything operational moved, unedited where it was still true, to
+`docs/DEVELOPMENT.md`: the development build, the local Gradle invocation and
+why it takes an architecture flag, the layout, how scanning works, the
+feature-by-feature account of what is real, and the known gaps.
+
+Two things were stale and are fixed in the move. The Interactions section still
+described the `+` corner tab, removed four passes ago; it now describes
+long-press and the drag grip, and says why the tab went. The layout tree
+predated `theme/palettes.ts`, `lib/stats/`, `lib/sync/`, `db/listening.ts` and
+four of the nine routes.
+
+`LICENSE` is MIT, which `docs/STATE.md` had wanted for a while and the draft
+README had carried as "no license has been added yet". The copyright line says
+`jacawl`; a legal name belongs there before anyone reads it as a notice.
+
+*`README.md`, `docs/DEVELOPMENT.md` (new), `LICENSE` (new), `CHANGES.md`,
+`docs/STATE.md`, `HANDOFF.md`; removed `README_NEW.md`, a draft folded in*

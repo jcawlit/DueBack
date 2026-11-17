@@ -26,7 +26,7 @@ All correctly ignored, none of it missing by accident:
 | Absent | How to get it |
 |---|---|
 | `android/` | `npx expo prebuild --platform android --clean` |
-| An APK | `README.md` → Development build |
+| An APK | `docs/DEVELOPMENT.md` → Development build |
 | `node_modules/` | `npm ci` — **never** `npm install`, and never `expo install --fix` |
 
 ## What is actually verified, and by what
