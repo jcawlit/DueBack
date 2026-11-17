@@ -56,7 +56,7 @@ export function NoteText({ children }: { children: ReactNode }) {
         fontFamily: font.sans,
         fontSize: 13,
         lineHeight: 13 * 1.4,
-        color: '#cbbb9e',
+        color: color.paperSoft,
       }}
     >
       {children}

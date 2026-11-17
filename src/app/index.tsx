@@ -41,6 +41,7 @@ import { cascade } from '@/lib/library/cascade';
 import { searchBooks } from '@/lib/library/search';
 import { daysOfListening, relativeTime, relativeTimeShort } from '@/lib/format';
 import { color, font, space } from '@/theme/tokens';
+import { useTheme } from '@/store/theme';
 import { CheckedOutTray } from '@/components/CheckedOutTray';
 import { CheckoutHint } from '@/components/CheckoutHint';
 import { DriveNotConnected } from '@/components/DriveNotConnected';
@@ -50,6 +51,15 @@ import { LibraryHeader } from '@/components/LibraryHeader';
 import { Shelf } from '@/components/Shelf';
 
 export default function LibraryScreen() {
+  /*
+   * Subscribed so a change of scheme repaints this screen.
+   *
+   * The colours themselves live in a module object that swaps in place, so
+   * nothing here reads them differently — but a component that does not run
+   * again keeps what it last painted. One line per screen, and everything
+   * the screen renders comes with it.
+   */
+  const paletteVersion = useTheme((s) => s.version);
   const insets = useSafeAreaInsets();
   const [checkingDrive, setCheckingDrive] = useState(false);
   const [search, setSearch] = useState('');
@@ -469,6 +479,7 @@ export default function LibraryScreen() {
         onMeasure={arranging ? measure : undefined}
         isDropTarget={!!drag && !!item.shelfId && item.shelfId === drag.overShelfId}
         liftedBookId={drag?.bookId ?? null}
+        paletteVersion={paletteVersion}
         // Only a hand-arranged shelf has a name to change. The loose pile
         // is not a shelf, and a generated label is not ours to rewrite.
         onRenameShelf={arranging ? onRenameShelf : undefined}

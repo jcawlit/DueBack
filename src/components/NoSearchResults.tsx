@@ -73,7 +73,7 @@ export function NoSearchResults({
             fontFamily: font.sans,
             fontSize: 14,
             lineHeight: 14 * 1.45,
-            color: '#cbbb9e',
+            color: color.paperSoft,
             textAlign: 'center',
           }}
         >

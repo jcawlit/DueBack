@@ -51,6 +51,15 @@ type Props = {
   onMoveShelf?: (shelfId: string, by: -1 | 1) => void;
   canMoveUp?: boolean;
   canMoveDown?: boolean;
+  /**
+   * Bumped when the colour scheme changes.
+   *
+   * Unused in here, and it has to be a prop rather than a hook: the `memo`
+   * below is what stops every mounted shelf redrawing as the list scrolls,
+   * and it compares props. Without something that differs, a shelf keeps the
+   * colours it last painted while the rest of the app changes around it.
+   */
+  paletteVersion?: number;
   /** The book currently in the air, which should not also be on the shelf. */
   liftedBookId?: string | null;
 };
@@ -191,7 +200,7 @@ function ShelfRow({
                     borderRadius: 3,
                     alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: 'rgba(27,20,16,0.82)',
+                    backgroundColor: color.groundWash,
                     borderWidth: 1,
                     borderColor: color.border,
                   }}

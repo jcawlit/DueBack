@@ -15,6 +15,7 @@ import { usePlayer } from '@/store/player';
 import { duplicatesOf, folderLabel } from '@/lib/library/duplicates';
 import { bytes, hoursClock, hoursMinutes, hoursLeft, relativeTime, stampDate } from '@/lib/format';
 import { color, font, space, TOUCH } from '@/theme/tokens';
+import { useTheme } from '@/store/theme';
 import { BookCover } from '@/components/BookCover';
 import { LibraryCardSheet } from '@/components/LibraryCard';
 import { BookTabs, type BookTab } from '@/components/BookTabs';
@@ -147,6 +148,15 @@ function PrimaryAction({ action, playing }: { action: Action; playing: boolean }
 }
 
 export default function BookScreen() {
+  /*
+   * Subscribed so a change of scheme repaints this screen.
+   *
+   * The colours themselves live in a module object that swaps in place, so
+   * nothing here reads them differently — but a component that does not run
+   * again keeps what it last painted. One line per screen, and everything
+   * the screen renders comes with it.
+   */
+  useTheme((s) => s.version);
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
 

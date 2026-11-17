@@ -121,7 +121,7 @@ export function CharacterSheet({
         never resized for it.
       */}
       <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
-      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(10,7,5,.6)' }}>
+      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: color.scrimSoft }}>
         {/*
           Pressing away from the sheet closes it and keeps nothing. It used
           to save, which made the backdrop a hidden second Save button — and
@@ -419,8 +419,8 @@ const LABEL = {
   fontFamily: font.mono,
   fontSize: 10,
   letterSpacing: 1,
-  color: '#5f4f38',
+  color: color.inkOnPaperFaint,
 } as const;
 
 /** The ink a hint takes on this stock. */
-const ON_PAPER_FAINT = '#5f4f38';
+const ON_PAPER_FAINT = color.inkOnPaperFaint;

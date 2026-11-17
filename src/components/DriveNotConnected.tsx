@@ -25,7 +25,7 @@ function CabinetFront({ label }: { label: string }) {
         style={{
           backgroundColor: color.paperCard,
           borderWidth: 1,
-          borderColor: '#a8916a',
+          borderColor: color.driveInk,
           paddingHorizontal: 10,
           paddingVertical: 2,
         }}
@@ -40,9 +40,9 @@ function CabinetFront({ label }: { label: string }) {
           width: 44,
           height: 8,
           borderRadius: 4,
-          backgroundColor: '#c9a466',
+          backgroundColor: color.driveAccent,
           borderBottomWidth: 2,
-          borderBottomColor: '#3a2616',
+          borderBottomColor: color.driveDeep,
         }}
       />
     </View>
@@ -92,7 +92,7 @@ export function DriveNotConnected({ heldCount }: { heldCount: number }) {
             fontFamily: font.sans,
             fontSize: 15,
             lineHeight: 15 * 1.45,
-            color: '#cbbb9e',
+            color: color.paperSoft,
             textAlign: 'center',
           }}
         >

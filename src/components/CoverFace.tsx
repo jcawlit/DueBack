@@ -140,7 +140,7 @@ function SpineCrease({ width }: { width: number }) {
           top: 0,
           bottom: 0,
           width,
-          backgroundColor: 'rgba(0,0,0,0.25)',
+          backgroundColor: color.shade,
         }}
       />
       <View
@@ -150,7 +150,7 @@ function SpineCrease({ width }: { width: number }) {
           top: 0,
           bottom: 0,
           width: 1,
-          backgroundColor: 'rgba(255,255,255,0.08)',
+          backgroundColor: color.sheen,
         }}
       />
     </>

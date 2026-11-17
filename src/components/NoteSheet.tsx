@@ -33,8 +33,8 @@ const MIN_LINES = 3;
 const MAX_LINES = 6;
 
 /** The ink a label takes on this stock. */
-const ON_PAPER_FAINT = '#5f4f38';
-const ON_PAPER_RULE = '#d3c4a2';
+const ON_PAPER_FAINT = color.inkOnPaperFaint;
+const ON_PAPER_RULE = color.paperWarm;
 
 type Props = {
   visible: boolean;
@@ -126,7 +126,7 @@ export function NoteSheet({ visible, note, atSec, chapterLabel, characters, canT
         wrapping the app cannot see this one's insets.
       */}
       <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(10,7,5,0.55)' }}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: color.scrimSoft }}>
           <Pressable
             style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 }}
             onPress={onClose}
@@ -299,7 +299,7 @@ export function NoteSheet({ visible, note, atSec, chapterLabel, characters, canT
                             paddingHorizontal: 9,
                             paddingVertical: 4,
                             borderRadius: 12,
-                            backgroundColor: 'rgba(91,58,138,0.14)',
+                            backgroundColor: color.mentionWashFaint,
                           }}
                         >
                           <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.stampOut }}>
@@ -360,7 +360,7 @@ export function NoteSheet({ visible, note, atSec, chapterLabel, characters, canT
                     marginTop: 8,
                     borderTopWidth: 1,
                     borderTopColor: ON_PAPER_RULE,
-                    backgroundColor: '#e3d5b5',
+                    backgroundColor: color.paperWarmer,
                     paddingBottom: Math.max(insets.bottom, 10),
                   }}
                 >
@@ -405,7 +405,7 @@ export function NoteSheet({ visible, note, atSec, chapterLabel, characters, canT
                             borderRadius: 19,
                             borderWidth: 1,
                             borderStyle: 'dashed',
-                            borderColor: '#7a5aa8',
+                            borderColor: color.mentionDeep,
                             opacity: pressed ? 0.6 : 1,
                           })}
                         >

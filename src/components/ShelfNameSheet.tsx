@@ -94,7 +94,7 @@ export function ShelfNameSheet({
           accessibilityLabel="Dismiss"
           style={{
             flex: 1,
-            backgroundColor: 'rgba(10,7,5,0.72)',
+            backgroundColor: color.scrim,
             justifyContent: 'flex-end',
             padding: space.xl,
           }}
@@ -145,7 +145,7 @@ export function ShelfNameSheet({
               style={({ pressed }) => ({
                 minHeight: TOUCH + 4,
                 borderRadius: radius.button,
-                backgroundColor: pressed ? '#5b8341' : color.checkout,
+                backgroundColor: pressed ? color.checkoutInk : color.checkout,
                 alignItems: 'center',
                 justifyContent: 'center',
               })}
@@ -180,7 +180,7 @@ export function ShelfNameSheet({
               accessibilityRole="button"
               style={{ minHeight: TOUCH, alignItems: 'center', justifyContent: 'center' }}
             >
-              <Text style={{ fontFamily: font.mono, fontSize: 13, color: '#6b5a42' }}>
+              <Text style={{ fontFamily: font.mono, fontSize: 13, color: color.inkOnPaperSoft }}>
                 Cancel
               </Text>
             </Pressable>

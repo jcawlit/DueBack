@@ -89,7 +89,7 @@ export function ContactSheet({
           accessibilityLabel="Dismiss"
           style={{
             flex: 1,
-            backgroundColor: 'rgba(10,7,5,0.72)',
+            backgroundColor: color.scrim,
             justifyContent: 'flex-end',
             padding: space.xl,
           }}
@@ -133,7 +133,7 @@ export function ContactSheet({
                         backgroundColor: active
                           ? color.inkOnPaper
                           : pressed
-                            ? 'rgba(0,0,0,0.08)'
+                            ? color.pressWash
                             : 'transparent',
                       })}
                     >
@@ -172,7 +172,7 @@ export function ContactSheet({
                 }}
               />
 
-              <Text style={{ fontFamily: font.mono, fontSize: 11, color: '#6b5a42' }}>
+              <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.inkOnPaperSoft }}>
                 {failed
                   ? `No mail app would open. Write to ${TO}`
                   : kind === 'bug'
@@ -189,7 +189,7 @@ export function ContactSheet({
                   style={({ pressed }) => ({
                     minHeight: TOUCH + 4,
                     borderRadius: radius.button,
-                    backgroundColor: pressed ? '#5b8341' : color.checkout,
+                    backgroundColor: pressed ? color.checkoutInk : color.checkout,
                     alignItems: 'center',
                     justifyContent: 'center',
                     opacity: message.trim().length === 0 ? 0.35 : 1,
@@ -210,7 +210,7 @@ export function ContactSheet({
                     justifyContent: 'center',
                   }}
                 >
-                  <Text style={{ fontFamily: font.mono, fontSize: 13, color: '#6b5a42' }}>
+                  <Text style={{ fontFamily: font.mono, fontSize: 13, color: color.inkOnPaperSoft }}>
                     Cancel
                   </Text>
                 </Pressable>

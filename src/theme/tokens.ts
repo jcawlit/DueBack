@@ -1,62 +1,33 @@
+import { DEFAULT_THEME, themeById, type Palette } from './palettes';
+
 /**
  * Design tokens. These are the values from HANDOFF.md's token table, and they are
  * the only place raw colours should appear — components reference them by name.
  */
 
-export const color = {
-  ground: '#1b1410',
-  groundDeep: '#120d0a',
-  /** The checked-out tray at the bottom of the Library, and button fills. */
-  panel: '#2a1e15',
-  line: '#3a2a1e',
-  border: '#5a4330',
-  borderSoft: '#4a3626',
-  wood: '#6a4529',
-  woodHighlight: '#8f6039',
-  woodDeep: '#5a3b24',
-  woodEdge: '#7a5232',
-  paper: '#efe3cc',
-  paperCard: '#e9dcc0',
-  paperCardAlt: '#ece0c4',
-  paperRule: '#c9b996',
-  muted: '#b9a88c',
-  faint: '#9c8b70',
-  /** The lamp: play button, status tags, the budget ruler's fill. */
-  accent: '#e8a23a',
-  accentGlow: 'rgba(232,162,58,0.22)',
-  /** Bookmark ribbons, the player playhead. */
-  ribbon: '#c8402f',
-  /**
-   * Taking a book: the check-out button, and the line that offers to.
-   *
-   * The one green thing in a palette of lamp amber, paper and wood, so it
-   * reads as the agreeing action without shouting. Olive rather than a
-   * signal green, which beside this paper would look like a different app.
-   */
-  checkout: '#6d9a4f',
-  checkoutInk: '#5b8341',
-  /** Over-budget warning: the ruler past 85%, the "won't fit" stamp. */
-  warning: '#d0553e',
-  warningInk: '#b8402f',
-  stampOut: '#5b3a8a',
-  /**
-   * A character's name where it appears inside a note.
-   *
-   * The same purple as the stamps, lifted far enough to read on the dark
-   * ground and washed behind so a name is visibly a thing you can press.
-   * The wash deepens for whoever the list is currently filtered to.
-   */
-  mentionInk: '#d9c2f5',
-  mentionWash: 'rgba(160,120,220,0.16)',
-  mentionWashOn: 'rgba(160,120,220,0.32)',
-  stampBack: '#a8352a',
-  stampFaded: '#8a7a5e',
-  trough: '#2e2219',
-  troughDeep: '#17110d',
-  bookLine: '#8a7658',
-  inkOnPaper: '#2a1d10',
-  inkOnLabel: '#3a2a1a',
-} as const;
+/**
+ * The colours in force right now.
+ *
+ * A live object, not a constant, and that is the whole trick: every one of the
+ * 500-odd `color.x` reads in this app happens while a component renders, so
+ * replacing the values in place changes the app's colours without touching a
+ * single one of those reads.
+ *
+ * What it does **not** do is make anything re-render. A component that does not
+ * run again keeps the colours it painted with, which is why the theme store
+ * exists and why screens subscribe to it. `src/store/theme.ts` has the rest.
+ */
+export const color: Palette = { ...themeById(DEFAULT_THEME).palette };
+
+/**
+ * Swaps the colours in force.
+ *
+ * In place, deliberately: handing back a new object would leave every module
+ * that imported the old one pointing at the old colours.
+ */
+export function applyPalette(palette: Palette) {
+  Object.assign(color, palette);
+}
 
 /** Page-edge stripes, used for the thickness block beside every cover. */
 export const edge = {

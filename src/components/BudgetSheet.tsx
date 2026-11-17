@@ -62,7 +62,7 @@ function StepButton({
         borderRadius: radius.button,
         borderWidth: 1,
         borderColor: color.border,
-        backgroundColor: pressed ? 'rgba(0,0,0,0.12)' : 'transparent',
+        backgroundColor: pressed ? color.pressWashStrong : 'transparent',
         alignItems: 'center',
         justifyContent: 'center',
         opacity: disabled ? 0.35 : 1,
@@ -114,7 +114,7 @@ export function BudgetSheet({
         accessibilityLabel="Dismiss"
         style={{
           flex: 1,
-          backgroundColor: 'rgba(10,7,5,0.72)',
+          backgroundColor: color.scrim,
           justifyContent: 'flex-end',
           padding: space.xl,
         }}
@@ -143,7 +143,7 @@ export function BudgetSheet({
               fontFamily: font.sans,
               fontSize: 14,
               lineHeight: 14 * 1.45,
-              color: '#4a3c28',
+              color: color.inkOnPaperBody,
             }}
           >
             How much of this phone checked-out books may fill. The ruler under the
@@ -208,7 +208,7 @@ export function BudgetSheet({
                     backgroundColor: active
                       ? color.inkOnPaper
                       : pressed
-                        ? 'rgba(0,0,0,0.08)'
+                        ? color.pressWash
                         : 'transparent',
                   })}
                 >
@@ -227,7 +227,7 @@ export function BudgetSheet({
           </View>
 
           <View style={{ gap: 3 }}>
-            <Text style={{ fontFamily: font.mono, fontSize: 11, color: '#6b5a42' }}>
+            <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.inkOnPaperSoft }}>
               {formatBytes(committedBytes)} checked out now ·{' '}
               {formatBytes(availableBytes)} free on this phone
             </Text>
@@ -256,7 +256,7 @@ export function BudgetSheet({
               style={({ pressed }) => ({
                 minHeight: TOUCH + 4,
                 borderRadius: radius.button,
-                backgroundColor: pressed ? '#2f2416' : color.inkOnPaper,
+                backgroundColor: pressed ? color.inkOnPaperPressed : color.inkOnPaper,
                 alignItems: 'center',
                 justifyContent: 'center',
               })}
@@ -274,7 +274,7 @@ export function BudgetSheet({
                 justifyContent: 'center',
               }}
             >
-              <Text style={{ fontFamily: font.mono, fontSize: 13, color: '#6b5a42' }}>
+              <Text style={{ fontFamily: font.mono, fontSize: 13, color: color.inkOnPaperSoft }}>
                 Cancel
               </Text>
             </Pressable>

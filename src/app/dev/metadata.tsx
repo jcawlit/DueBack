@@ -18,6 +18,7 @@ import { useLibrary } from '@/store/library';
 import { useScan } from '@/store/scan';
 import { DEFAULT_BLOCK_SIZE } from '@/lib/metadata/reader';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
+import { useTheme } from '@/store/theme';
 import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { ChevronLeft } from '@/components/icons';
 import { ScanProgressBar } from '@/components/FirstRun';
@@ -51,6 +52,15 @@ function Line({ children, dim }: { children: React.ReactNode; dim?: boolean }) {
 }
 
 export default function ScanReportScreen() {
+  /*
+   * Subscribed so a change of scheme repaints this screen.
+   *
+   * The colours themselves live in a module object that swaps in place, so
+   * nothing here reads them differently — but a component that does not run
+   * again keeps what it last painted. One line per screen, and everything
+   * the screen renders comes with it.
+   */
+  useTheme((s) => s.version);
   const insets = useSafeAreaInsets();
   const miniPlayerInset = useMiniPlayerInset();
   const [books, setBooks] = useState<DevBook[]>([]);

@@ -30,6 +30,7 @@ import { useScan } from '@/store/scan';
 import { useNotes } from '@/store/notes';
 import { useBackup } from '@/store/backup';
 import { startAbsProgressSync } from '@/store/absProgress';
+import { useTheme } from '@/store/theme';
 import { useUi } from '@/store/ui';
 
 /**
@@ -65,6 +66,7 @@ function LibraryBootstrap() {
   useEffect(() => {
     void hydrate();
     void useUi.getState().loadPreferences();
+    void useTheme.getState().load();
     void useBackup.getState().load();
     // Listens for progress on a downloaded server book and sends it back.
     // Idempotent, so a fast refresh does not double every push.

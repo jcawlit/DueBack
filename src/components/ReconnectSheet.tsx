@@ -35,7 +35,7 @@ export function ReconnectSheet({
       <View
         style={{
           flex: 1,
-          backgroundColor: 'rgba(10,7,5,0.72)',
+          backgroundColor: color.scrim,
           justifyContent: 'flex-end',
           padding: space.xl,
           paddingBottom: Math.max(space.xl, insets.bottom + space.md),

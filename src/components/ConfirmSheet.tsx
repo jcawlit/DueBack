@@ -35,7 +35,7 @@ export function ConfirmSheet({
         accessibilityLabel="Dismiss"
         style={{
           flex: 1,
-          backgroundColor: 'rgba(10,7,5,0.72)',
+          backgroundColor: color.scrim,
           justifyContent: 'flex-end',
           padding: space.xl,
         }}
@@ -88,7 +88,7 @@ export function ConfirmSheet({
               fontFamily: font.sans,
               fontSize: 14,
               lineHeight: 14 * 1.45,
-              color: '#4a3c28',
+              color: color.inkOnPaperBody,
             }}
           >
             {body}
@@ -102,7 +102,7 @@ export function ConfirmSheet({
                 {
                   minHeight: TOUCH + 4,
                   borderRadius: radius.button,
-                  backgroundColor: pressed ? '#a8352a' : color.warningInk,
+                  backgroundColor: pressed ? color.stampBack : color.warningInk,
                   alignItems: 'center',
                   justifyContent: 'center',
                 },
@@ -119,12 +119,12 @@ export function ConfirmSheet({
                 minHeight: TOUCH,
                 borderRadius: radius.button,
                 borderWidth: 1,
-                borderColor: '#b5a384',
+                borderColor: color.cardRule,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
             >
-              <Text style={{ fontFamily: font.mono, fontSize: 12, color: '#4a3c28' }}>
+              <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.inkOnPaperBody }}>
                 {cancelLabel}
               </Text>
             </Pressable>

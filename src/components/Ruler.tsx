@@ -75,7 +75,7 @@ export function Ruler({ usedBytes, holdBytes, budgetBytes }: Props) {
           pointerEvents="none"
         >
           {Array.from({ length: tickCount }, (_, i) => (
-            <View key={i} style={{ flex: 1, borderLeftWidth: i === 0 ? 0 : 1, borderLeftColor: 'rgba(0,0,0,0.5)' }} />
+            <View key={i} style={{ flex: 1, borderLeftWidth: i === 0 ? 0 : 1, borderLeftColor: color.shadeStrong }} />
           ))}
         </View>
       </View>

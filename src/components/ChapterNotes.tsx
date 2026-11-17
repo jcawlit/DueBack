@@ -18,7 +18,7 @@ import { PlayIcon } from './icons';
 import { Ribbon } from './Ribbon';
 
 /** The ink a label takes on this stock. */
-const ON_PAPER_FAINT = '#5f4f38';
+const ON_PAPER_FAINT = color.inkOnPaperFaint;
 
 /**
  * A note on a slip, wide enough for two lines of it.
@@ -172,7 +172,7 @@ export function NoteReader({
           bottom: 0,
           left: 0,
           right: 0,
-          backgroundColor: 'rgba(10,7,5,0.55)',
+          backgroundColor: color.scrimSoft,
           zIndex: 30,
         }}
       />
@@ -236,7 +236,7 @@ export function NoteReader({
                   paddingHorizontal: 9,
                   paddingVertical: 4,
                   borderRadius: 12,
-                  backgroundColor: 'rgba(91,58,138,0.14)',
+                  backgroundColor: color.mentionWashFaint,
                 }}
               >
                 <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.stampOut }}>
@@ -279,7 +279,7 @@ export function NoteReader({
               justifyContent: 'center',
               paddingHorizontal: 16,
               borderWidth: 1.5,
-              borderColor: '#7a6446',
+              borderColor: color.cardInkSoft,
               borderRadius: 8,
               opacity: pressed ? 0.6 : 1,
             })}

@@ -15,6 +15,7 @@ import { isPro } from '@/lib/pro';
 import { SLEEP_OPTIONS, SPEEDS, realSecondsLeft, usePlayer } from '@/store/player';
 import { clock, hoursLeft, tidyChapterTitle } from '@/lib/format';
 import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
+import { useTheme } from '@/store/theme';
 import { BookCover } from '@/components/BookCover';
 import { ChapterScrubber } from '@/components/ChapterScrubber';
 import { ContentsSheet } from '@/components/ContentsSheet';
@@ -39,6 +40,15 @@ import {
 } from '@/components/icons';
 
 export default function PlayerScreen() {
+  /*
+   * Subscribed so a change of scheme repaints this screen.
+   *
+   * The colours themselves live in a module object that swaps in place, so
+   * nothing here reads them differently — but a component that does not run
+   * again keeps what it last painted. One line per screen, and everything
+   * the screen renders comes with it.
+   */
+  useTheme((s) => s.version);
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -390,7 +400,7 @@ export default function PlayerScreen() {
               alignItems: 'center',
               justifyContent: 'center',
               borderBottomWidth: 4,
-              borderBottomColor: 'rgba(0,0,0,0.2)',
+              borderBottomColor: color.shadeSoft,
               transform: [{ rotate: '-2deg' }, { scale: pressed ? 0.96 : 1 }],
             },
             shadow(12, 0.3),
@@ -480,7 +490,7 @@ export default function PlayerScreen() {
               fontFamily: font.sans,
               fontSize: 13,
               lineHeight: 13 * 1.4,
-              color: '#cbbb9e',
+              color: color.paperSoft,
             }}
           >
             {playbackError}

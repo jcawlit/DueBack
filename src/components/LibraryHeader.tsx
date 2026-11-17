@@ -184,7 +184,7 @@ export function DriveStatusButton({
           }}
         />
       ) : (
-        <SpinningRefresh spinning={!!checking} stroke={checking ? color.accent : '#a8906c'} />
+        <SpinningRefresh spinning={!!checking} stroke={checking ? color.accent : color.headerSoft} />
       )}
     </Pressable>
   );

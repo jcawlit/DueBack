@@ -79,7 +79,7 @@ export function CopyOverlay({
           left: 0,
           right: 0,
           bottom: 0,
-          backgroundColor: 'rgba(18,13,10,0.74)',
+          backgroundColor: color.coverScrim,
           alignItems: 'center',
           justifyContent: 'center',
         }}
@@ -99,7 +99,7 @@ export function CopyOverlay({
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: 'rgba(18,13,10,0.62)',
+        backgroundColor: color.coverScrimSoft,
         alignItems: 'center',
         justifyContent: 'center',
         gap: 8,
@@ -179,7 +179,7 @@ export function DrmStamp({ coverWidth }: { coverWidth: number }) {
         // The stamp sits on the artwork, so it needs to survive a dark cover
         // and a light one alike: an ink-coloured wash behind it does that
         // without hiding what is underneath.
-        backgroundColor: 'rgba(27,20,16,0.55)',
+        backgroundColor: color.groundWashSoft,
         opacity: 0.92,
         zIndex: 11,
       }}

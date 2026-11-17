@@ -56,7 +56,7 @@ export function FirstRun({ onPick, busy }: { onPick: () => void; busy: boolean }
             fontFamily: font.sans,
             fontSize: 15,
             lineHeight: 15 * 1.45,
-            color: '#cbbb9e',
+            color: color.paperSoft,
             textAlign: 'center',
           }}
         >
@@ -126,7 +126,7 @@ export function ScanningLibrary({ progress }: { progress: ScanProgress | null })
           fontFamily: font.sans,
           fontSize: 15,
           lineHeight: 15 * 1.45,
-          color: '#cbbb9e',
+          color: color.paperSoft,
           textAlign: 'center',
         }}
       >

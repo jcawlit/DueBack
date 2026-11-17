@@ -58,7 +58,7 @@ export function SoundPanel({
 
   return (
     <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
-      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(10,7,5,0.6)' }}>
+      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: color.scrimSoft }}>
         <Pressable style={{ flex: 1 }} onPress={onClose} accessibilityLabel="Close sound" />
 
         <View

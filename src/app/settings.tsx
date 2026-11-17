@@ -16,6 +16,8 @@ import { removeCover } from '@/lib/files/covers';
 import { useScan } from '@/store/scan';
 import { bytes as formatBytes, relativeTime } from '@/lib/format';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
+import { useTheme } from '@/store/theme';
+import { THEMES } from '@/theme/palettes';
 import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { ChevronLeft } from '@/components/icons';
 import { ScanProgressBar } from '@/components/FirstRun';
@@ -80,6 +82,17 @@ function Row({
 }
 
 export default function SettingsScreen() {
+  /*
+   * Subscribed so a change of scheme repaints this screen.
+   *
+   * The colours themselves live in a module object that swaps in place, so
+   * nothing here reads them differently — but a component that does not run
+   * again keeps what it last painted. One line per screen, and everything
+   * the screen renders comes with it.
+   */
+  useTheme((s) => s.version);
+  const themeId = useTheme((s) => s.themeId);
+  const setTheme = useTheme((s) => s.setTheme);
   const insets = useSafeAreaInsets();
   const miniPlayerInset = useMiniPlayerInset();
   const backupEnabled = useBackup((s) => s.enabled);
@@ -383,6 +396,74 @@ export default function SettingsScreen() {
               disabled={running || !driveConnected || !!pushingToDrive}
             />
           ) : null}
+        </View>
+
+        <View style={{ gap: space.sm }}>
+          <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}>
+            APPEARANCE
+          </Text>
+          {THEMES.map((theme) => {
+            const active = theme.id === themeId;
+            return (
+              <Pressable
+                key={theme.id}
+                onPress={() => setTheme(theme.id)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`${theme.name}. ${theme.note}`}
+                style={({ pressed }) => ({
+                  minHeight: TOUCH + 10,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: space.md,
+                  paddingHorizontal: space.md,
+                  borderRadius: radius.button,
+                  borderWidth: 1,
+                  borderColor: active ? color.accent : color.borderSoft,
+                  backgroundColor: pressed ? color.panel : 'transparent',
+                })}
+              >
+                {/*
+                  Three swatches rather than a name alone: a scheme is the
+                  ground it sits on, the paper on top of it and the lamp,
+                  and those three say more than any word for a colour.
+                */}
+                <View style={{ flexDirection: 'row' }}>
+                  {[theme.palette.ground, theme.palette.paper, theme.palette.accent].map(
+                    (swatch, i) => (
+                      <View
+                        key={swatch + i}
+                        style={{
+                          width: 16,
+                          height: 28,
+                          backgroundColor: swatch,
+                          borderWidth: 1,
+                          borderColor: color.border,
+                          marginLeft: i === 0 ? 0 : -1,
+                        }}
+                      />
+                    ),
+                  )}
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={{ fontFamily: font.serif, fontSize: 16, color: color.paper }}>
+                    {theme.name}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}
+                  >
+                    {theme.note}
+                  </Text>
+                </View>
+                {active ? (
+                  <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>
+                    on
+                  </Text>
+                ) : null}
+              </Pressable>
+            );
+          })}
         </View>
 
         <View style={{ gap: space.sm }}>

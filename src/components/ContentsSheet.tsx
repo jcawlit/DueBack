@@ -77,7 +77,7 @@ export function ContentsSheet({ visible, book, currentIndex, onSelect, onClose }
       transparent
       statusBarTranslucent
     >
-      <View style={{ flex: 1, backgroundColor: 'rgba(10,7,5,0.6)' }}>
+      <View style={{ flex: 1, backgroundColor: color.scrimSoft }}>
         <Pressable style={{ height: 90 }} onPress={onClose} accessibilityLabel="Close contents" />
         <View
           style={{

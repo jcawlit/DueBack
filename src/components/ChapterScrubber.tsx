@@ -155,7 +155,7 @@ export function ChapterScrubber({
                 // Background, not information. They say how long a chapter
                 // is; the markers above say what is in it, and two sets of
                 // marks at the same weight read as one confusing set.
-                borderLeftColor: 'rgba(27,20,16,0.45)',
+                borderLeftColor: color.groundWashFaint,
               }}
             />
           ))}

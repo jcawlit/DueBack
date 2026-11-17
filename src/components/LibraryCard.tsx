@@ -139,13 +139,13 @@ export function LibraryCard({ checkouts, minRows, bare = false, compact = false,
           justifyContent: 'space-between',
           paddingBottom: compact ? 6 : 8,
           borderBottomWidth: 1.5,
-          borderBottomColor: '#7a6446',
+          borderBottomColor: color.cardInkSoft,
         }}
       >
-        <Text style={{ fontFamily: font.mono, fontSize: 11, letterSpacing: 1, color: '#5a4a32' }}>
+        <Text style={{ fontFamily: font.mono, fontSize: 11, letterSpacing: 1, color: color.cardInk }}>
           CHECKED OUT
         </Text>
-        <Text style={{ fontFamily: font.mono, fontSize: 11, letterSpacing: 1, color: '#5a4a32' }}>
+        <Text style={{ fontFamily: font.mono, fontSize: 11, letterSpacing: 1, color: color.cardInk }}>
           RETURNED
         </Text>
       </View>
@@ -218,7 +218,7 @@ export function LibraryCard({ checkouts, minRows, bare = false, compact = false,
             // No tracking: this is a sentence, not a stamped heading, and the
             // half-pixel a character costs the line is the difference
             // between it fitting and ellipsising.
-            color: '#5a4a32',
+            color: color.cardInk,
             paddingTop: 6,
           }}
         >
@@ -253,7 +253,7 @@ export function LibraryCardSheet({
       <View
         style={{
           flex: 1,
-          backgroundColor: 'rgba(10,7,5,0.6)',
+          backgroundColor: color.scrimSoft,
           justifyContent: 'flex-end',
           paddingTop: insets.top + space.md,
           paddingBottom: Math.max(insets.bottom, space.md),

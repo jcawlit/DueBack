@@ -30,6 +30,7 @@ import { adoptServerProgress, localProgress } from '@/db/remoteBooks';
 import { chooseProgress } from '@/lib/abs/progress';
 import { bytes as formatBytes, hoursMinutes, relativeTime, timestamp } from '@/lib/format';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
+import { useTheme } from '@/store/theme';
 import { ChevronLeft } from '@/components/icons';
 import { useMiniPlayerInset } from '@/components/MiniPlayer';
 
@@ -93,6 +94,15 @@ function Line({ label, value }: { label: string; value: string }) {
 }
 
 export default function AbsBookScreen() {
+  /*
+   * Subscribed so a change of scheme repaints this screen.
+   *
+   * The colours themselves live in a module object that swaps in place, so
+   * nothing here reads them differently — but a component that does not run
+   * again keeps what it last painted. One line per screen, and everything
+   * the screen renders comes with it.
+   */
+  useTheme((s) => s.version);
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const miniPlayerInset = useMiniPlayerInset();
