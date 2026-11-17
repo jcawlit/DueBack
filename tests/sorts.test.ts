@@ -10,7 +10,13 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildShelves, dustBand, progressBand } from '../src/lib/shelves.ts';
+import {
+  buildShelves,
+  DEFAULT_SORT,
+  dustBand,
+  effectiveSort,
+  progressBand,
+} from '../src/lib/shelves.ts';
 import type { Book } from '../src/data/types.ts';
 
 function book(overrides: Partial<Book> & { id: string }): Book {
@@ -193,5 +199,40 @@ describe('unfinished', () => {
 
   it('gives an empty answer rather than an empty shelf', () => {
     assert.deepEqual(buildShelves([book({ id: 'a' })], 'unfinished'), []);
+  });
+});
+
+describe('when custom mode has nothing to show', () => {
+  /*
+   * Shelves hold books by id, and a rescan that re-mints ids leaves every
+   * assignment pointing at a book that is gone: shelves with their names and
+   * not one cover on them. The arrangement is repaired by the next seeding,
+   * but a reader staring at an empty library wants their books back now.
+   */
+  it('gives way to the default sort', () => {
+    const custom = [{ id: 's1', name: 'Sci-fi', bookIds: ['gone', 'also-gone'] }];
+    const live = new Set(['a', 'b']);
+    assert.equal(effectiveSort('custom', live, custom), DEFAULT_SORT);
+  });
+
+  it('stays custom as soon as one book is on a shelf', () => {
+    const custom = [{ id: 's1', name: 'Sci-fi', bookIds: ['a'] }];
+    assert.equal(effectiveSort('custom', new Set(['a', 'b']), custom), 'custom');
+  });
+
+  it('stays custom for an empty library, where every mode is empty', () => {
+    // Falling back here would hide the real reason the shelves are bare.
+    assert.equal(effectiveSort('custom', new Set<string>(), []), 'custom');
+  });
+
+  it('leaves every other sort alone', () => {
+    for (const sort of ['length', 'author', 'series', 'narrator', 'dust'] as const) {
+      assert.equal(effectiveSort(sort, new Set(['a']), []), sort);
+    }
+  });
+
+  it('does not rescue unfinished, which is honestly empty', () => {
+    // Nothing part-read is the true answer to "what am I in the middle of".
+    assert.equal(effectiveSort('unfinished', new Set(['a']), []), 'unfinished');
   });
 });

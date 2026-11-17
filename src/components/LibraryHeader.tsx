@@ -4,11 +4,19 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Animated, Easing, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import {
+  Animated,
+  Easing,
+  Modal,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SORT_LABELS, type SortMode } from '@/data/types';
 import { FitText } from './FitText';
-import { color, font, radius, space, TOUCH } from '@/theme/tokens';
-import { DriveIcon, RefreshIcon, SearchIcon } from './icons';
+import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
+import { ChevronDown, DriveIcon, RefreshIcon, SearchIcon } from './icons';
 
 /*
  * The order the chips sit in: the two that arrange the whole library, the
@@ -202,59 +210,127 @@ export function DriveStatusButton({
   );
 }
 
-export function SortChips({
+/**
+ * The sort, as one control that opens a list.
+ *
+ * It was a row of chips that scrolled sideways. Two sorts fitted, four
+ * were a scroll, and seven meant the one you wanted was always off the
+ * edge — a control you have to drag before you can read it is not a
+ * control. A closed dropdown says what is in force, which is the thing
+ * you most often want to know, and the list says what else there is.
+ */
+export function SortPicker({
   sort,
   onChange,
 }: {
   sort: SortMode;
   onChange: (next: SortMode) => void;
 }) {
+  const [open, setOpen] = useState(false);
+
+  const pick = (next: SortMode) => {
+    setOpen(false);
+    if (next !== sort) onChange(next);
+  };
+
   return (
-    /*
-     * One row that scrolls, rather than a block that wraps.
-     *
-     * Four chips plus the two beside them do not fit a phone, so the row
-     * wrapped to two lines and the header ate a third of the screen before a
-     * single cover was visible. Scrolling sideways keeps every sort reachable
-     * and the row one line tall.
-     */
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ flexDirection: 'row', gap: space.sm, paddingRight: space.sm }}
-    >
-      {SORTS.map((mode) => {
-        const active = mode === sort;
-        return (
+    <>
+      <Pressable
+        onPress={() => setOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel={`Sorted ${SORT_LABELS[sort]}. Change.`}
+        style={({ pressed }) => ({
+          minHeight: CHIP_HEIGHT,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 6,
+          alignSelf: 'flex-start',
+          paddingLeft: 10,
+          paddingRight: 7,
+          borderRadius: radius.chip,
+          borderWidth: 1,
+          borderColor: color.accent,
+          opacity: pressed ? 0.7 : 1,
+        })}
+      >
+        <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>
+          {SORT_LABELS[sort]}
+        </Text>
+        <ChevronDown size={13} stroke={color.accent} />
+      </Pressable>
+
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable
+          onPress={() => setOpen(false)}
+          accessibilityLabel="Dismiss"
+          style={{
+            flex: 1,
+            backgroundColor: color.scrim,
+            justifyContent: 'flex-end',
+            padding: space.xl,
+          }}
+        >
           <Pressable
-            key={mode}
-            onPress={() => onChange(mode)}
-            accessibilityRole="button"
-            accessibilityState={{ selected: active }}
-            accessibilityLabel={`Sort ${SORT_LABELS[mode]}`}
-            style={({ pressed }) => ({
-              minHeight: CHIP_HEIGHT,
-              justifyContent: 'center',
-              paddingHorizontal: 9,
-              borderRadius: radius.chip,
-              borderWidth: 1,
-              borderColor: active ? color.accent : color.borderSoft,
-              opacity: pressed ? 0.7 : 1,
-            })}
+            onPress={() => {}}
+            style={[
+              { backgroundColor: color.panel, borderRadius: 6, paddingVertical: space.sm },
+              shadow(20, 0.6),
+            ]}
           >
             <Text
+              accessibilityRole="header"
               style={{
                 fontFamily: font.mono,
-                fontSize: 11,
-                color: active ? color.accent : color.muted,
+                fontSize: 10,
+                letterSpacing: 1,
+                color: color.faint,
+                paddingHorizontal: space.xl,
+                paddingTop: space.sm,
+                paddingBottom: space.md,
               }}
             >
-              {SORT_LABELS[mode]}
+              ARRANGE THE SHELVES
             </Text>
+            {SORTS.map((mode) => {
+              const active = mode === sort;
+              return (
+                <Pressable
+                  key={mode}
+                  onPress={() => pick(mode)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={SORT_LABELS[mode]}
+                  style={({ pressed }) => ({
+                    minHeight: TOUCH,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: space.md,
+                    paddingHorizontal: space.xl,
+                    backgroundColor: pressed ? color.line : 'transparent',
+                  })}
+                >
+                  <Text
+                    style={{
+                      fontFamily: font.serif,
+                      fontSize: 17,
+                      color: active ? color.accent : color.paper,
+                    }}
+                  >
+                    {SORT_LABELS[mode]}
+                  </Text>
+                  {active ? (
+                    <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>
+                      on
+                    </Text>
+                  ) : null}
+                </Pressable>
+              );
+            })}
           </Pressable>
-        );
-      })}
-    </ScrollView>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
@@ -415,7 +491,7 @@ export function LibraryHeader({
           {/* minWidth 0 so the scroller gives way to the two fixed chips
               instead of pushing them off the edge. */}
           <View style={{ flex: 1, minWidth: 0 }}>
-            <SortChips sort={sort} onChange={onSort} />
+            <SortPicker sort={sort} onChange={onSort} />
           </View>
           {onOpenSettings ? (
             <Pressable

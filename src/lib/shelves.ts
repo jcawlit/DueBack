@@ -208,6 +208,41 @@ export function seedShelvesFromLength(
   }));
 }
 
+/**
+ * The sort actually used, which is not always the one asked for.
+ *
+ * Custom mode can be arranged into a state that shows nothing: shelves
+ * whose books have been re-minted by a rescan hold ids that no longer
+ * resolve, and the Library goes blank with a row of empty ledges. The
+ * seeding repairs that when it next runs — but a reader looking at an empty
+ * library wants their books back now, not an explanation.
+ *
+ * So a custom arrangement that would show no books at all gives way to the
+ * default. Only when the library itself has books: an empty library is
+ * empty in every mode, and falling back there would just hide the real
+ * reason.
+ *
+ * `unfinished` is deliberately not covered. It shows nothing when nothing
+ * is part-read, and that is the honest answer to the question it asks.
+ */
+export const DEFAULT_SORT: SortMode = 'length';
+
+export function effectiveSort(
+  sort: SortMode,
+  /** The ids the library actually holds, which is what an id must match. */
+  libraryBookIds: Set<string>,
+  custom: CustomShelf[],
+): SortMode {
+  if (sort !== 'custom' || libraryBookIds.size === 0) return sort;
+  /*
+   * Counting assignments is not enough: the broken state has plenty of
+   * them and every one names a book that is gone. What matters is whether
+   * a single id still resolves.
+   */
+  const shows = custom.some((shelf) => shelf.bookIds.some((id) => libraryBookIds.has(id)));
+  return shows ? sort : DEFAULT_SORT;
+}
+
 export function buildShelves(
   books: Book[],
   sort: SortMode,

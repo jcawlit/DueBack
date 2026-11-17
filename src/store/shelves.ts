@@ -161,13 +161,42 @@ export const useShelves = create<ShelvesState>((set, get) => ({
 
   seed: async (sourceId, shelves) => {
     /*
-     * Only ever on an empty source, and read from the database rather than
-     * from this store's state: the guard has to hold against a second call
-     * arriving while the first is still writing, or opening custom mode
-     * twice in quick succession seeds the library twice.
+     * Read from the database rather than from this store's state: the guard
+     * has to hold against a second call arriving while the first is still
+     * writing, or opening custom mode twice quickly seeds twice.
      */
     const existing = await loadShelves(sourceId);
-    if (existing.length > 0 || shelves.length === 0) return false;
+    if (shelves.length === 0) return false;
+
+    /*
+     * Shelves holding nothing that still exists.
+     *
+     * An assignment names a book by id, and a rescan that re-mints ids
+     * leaves every one of them pointing at a book that is gone — shelves
+     * with their names and not a single cover on them, which is what a
+     * full rescan for series tags produced.
+     *
+     * The names are the listener's work, so they are kept and the current
+     * books are dealt back into them. Deleting the shelves would be the
+     * easy repair and the wrong one.
+     */
+    const wanted = new Set(shelves.flatMap((s) => s.bookIds));
+    const stranded =
+      existing.length > 0 && !existing.some((s) => s.bookIds.some((id) => wanted.has(id)));
+
+    if (existing.length > 0 && !stranded) return false;
+
+    if (stranded) {
+      const order = shelves.flatMap((s) => s.bookIds);
+      const changes = order.map((bookId, i) => ({
+        bookId,
+        shelfId: existing[Math.min(Math.floor(i / SHELF_CAPACITY), existing.length - 1)].id,
+        position: i % SHELF_CAPACITY,
+      }));
+      await applyArrangement(changes);
+      await get().load(sourceId);
+      return true;
+    }
 
     for (const shelf of shelves) {
       const made = await createShelf(sourceId, shelf.name);

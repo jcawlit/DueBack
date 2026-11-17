@@ -33,6 +33,7 @@ import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { safFolderPath } from '@/lib/files/safNames';
 import {
   buildShelves,
+  effectiveSort,
   seedShelvesFromLength,
   type CustomShelf,
   type Shelf as ShelfModel,
@@ -261,9 +262,19 @@ export default function LibraryScreen() {
       return { id: s.id, name: names.get(s.id) ?? '', bookIds };
     });
   }, [customRows, drag]);
+  /*
+   * A custom arrangement holding nothing gives way to the default.
+   *
+   * Shelves whose books were re-minted by a rescan hold ids that resolve to
+   * nothing, and the Library would show a row of empty ledges. Better the
+   * books back under the default sort while the seeding repairs the
+   * arrangement underneath.
+   */
+  const liveBookIds = useMemo(() => new Set(found.map((b) => b.id)), [found]);
+  const shownSort = effectiveSort(sort, liveBookIds, previewRows);
   const shelves = useMemo(
-    () => buildShelves(found, sort, previewRows),
-    [found, sort, previewRows],
+    () => buildShelves(found, shownSort, previewRows),
+    [found, shownSort, previewRows],
   );
   const searching = search.trim().length > 0;
 
@@ -379,7 +390,7 @@ export default function LibraryScreen() {
    * fewer state to be in, and the shelf names are editable whenever you
    * are looking at them.
    */
-  const arranging = sort === 'custom';
+  const arranging = shownSort === 'custom';
 
   /*
    * Anyone holding a book has already found the gesture.
