@@ -545,6 +545,11 @@ export default function SettingsScreen() {
             onPress={() => setContacting(true)}
           />
           <Row
+            label="Listening"
+            detail="Hours, streaks, and what you have spent them on"
+            onPress={() => router.push('/stats')}
+          />
+          <Row
             label="Scan report"
             detail="Every book, its parts, timings and warnings"
             onPress={() => router.push('/dev/metadata')}

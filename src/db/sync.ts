@@ -14,6 +14,7 @@ import {
   type CharacterRecord,
   type HistoryRecord,
   type NoteRecord,
+  type ListeningRecord,
   type ProgressRecord,
   type ShelfBookRecord,
   type ShelfRecord,
@@ -110,6 +111,16 @@ async function collectAllPayload(): Promise<SyncPayload> {
     `SELECT id, source_id, name, position, created_at, updated_at, deleted_at,
             mutation_id, writer_device, base_updated_at
        FROM shelves`,
+  );
+
+  const listeningRows = await db.getAllAsync<{
+    id: string; book_id: string; started_at: string; ended_at: string;
+    seconds: number; updated_at: string;
+    writer_device: string | null; mutation_id: string | null;
+  }>(
+    `SELECT id, book_id, started_at, ended_at, seconds, updated_at,
+            writer_device, mutation_id
+       FROM listening`,
   );
 
   const shelfBookRows = await db.getAllAsync<{
@@ -216,6 +227,16 @@ async function collectAllPayload(): Promise<SyncPayload> {
       writerDevice: r.writer_device ?? device,
       baseUpdatedAt: r.base_updated_at,
     })),
+    listening: listeningRows.map<ListeningRecord>((r) => ({
+      id: r.id,
+      bookId: r.book_id,
+      startedAt: r.started_at,
+      endedAt: r.ended_at,
+      seconds: r.seconds,
+      updatedAt: r.updated_at,
+      mutationId: r.mutation_id ?? r.id,
+      writerDevice: r.writer_device ?? device,
+    })),
     shelfBooks: shelfBookRows.map<ShelfBookRecord>((r) => ({
       bookId: r.book_id,
       shelfId: r.shelf_id,
@@ -238,6 +259,7 @@ export type ApplyReport = {
   history: number;
   shelves: number;
   shelfBooks: number;
+  listening: number;
 };
 
 /**
@@ -257,7 +279,8 @@ export async function applyPayload(payload: SyncPayload): Promise<ApplyReport> {
     (await db.getAllAsync<{ id: string }>('SELECT id FROM books')).map((r) => r.id),
   );
   const report: ApplyReport = {
-    notes: 0, characters: 0, tags: 0, progress: 0, history: 0, shelves: 0, shelfBooks: 0,
+    notes: 0, characters: 0, tags: 0, progress: 0, history: 0, shelves: 0,
+    shelfBooks: 0, listening: 0,
   };
 
   await withLockRetry(() =>
@@ -418,6 +441,24 @@ export async function applyPayload(payload: SyncPayload): Promise<ApplyReport> {
         );
         report.shelfBooks += 1;
       }
+
+      /*
+       * A stretch of listening, which never changes once closed — so an id
+       * already here is the same row and is left alone. `DO NOTHING`
+       * rather than an update, because there is nothing to update to.
+       */
+      for (const stretch of payload.listening) {
+        if (!known.has(stretch.bookId)) continue;
+        await db.runAsync(
+          `INSERT INTO listening (id, book_id, started_at, ended_at, seconds,
+                                  updated_at, writer_device, mutation_id)
+           VALUES (?,?,?,?,?,?,?,?)
+           ON CONFLICT(id) DO NOTHING`,
+          stretch.id, stretch.bookId, stretch.startedAt, stretch.endedAt,
+          stretch.seconds, stretch.updatedAt, stretch.writerDevice, stretch.mutationId,
+        );
+        report.listening += 1;
+      }
     }),
   );
 
@@ -509,5 +550,6 @@ export async function collectPayload(libraryId?: string): Promise<SyncPayload> {
      * here, and an empty shelf is a tidier failure than a lost one.
      */
     shelves: payload.shelves,
-    shelfBooks: payload.shelfBooks.filter((sb) => ids.has(sb.bookId)) };
+    shelfBooks: payload.shelfBooks.filter((sb) => ids.has(sb.bookId)),
+    listening: payload.listening.filter((l) => ids.has(l.bookId)) };
 }

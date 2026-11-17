@@ -29,6 +29,7 @@ import { useLibrary } from '@/store/library';
 import { useScan } from '@/store/scan';
 import { useNotes } from '@/store/notes';
 import { useBackup } from '@/store/backup';
+import { discardEmptySessions } from '@/db/listening';
 import { startAbsProgressSync } from '@/store/absProgress';
 import { useTheme } from '@/store/theme';
 import { useUi } from '@/store/ui';
@@ -68,6 +69,9 @@ function LibraryBootstrap() {
     void useUi.getState().loadPreferences();
     void useTheme.getState().load();
     void useBackup.getState().load();
+    // Rows left open by a kill are cleared here rather than left to skew
+    // every count for ever.
+    void discardEmptySessions().catch(() => {});
     // Listens for progress on a downloaded server book and sends it back.
     // Idempotent, so a fast refresh does not double every push.
     startAbsProgressSync();
@@ -249,6 +253,7 @@ export default function RootLayout() {
         <Stack.Screen name="book/[id]" />
         <Stack.Screen name="player/[id]" options={{ animation: 'slide_from_bottom' }} />
         <Stack.Screen name="settings" />
+        <Stack.Screen name="stats" />
         <Stack.Screen name="dev/metadata" />
       </Stack>
       <MiniPlayer />

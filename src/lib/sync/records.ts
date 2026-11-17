@@ -75,6 +75,22 @@ export type TagRecord = Stamp & {
  * answer, and a second shelf called "Sci-fi (conflict)" would be a worse
  * outcome than either side's choice.
  */
+/**
+ * One stretch of listening.
+ *
+ * The easiest record here by some distance. A closed stretch never changes,
+ * so merging two phones' logs is a union — `mergeBy` keyed on the id does
+ * exactly that, and `laterOf` is never called on anything that differs.
+ * There is no last-write-wins because there is no second write.
+ */
+export type ListeningRecord = Stamp & {
+  id: string;
+  bookId: string;
+  startedAt: string;
+  endedAt: string;
+  seconds: number;
+};
+
 export type ShelfRecord = Stamp & {
   id: string;
   /** Null for the drive, which is the implicit source and has no row. */
@@ -143,6 +159,7 @@ export type SyncPayload = {
   history: HistoryRecord[];
   shelves: ShelfRecord[];
   shelfBooks: ShelfBookRecord[];
+  listening: ListeningRecord[];
 };
 
 export function emptyPayload(): SyncPayload {
@@ -155,6 +172,7 @@ export function emptyPayload(): SyncPayload {
     history: [],
     shelves: [],
     shelfBooks: [],
+    listening: [],
   };
 }
 
@@ -168,6 +186,7 @@ export const keyOf = {
   history: (r: HistoryRecord) => r.id,
   shelf: (r: ShelfRecord) => r.id,
   shelfBook: (r: ShelfBookRecord) => r.bookId,
+  listening: (r: ListeningRecord) => r.id,
 };
 
 /**
@@ -341,6 +360,10 @@ export function mergePayloads(mine: SyncPayload, theirs: SyncPayload): SyncPaylo
   const shelves = mergeBy(mine.shelves, theirs.shelves, keyOf.shelf);
   const shelfBooks = mergeBy(mine.shelfBooks, theirs.shelfBooks, keyOf.shelfBook);
 
+  // A union, in effect: the rows are immutable, so the two sides never
+  // disagree about one and nothing has to win.
+  const listening = mergeBy(mine.listening, theirs.listening, keyOf.listening);
+
   return {
     identity,
     notes: [...notes.values()],
@@ -350,6 +373,7 @@ export function mergePayloads(mine: SyncPayload, theirs: SyncPayload): SyncPaylo
     history,
     shelves,
     shelfBooks,
+    listening,
   };
 }
 

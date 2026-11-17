@@ -443,6 +443,41 @@ export const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
   async (db) => {
     await db.execAsync('ALTER TABLE books ADD COLUMN series_index REAL');
   },
+
+  /*
+   * A log of listening, one row per stretch.
+   *
+   * Position tells you where you are and never when you listened, so no
+   * amount of querying the existing tables answers "how much this month".
+   * This is the only table that can, and it is the only one that cannot be
+   * rebuilt from anything — a day without it is a day of history gone.
+   *
+   * One row per stretch, **not** per tick. Progress is written every five
+   * seconds while a book plays, and a table fed at that rate would be the
+   * same mistake as the backup that ran every few seconds of playback.
+   * `npm run kb -- "position tick"`.
+   *
+   * The rows are immutable once closed, which is worth more than it looks:
+   * two phones merging an append-only log of immutable rows is a union, so
+   * there is no last-write-wins here and no tie to break.
+   */
+  async (db) => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS listening (
+        id            TEXT PRIMARY KEY NOT NULL,
+        book_id       TEXT NOT NULL,
+        started_at    TEXT NOT NULL,
+        ended_at      TEXT NOT NULL,
+        seconds       REAL NOT NULL DEFAULT 0,
+        updated_at    TEXT NOT NULL,
+        writer_device TEXT NOT NULL,
+        mutation_id   TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_listening_at ON listening(started_at);
+      CREATE INDEX IF NOT EXISTS idx_listening_book ON listening(book_id);
+    `);
+  },
 ];
 
 export async function migrate(db: SQLite.SQLiteDatabase) {

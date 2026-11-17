@@ -14,6 +14,7 @@ import { SPEEDS, type AudioEngine, type EngineTrack } from '@/lib/audio/engine';
 import { loadParts } from '@/db/books';
 import { SETTING_KEYS, getSetting, setSetting } from '@/db/schema';
 import { localUriFor } from '@/lib/files/copy';
+import { noteStatus, noteStopped } from '@/lib/stats/track';
 import { onBecomingNoisy } from '@/lib/audio/soundFx';
 import { useSound } from './sound';
 import { onBookAudioRemoved, onBookCheckedOut, useLibrary } from './library';
@@ -524,6 +525,14 @@ export const usePlayer = create<PlayerState>((set, get) => {
           buffering: status.buffering,
         });
         persist(status.positionSec, false);
+        /*
+         * The local listening log, which is not the same thing as
+         * `countListening` above: that reports time to an Audiobookshelf
+         * server for its own progress. This is the history kept here, and
+         * it is kept for a streamed book too — listening is listening
+         * wherever the bytes came from.
+         */
+        noteStatus(get().bookId, status.playing);
         if (status.finished) {
           void get().close();
         }
@@ -709,6 +718,9 @@ export const usePlayer = create<PlayerState>((set, get) => {
           syncNowPlaying(status.positionSec);
           checkSleep(status.positionSec);
           persist(status.positionSec);
+          // Decides for itself what counts as a stretch; this only reports
+          // what the engine said.
+          noteStatus(get().bookId, status.playing);
           if (status.finished) {
             persist(status.positionSec, true);
           }
@@ -796,6 +808,9 @@ export const usePlayer = create<PlayerState>((set, get) => {
     },
 
     close: async () => {
+      // Ends the open stretch here rather than waiting for a status that
+      // will not arrive, because the engine is about to be unloaded.
+      noteStopped();
       loadedFor = null;
       if (get().bookId) persist(get().positionSec, true);
       // The final sync rides the close, so the server hears the last of
