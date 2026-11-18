@@ -66,6 +66,27 @@ enough to test against directly, and the button sat one tap away in a release
 build while doing destructive things to app storage. `git log` has them if
 they are ever wanted back.
 
+### Passed on a Pixel with a real drive, 18 November 2026
+
+The build was the APK at commit `fa097a9`. Everything below had accumulated
+across five commits without ever running on hardware, and all of it passed.
+
+- **Editing a book's details.** A correction survives a rescan, follows the
+  book onto the shelves and into search, and a picked cover is not swept away
+  by the next scan. `expo-image-picker` is a new native module, so this also
+  proves the development build.
+- **Migration 18** (`book_overrides`) against a real library, on first launch.
+- **The lock screen's minute jumps**, in both directions — after the second
+  attempt. The first reached the phone and changed nothing; see the entry under
+  "deliberately not fixed" and `npm run kb -- "builds from source"`.
+- **The lag after saving is gone**, and so is the periodic stutter a second or
+  two after writing anything. Two separate causes: a whole-library reload for a
+  one-book edit, and the drive backup blocking the JS thread with synchronous
+  file calls. `npm run kb -- "blocks the JS thread"`.
+- **The drive light and long-press on the source pill**, with an Audiobookshelf
+  server configured, and **"Check again"** in Settings now answering.
+- **A multi-disc folder through "Add a book folder"**, arriving in order.
+
 ### Passed on a Pixel with a real drive, 15 October 2026
 
 The build was the APK at commit `1b9a3c5`. Everything below had never run on
@@ -100,9 +121,10 @@ bug — see "A position tick must never reach the drive" below, fixed in
 
 Treat these as open questions, not as working features:
 
-- **The backup-frequency fix (`b0ffc11`) is in no APK.** The build on the phone
-  still writes a generation every few seconds of playback. Correct, just
-  wasteful; a rebuild is what proves the fix.
+- **The backup frequency during playback.** The fix (`b0ffc11`) has shipped —
+  it is in every build since — but nobody has watched the generation number to
+  confirm it advances about once per ten minutes of listening rather than every
+  few seconds. One number, observed once, closes this.
 - **What the Sound panel printed for this device.** It works, but the line
   naming the band count and level range was not written down, so whether this
   Pixel's `Equalizer` gave five bands or ten is still unknown. Worth capturing
@@ -271,16 +293,17 @@ evidence that the reasoning was wrong.
 
 Roughly in the order I would take them.
 
-1. **Editing a book's details has never run on hardware.** The data layer and
-   the merge rules are covered by `tests/overrides*.test.ts` and
-   `tests/cover-names.test.ts`, but nothing has proved the picker opens, a
-   picked cover survives a rescan, or a correction follows a book onto the
-   shelves and into search on a real library. `expo-image-picker` is a new
-   native module, so it needs a development build.
-2. **The backup-frequency fix needs a build to reach the phone.** `b0ffc11` is
-   committed and unit-tested but not in any APK. What proves it is watching the
-   generation number advance about once per ten minutes of listening instead of
-   every few seconds.
+1. **`src/lib/scan/scanner.ts` has no tests.** 722 lines, the largest file
+   here, and the one that decides what a library *is*: which files are which
+   book, which book is the one that moved, and what a scan may conclude from
+   not finding something. Its pure helpers are covered (`grouping`, `identity`,
+   `coverage`) and so are the two layers under it — `tests/fakeDrive.ts` for
+   the filesystem and `node:sqlite` for the database — but nothing exercises
+   the orchestration that joins them. Wiring the two harnesses together would
+   let a whole scan run end to end: files on a fake drive in, book rows out,
+   reconnect prompts and missing-sweep decisions included.
+2. **Pro gating does not exist**, on the branch named for it. What is free and
+   what is not is a decision, not an implementation.
 3. **Four Expo patch bumps and a missing `expo-asset` peer.** `expo-doctor`
    reports 19/21 for these two reasons. Deliberately deferred to a branch,
    because the one time the advice was taken it broke the dependency tree.
