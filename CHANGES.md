@@ -2039,3 +2039,80 @@ into a lost choice.
 `plugins/withCleartextTraffic.js`, `tests/coverage.test.ts` (new),
 `tests/import-parts.test.ts` (new), `tests/abs-client.test.ts`,
 `docs/KNOWLEDGE.md`, `docs/STATE.md`*
+
+## A book can be told what it actually is
+
+Metadata comes from the files, and files lie. "Hyperion" sits in the library
+filed under the author **"Top 100 scifi books"** because that is what its tags
+say, and no amount of better parsing fixes it: the tag is not malformed, it is
+wrong. Title, author, narrator, series, number in the series and the cover can
+now all be corrected, from an "edit details" link on the Book screen.
+
+**The correction is a layer, not an edit.** `upsertBook` sets
+`title = excluded.title` unconditionally, so anything written into that row
+survives until the drive is next plugged in — a silent loss, days later,
+looking exactly like the app having ignored the edit. Corrections live in their
+own table and `loadBooks` lays them over the scan, which also keeps the file's
+own answer so "put it back the way the files describe it" is possible at all.
+
+**Layered in one place, on purpose.** Shelves, the letter bands, the series
+ledges, search and every sort read `Book.title`, `Book.author` and
+`Book.series`, so one layering at the read makes all of them follow a
+correction. Fixing it in the UI would have renamed a book on its own screen
+and left it filed under the old name on the shelf.
+
+**Empty is a correction.** `null` means "not corrected"; `''` means
+"corrected to nothing". The honest fix for that bogus author is no author
+rather than another guess, and collapsing the two would make the one field
+anybody wants to clear the one field they cannot. The number in a series is a
+text column for the same reason: a number has nowhere to put "deliberately
+none".
+
+Two things that would have been bugs and are now rules with tests on them. An
+**unchanged save stores nothing** — open the editor, change nothing, press
+Save, and no correction is written, because recording one would freeze that
+field against every future rescan with nobody aware of it. And a correction is
+**per field**, so choosing a picture cannot quietly revert a title typed a
+moment earlier.
+
+Corrections travel on the drive, keyed by book, newest write winning. They
+have to: a rescan on the other phone would give the *wrong* answer back, since
+the tags that prompted the fix are still in the files and still wrong. A revert
+travels as a tombstone rather than an absent row — an absent row reads as
+"nothing to say", and the other side's surviving correction would win by
+default and put the old value back.
+
+**A picked cover would have been deleted by the next scan.** `deleteCoversFor`
+clears a book's thumbnails by prefix, which is how new artwork replaces old
+without knowing its name, and a picked cover sits under that same prefix. It
+is now marked in its file name and survives the sweep, except when the book is
+being forgotten. The rule is pure and tested, because when it breaks the
+symptom is a blank cover days later with no error anywhere.
+
+**And `CoverFace` had no `onError`.** Any thumbnail that would not load
+rendered as a blank rectangle in the book's colour instead of falling back to
+the drawn cover — reachable without any of this, since "Clear storage" empties
+that directory. The fallback is keyed to the failed URI rather than a flag,
+because a thumbnail's name changes with its artwork and a flag would outlive
+the file it was about and hide the next cover picked.
+
+The picker is `expo-image-picker`, whose config plugin adds `CAMERA` and
+`RECORD_AUDIO` by default. Both are **blocked** in `app.json` rather than
+merely omitted, so no other package can add them back: an offline audiobook
+player asking for a camera and a microphone to fix a cover is alarming to read
+and more to declare on a store listing.
+
+`withLockRetry` moved from `src/db/books.ts` to `src/db/schema.ts` on the way
+through. It is a generic retry around a locked database and had nothing to do
+with books; leaving it there would have put the corrections module in an import
+cycle with the one that reads them.
+
+*`src/lib/library/overrides.ts` (new), `src/db/overrides.ts` (new),
+`src/lib/files/coverNames.ts` (new), `src/components/BookDetailsSheet.tsx`
+(new), `src/db/migrations.ts`, `src/db/books.ts`, `src/db/schema.ts`,
+`src/db/sync.ts`, `src/lib/sync/records.ts`, `src/lib/files/access.ts`,
+`src/lib/files/covers.ts`, `src/components/CoverFace.tsx`,
+`src/app/book/[id].tsx`, `src/data/types.ts`, `app.json`,
+`tests/overrides.test.ts` (new), `tests/overrides-db.test.ts` (new),
+`tests/cover-names.test.ts` (new), `tests/sync.test.ts`, `docs/KNOWLEDGE.md`,
+`docs/STATE.md`*

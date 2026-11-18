@@ -9,8 +9,7 @@
 
 import { readingDataChanged } from '@/lib/sync/changes';
 import type { Character, Note } from '@/data/notes';
-import { withLockRetry } from './books';
-import { getDb } from './schema';
+import { getDb, withLockRetry } from './schema';
 import { ensureDeviceId } from './identity';
 
 /** A note's tags are rewritten from its text on every save; see `mentions.ts`. */

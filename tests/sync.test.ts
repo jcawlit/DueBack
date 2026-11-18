@@ -18,6 +18,7 @@ import {
   liveTags,
   mergeNote,
   mergePayloads,
+  type OverrideRecord,
   type CharacterRecord,
   type HistoryRecord,
   type NoteRecord,
@@ -94,6 +95,22 @@ function history(over: Partial<HistoryRecord> = {}): HistoryRecord {
     id: 'h1',
     bookId: 'b1',
     outAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    writerDevice: 'phone-a',
+    mutationId: 'm1',
+    ...over,
+  };
+}
+
+function override(over: Partial<OverrideRecord> = {}): OverrideRecord {
+  return {
+    bookId: 'b1',
+    title: null,
+    author: null,
+    narrator: null,
+    series: null,
+    seriesIndex: null,
+    coverFile: null,
     updatedAt: '2026-01-01T00:00:00.000Z',
     writerDevice: 'phone-a',
     mutationId: 'm1',
@@ -492,5 +509,81 @@ describe('pruning older generations', () => {
 
   it('removes an older generation that failed to validate', () => {
     assert.deepEqual(prunable([1, 2, 3], [3, 2]), [1]);
+  });
+});
+
+describe('merging corrections to a book’s metadata', () => {
+  it('carries a correction to a phone that does not have one', () => {
+    const mine = override({ author: 'Dan Simmons' });
+    const merged = mergePayloads(payload({ overrides: [mine] }), payload());
+    assert.deepEqual(merged.overrides, [mine]);
+  });
+
+  it('keeps the newer of two corrections to the same book', () => {
+    const older = override({ author: 'Dan Simmons' });
+    const newer = override({
+      author: 'D. Simmons',
+      updatedAt: '2026-02-01T00:00:00.000Z',
+      mutationId: 'm2',
+    });
+    const merged = mergePayloads(payload({ overrides: [older] }), payload({ overrides: [newer] }));
+    assert.equal(merged.overrides.length, 1);
+    assert.equal(merged.overrides[0].author, 'D. Simmons');
+  });
+
+  it('does not resurrect a field the other phone deliberately cleared', () => {
+    /*
+     * The failure this guards is specific. A cleared author is stored as `''`,
+     * which is falsy — so any merge that reached for the other side
+     * "because this one is empty" would put the bogus author straight back,
+     * and it would look like the app had simply ignored the edit.
+     */
+    const cleared = override({
+      author: '',
+      updatedAt: '2026-02-01T00:00:00.000Z',
+      mutationId: 'm2',
+    });
+    const guessed = override({ author: 'Top 100 scifi books' });
+    const merged = mergePayloads(payload({ overrides: [guessed] }), payload({ overrides: [cleared] }));
+    assert.equal(merged.overrides[0].author, '', 'blank is a correction and it is newer');
+  });
+
+  it('lets a revert on one phone undo the correction on the other', () => {
+    // A revert is a tombstone, not an absent row. An absent row would read as
+    // "nothing to say", and the surviving correction would win by default.
+    const kept = override({ title: 'Hyperion' });
+    const reverted = override({
+      deletedAt: '2026-02-01T00:00:00.000Z',
+      updatedAt: '2026-02-01T00:00:00.000Z',
+      mutationId: 'm2',
+    });
+    const merged = mergePayloads(payload({ overrides: [kept] }), payload({ overrides: [reverted] }));
+    assert.equal(merged.overrides.length, 1);
+    assert.ok(merged.overrides[0].deletedAt, 'the tombstone is the newer write');
+    assert.equal(merged.overrides[0].title, null);
+  });
+
+  it('keeps corrections to different books apart', () => {
+    const one = override({ bookId: 'b1', title: 'One' });
+    const two = override({ bookId: 'b2', title: 'Two' });
+    const merged = mergePayloads(payload({ overrides: [one] }), payload({ overrides: [two] }));
+    assert.equal(merged.overrides.length, 2);
+  });
+
+  it('reaches the same answer whichever side merges', () => {
+    const a = payload({ overrides: [override({ title: 'A' })] });
+    const b = payload({
+      overrides: [override({ title: 'B', updatedAt: '2026-03-01T00:00:00.000Z', mutationId: 'm3' })],
+    });
+    assert.deepEqual(mergePayloads(a, b).overrides, mergePayloads(b, a).overrides);
+  });
+
+  it('survives a generation written before corrections existed', () => {
+    // A drive already holding a backup was written by a build that had never
+    // heard of these, so an absent collection has to mean "nothing yet".
+    const old = { ...payload() } as SyncPayload;
+    delete (old as Partial<SyncPayload>).overrides;
+    const merged = mergePayloads(payload({ overrides: [override({ title: 'Kept' })] }), old);
+    assert.equal(merged.overrides[0].title, 'Kept');
   });
 });

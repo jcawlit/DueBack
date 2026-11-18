@@ -15,14 +15,14 @@ import {
   type HistoryRecord,
   type NoteRecord,
   type ListeningRecord,
+  type OverrideRecord,
   type ProgressRecord,
   type ShelfBookRecord,
   type ShelfRecord,
   type SyncPayload,
   type TagRecord,
 } from '@/lib/sync/records';
-import { getDb } from './schema';
-import { withLockRetry } from './books';
+import { getDb, withLockRetry } from './schema';
 import { ensureDeviceId } from './identity';
 
 /** A write's identity, stamped on every record it touches. */
@@ -111,6 +111,17 @@ async function collectAllPayload(): Promise<SyncPayload> {
     `SELECT id, source_id, name, position, created_at, updated_at, deleted_at,
             mutation_id, writer_device, base_updated_at
        FROM shelves`,
+  );
+
+  const overrideRows = await db.getAllAsync<{
+    book_id: string; title: string | null; author: string | null;
+    narrator: string | null; series: string | null; series_index: string | null;
+    cover_file: string | null; updated_at: string; deleted_at: string | null;
+    mutation_id: string; writer_device: string; base_updated_at: string | null;
+  }>(
+    `SELECT book_id, title, author, narrator, series, series_index, cover_file,
+            updated_at, deleted_at, mutation_id, writer_device, base_updated_at
+       FROM book_overrides`,
   );
 
   const listeningRows = await db.getAllAsync<{
@@ -227,6 +238,20 @@ async function collectAllPayload(): Promise<SyncPayload> {
       writerDevice: r.writer_device ?? device,
       baseUpdatedAt: r.base_updated_at,
     })),
+    overrides: overrideRows.map<OverrideRecord>((r) => ({
+      bookId: r.book_id,
+      title: r.title,
+      author: r.author,
+      narrator: r.narrator,
+      series: r.series,
+      seriesIndex: r.series_index,
+      coverFile: r.cover_file,
+      updatedAt: r.updated_at,
+      deletedAt: r.deleted_at,
+      mutationId: r.mutation_id,
+      writerDevice: r.writer_device,
+      baseUpdatedAt: r.base_updated_at,
+    })),
     listening: listeningRows.map<ListeningRecord>((r) => ({
       id: r.id,
       bookId: r.book_id,
@@ -259,6 +284,7 @@ export type ApplyReport = {
   history: number;
   shelves: number;
   shelfBooks: number;
+  overrides: number;
   listening: number;
 };
 
@@ -280,7 +306,7 @@ export async function applyPayload(payload: SyncPayload): Promise<ApplyReport> {
   );
   const report: ApplyReport = {
     notes: 0, characters: 0, tags: 0, progress: 0, history: 0, shelves: 0,
-    shelfBooks: 0, listening: 0,
+    shelfBooks: 0, listening: 0, overrides: 0,
   };
 
   await withLockRetry(() =>
@@ -418,6 +444,48 @@ export async function applyPayload(payload: SyncPayload): Promise<ApplyReport> {
         report.shelves += 1;
       }
 
+      /*
+       * Corrections, for books this phone actually has.
+       *
+       * Row-level last-write-wins in the WHERE clause, exactly as the shelves
+       * do it, so taking the same backup in twice is a no-op and an older
+       * generation cannot walk back a newer correction.
+       *
+       * A tombstone — `deleted_at` set, every field null — travels like any
+       * other write, and has to: it is how "I put this book back the way the
+       * files describe it" reaches the other phone. Without it the other side
+       * would read its own surviving correction as the newer fact and quietly
+       * restore it.
+       */
+      for (const override of payload.overrides) {
+        if (!known.has(override.bookId)) continue;
+        await db.runAsync(
+          `INSERT INTO book_overrides (book_id, title, author, narrator, series,
+                                       series_index, cover_file, updated_at,
+                                       writer_device, mutation_id, deleted_at,
+                                       base_updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(book_id) DO UPDATE SET
+             title = excluded.title,
+             author = excluded.author,
+             narrator = excluded.narrator,
+             series = excluded.series,
+             series_index = excluded.series_index,
+             cover_file = excluded.cover_file,
+             updated_at = excluded.updated_at,
+             writer_device = excluded.writer_device,
+             mutation_id = excluded.mutation_id,
+             deleted_at = excluded.deleted_at,
+             base_updated_at = excluded.base_updated_at
+           WHERE (excluded.updated_at, excluded.writer_device, excluded.mutation_id) >= (book_overrides.updated_at, book_overrides.writer_device, book_overrides.mutation_id)`,
+          override.bookId, override.title, override.author, override.narrator,
+          override.series, override.seriesIndex, override.coverFile,
+          override.updatedAt, override.writerDevice, override.mutationId,
+          override.deletedAt ?? null, override.baseUpdatedAt ?? null,
+        );
+        report.overrides += 1;
+      }
+
       // An assignment does need its book: it says where that book goes.
       for (const placed of payload.shelfBooks) {
         if (!known.has(placed.bookId)) continue;
@@ -510,6 +578,7 @@ export async function isBackupPending(lastBackupAt: string | null): Promise<bool
        UNION ALL SELECT MAX(updated_at) FROM note_characters
        UNION ALL SELECT MAX(updated_at) FROM checkouts
        UNION ALL SELECT MAX(progress_updated_at) FROM books
+       UNION ALL SELECT MAX(updated_at) FROM book_overrides
      )`,
   );
   const newest = row?.newest ?? null;
@@ -551,5 +620,6 @@ export async function collectPayload(libraryId?: string): Promise<SyncPayload> {
      */
     shelves: payload.shelves,
     shelfBooks: payload.shelfBooks.filter((sb) => ids.has(sb.bookId)),
-    listening: payload.listening.filter((l) => ids.has(l.bookId)) };
+    listening: payload.listening.filter((l) => ids.has(l.bookId)),
+    overrides: payload.overrides.filter((o) => ids.has(o.bookId)) };
 }

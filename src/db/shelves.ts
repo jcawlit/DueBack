@@ -15,9 +15,8 @@
 
 import { readingDataChanged } from '@/lib/sync/changes';
 import { needsRenumber, positionBetween, renumbered, STEP } from '@/lib/library/shelfOrder';
-import { withLockRetry } from './books';
 import { newId } from './notes';
-import { getDb } from './schema';
+import { getDb, withLockRetry } from './schema';
 import { ensureDeviceId } from './identity';
 
 export type Shelf = {

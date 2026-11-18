@@ -141,6 +141,42 @@ export type BookIdentityRecord = Stamp & {
   sampleHash: string | null;
 };
 
+/**
+ * A correction to what a book's files say it is.
+ *
+ * Carried for the reason this file states at the top: it cannot be rebuilt by
+ * rescanning. A rescan would give the *wrong* answer back — the tags that
+ * prompted the correction are still in the files and still wrong — so a
+ * phone restoring from this drive without it would silently undo every fix.
+ *
+ * `null` is "not corrected"; `''` is "corrected to nothing". The two are
+ * different everywhere, and a merge that collapsed them would resurrect the
+ * bogus author somebody cleared on the other phone. `seriesIndex` is a string
+ * for the same reason. See `src/lib/library/overrides.ts`.
+ *
+ * Keyed by book, so last-write-wins is per book rather than per field: two
+ * phones correcting different fields of the same book keep the newer write
+ * whole. That is the same bargain the shelves make, and it is deliberate —
+ * merging field by field would let two half-corrections combine into a
+ * description neither person ever saw.
+ */
+export type OverrideRecord = Stamp & {
+  bookId: string;
+  title: string | null;
+  author: string | null;
+  narrator: string | null;
+  series: string | null;
+  seriesIndex: string | null;
+  /**
+   * The thumbnail's file name. Travels so the *intent* survives a restore,
+   * but the image itself lives in the app's own storage and is not on the
+   * drive: the other phone shows the scanned cover until the picture is
+   * picked again there. A name that resolves to no file falls back exactly
+   * as a missing cover already does.
+   */
+  coverFile: string | null;
+};
+
 export type HistoryRecord = Stamp & {
   id: string;
   bookId: string;
@@ -160,6 +196,7 @@ export type SyncPayload = {
   shelves: ShelfRecord[];
   shelfBooks: ShelfBookRecord[];
   listening: ListeningRecord[];
+  overrides: OverrideRecord[];
 };
 
 export function emptyPayload(): SyncPayload {
@@ -173,6 +210,7 @@ export function emptyPayload(): SyncPayload {
     shelves: [],
     shelfBooks: [],
     listening: [],
+    overrides: [],
   };
 }
 
@@ -187,6 +225,7 @@ export const keyOf = {
   shelf: (r: ShelfRecord) => r.id,
   shelfBook: (r: ShelfBookRecord) => r.bookId,
   listening: (r: ListeningRecord) => r.id,
+  override: (r: OverrideRecord) => r.bookId,
 };
 
 /**
@@ -343,6 +382,7 @@ export function mergePayloads(mine: SyncPayload, theirs: SyncPayload): SyncPaylo
   const characters = mergeBy(mine.characters, theirs.characters, keyOf.character);
   const tags = mergeBy(mine.tags, theirs.tags, keyOf.tag);
   const history = mergeBy(mine.history, theirs.history, keyOf.history);
+  const overrides = mergeBy(mine.overrides, theirs.overrides, keyOf.override);
   /*
    * Progress is the latest position, not the furthest. Rewinding to hear
    * something again is a decision, and a sync that "helpfully" restored the
@@ -374,6 +414,7 @@ export function mergePayloads(mine: SyncPayload, theirs: SyncPayload): SyncPaylo
     shelves,
     shelfBooks,
     listening,
+    overrides,
   };
 }
 

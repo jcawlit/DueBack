@@ -18,6 +18,7 @@ import {
 } from '@/lib/metadata';
 import { isJunkFile, type ScannedFile } from '@/lib/library/grouping';
 import { safDisplayName } from './safNames';
+import { shouldSweep } from './coverNames';
 
 /** What a walk of the library root found. */
 export type TreeListing = {
@@ -355,14 +356,23 @@ export async function readImageFile(uri: string, maxBytes = 8 * 1024 * 1024): Pr
  * Deletes every cached thumbnail belonging to a book, except `keep`.
  * Thumbnails are named for their artwork, so deleting by prefix is what clears
  * a book's covers without having to know what the current one is called.
+ *
+ * A cover the listener picked is left alone unless `includeUser` says
+ * otherwise. Without that exception the next scan to store the drive's
+ * artwork would sweep away a picked cover while the book's correction went on
+ * naming it — a book with no picture, and nothing on screen to explain it.
  */
-export function deleteCoversFor(bookId: string, keep?: string) {
+export function deleteCoversFor(
+  bookId: string,
+  keep?: string,
+  options: { includeUser?: boolean } = {},
+) {
   try {
     const dir = coversDirectory();
     if (!dir.exists) return;
     for (const entry of dir.list()) {
       if (!(entry instanceof File)) continue;
-      if (!entry.name.startsWith(`${bookId}.`) || entry.name === keep) continue;
+      if (!shouldSweep(entry.name, bookId, keep, options.includeUser)) continue;
       try {
         entry.delete();
       } catch {

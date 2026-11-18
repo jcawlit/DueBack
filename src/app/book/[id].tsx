@@ -25,6 +25,12 @@ import { CharactersTab } from '@/components/CharactersTab';
 import { NoteCard, NoteText } from '@/components/NoteCard';
 import { ChevronLeft, PauseIcon, PlayIcon } from '@/components/icons';
 import { CharacterSheet } from '@/components/CharacterSheet';
+import { BookDetailsSheet, type ScannedDetails } from '@/components/BookDetailsSheet';
+import type { BookOverride } from '@/lib/library/overrides';
+import { clearOverride, loadOverride, saveOverride } from '@/db/overrides';
+import { loadScannedDetails } from '@/db/books';
+import { storeUserCover } from '@/lib/files/covers';
+import * as ImagePicker from 'expo-image-picker';
 import { NoteSheet } from '@/components/NoteSheet';
 import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { useNotes } from '@/store/notes';
@@ -193,6 +199,10 @@ export default function BookScreen() {
   const miniPlayerInset = useMiniPlayerInset();
   const [editing, setEditing] = useState<string | null>(null);
   const [openCharacter, setOpenCharacter] = useState<Character | null>(null);
+  /** The details sheet, and what it needs to show a difference. */
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [scanned, setScanned] = useState<ScannedDetails | null>(null);
+  const [override, setOverride] = useState<BookOverride | null>(null);
 
   const notes = useNotes((s) => s.notes);
   const notesBookId = useNotes((s) => s.bookId);
@@ -217,6 +227,26 @@ export default function BookScreen() {
   useEffect(() => {
     if (id) void loadNotes(id);
   }, [id, loadNotes]);
+
+  /*
+   * What the files say, and what has been corrected, read when the sheet is
+   * opened rather than on every visit to the screen. Two queries that nothing
+   * else on this screen needs — `loadBooks` has already layered the
+   * corrections into the book being displayed.
+   */
+  useEffect(() => {
+    if (!editingDetails || !id) return;
+    let alive = true;
+    void (async () => {
+      const [facts, saved] = await Promise.all([loadScannedDetails(id), loadOverride(id)]);
+      if (!alive) return;
+      setScanned(facts);
+      setOverride(saved);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [editingDetails, id]);
 
   /*
    * A book from a server is re-read on open, which is where its chapters
@@ -706,6 +736,23 @@ export default function BookScreen() {
             </Text>
 
             {/*
+              A plain link rather than a long-press, because nobody goes
+              looking for a gesture to fix a title. It says "edited" once
+              something has been corrected, so a book that does not match its
+              files says so on the screen where you would wonder why.
+            */}
+            <Pressable
+              onPress={() => setEditingDetails(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Edit this book's title, author and cover"
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, paddingVertical: 4 })}
+            >
+              <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>
+                {book.overridden ? 'edited · details →' : 'edit details →'}
+              </Text>
+            </Pressable>
+
+            {/*
               Stamped on at a slight angle, the way a date is. It says the
               state and when it changed, which together are what the old tag
               in the header was saying from much further away.
@@ -991,6 +1038,65 @@ export default function BookScreen() {
           {backupLine}
         </Text>
       </ScrollView>
+
+      {/*
+        Mounted only while open, and only once what it needs has arrived. It
+        shows the difference between the screen and the files, so rendering it
+        before the scan's own values are read would mean a first frame in
+        which every field looked uncorrected.
+      */}
+      {editingDetails && scanned ? (
+        <BookDetailsSheet
+          book={book}
+          scanned={scanned}
+          override={override}
+          onSave={(patch) => {
+            void (async () => {
+              await saveOverride(book.id, patch);
+              setOverride(await loadOverride(book.id));
+              await refresh();
+            })();
+          }}
+          onPickCover={() => {
+            void (async () => {
+              /*
+               * No permission request: the system photo picker hands back one
+               * chosen file and needs none. Asking would be a dialog that
+               * buys nothing, on a app whose whole point is that it wants
+               * nothing from you.
+               */
+              const picked = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: 'images',
+                allowsEditing: true,
+                // A cover is square. Cropping on the way in means the shelf
+                // never has to guess what to cut.
+                aspect: [1, 1],
+              });
+              if (picked.canceled || !picked.assets[0]) return;
+              const stored = await storeUserCover(book.id, picked.assets[0].uri);
+              if (!stored) return;
+              await saveOverride(book.id, { coverFile: stored.fileName });
+              setOverride(await loadOverride(book.id));
+              await refresh();
+            })();
+          }}
+          onClearCover={() => {
+            void (async () => {
+              await saveOverride(book.id, { coverFile: null });
+              setOverride(await loadOverride(book.id));
+              await refresh();
+            })();
+          }}
+          onRevertAll={() => {
+            void (async () => {
+              await clearOverride(book.id);
+              setOverride(null);
+              await refresh();
+            })();
+          }}
+          onClose={() => setEditingDetails(false)}
+        />
+      ) : null}
 
       <LibraryCardSheet
         visible={showCard}

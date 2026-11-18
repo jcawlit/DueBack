@@ -9,6 +9,7 @@
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { File } from 'expo-file-system';
 import { coverUri, deleteCover, deleteCoversFor, writeCoverBytes } from './access';
+import { coverName } from './coverNames';
 
 /** Long side of the stored thumbnail, in pixels. */
 export const THUMBNAIL_SIZE = 400;
@@ -19,7 +20,7 @@ export const THUMBNAIL_SIZE = 400;
  * other — the app never points an image at a URL it would have to put a
  * token in.
  */
-export type CoverSource = 'folder-image' | 'embedded' | 'remote' | 'none';
+export type CoverSource = 'folder-image' | 'embedded' | 'remote' | 'user' | 'none';
 
 export type StoredCover = {
   /** File name within the covers directory. */
@@ -86,7 +87,7 @@ export async function storeCover(
   // name deliberately does not begin with the book's id, so that sweeping a
   // book's old thumbnails cannot delete the file being worked on.
   const scratchName = `scratch-${bookId}.${extensionFor(raw)}`;
-  const finalName = `${bookId}.${coverToken(raw)}.jpg`;
+  const finalName = coverName(bookId, coverToken(raw), source === 'user');
 
   const scratchUri = await writeCoverBytes(scratchName, raw);
   if (!scratchUri) return null;
@@ -134,6 +135,29 @@ export async function storeCover(
   }
 }
 
+/**
+ * Stores a cover the listener picked, and returns its file name.
+ *
+ * The bytes are read from the picked file rather than asked for as base64:
+ * `expo-image-picker` would hand back a photo-sized string, and the
+ * downscaler needs a URI anyway.
+ *
+ * Nothing here writes to the database. The name goes into the book's
+ * correction (`src/db/overrides.ts`), so a picked cover is reverted the same
+ * way a corrected title is, and a rescan cannot overrule it.
+ */
+export async function storeUserCover(bookId: string, pickedUri: string) {
+  const picked = new File(pickedUri);
+  const bytes = picked.bytes();
+  return storeCover(bookId, bytes instanceof Promise ? await bytes : bytes, 'user');
+}
+
+/**
+ * Deletes every thumbnail a book has, the listener's own included.
+ *
+ * Called when a book is forgotten, which is the one time a picked cover
+ * should go: the book it belonged to is no longer in the library.
+ */
 export function removeCover(bookId: string) {
-  deleteCoversFor(bookId);
+  deleteCoversFor(bookId, undefined, { includeUser: true });
 }

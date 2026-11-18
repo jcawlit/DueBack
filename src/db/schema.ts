@@ -131,3 +131,32 @@ export const SETTING_KEYS = {
    */
   activeSourceId: 'library.activeSourceId',
 } as const;
+
+/**
+ * Retries a write that lost a race for the database.
+ *
+ * `withExclusiveTransactionAsync` runs on a connection of its own — the
+ * expo-sqlite docs say outright that while one is open, "the other async write
+ * queries will abort with `database is locked`". `PRAGMA busy_timeout` is set
+ * per connection, so the one on ours does not cover the transaction's.
+ *
+ * Everything here is short, so waiting and trying again is the whole answer.
+ * Only a lock is retried: a constraint failure would fail the same way for
+ * ever.
+ */
+const LOCK_BACKOFF_MS = [80, 200, 400, 800, 1600, 3000];
+
+function isLockedError(err: unknown): boolean {
+  return /database is locked|SQLITE_BUSY/i.test((err as Error)?.message ?? '');
+}
+
+export async function withLockRetry<T>(run: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (err) {
+      if (!isLockedError(err) || attempt >= LOCK_BACKOFF_MS.length) throw err;
+      await new Promise((resolve) => setTimeout(resolve, LOCK_BACKOFF_MS[attempt]));
+    }
+  }
+}

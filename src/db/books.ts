@@ -9,9 +9,11 @@ import type { Book, Chapter, Checkout, LocalState } from '@/data/types';
 import { coverUri } from '@/lib/files/access';
 import { fallbackPalette } from '@/lib/library/palette';
 import { fingerprintKey } from '@/lib/library/grouping';
+import { applyOverride } from '@/lib/library/overrides';
 import { newUuid } from '@/lib/library/ids';
 import { wasUnseen } from '@/lib/scan/coverage';
-import { ensureDeviceId, getDb, getSetting, SETTING_KEYS } from './schema';
+import { loadOverrides } from './overrides';
+import { ensureDeviceId, getDb, getSetting, SETTING_KEYS, withLockRetry } from './schema';
 import { DRIVE_BOOKS, PLACEHOLDER_DRIVE_BOOKS } from './scope';
 
 export type BookRow = {
@@ -461,6 +463,17 @@ export async function loadBooks(): Promise<Book[]> {
     back_at: string | null;
   }>('SELECT book_id, out_at, back_at FROM checkouts ORDER BY book_id, out_at');
 
+  /*
+   * The listener's corrections, layered over the scan.
+   *
+   * Here and nowhere else. Shelves, the letter bands, the series ledges,
+   * search and every sort read `Book.title`, `Book.author` and `Book.series`,
+   * so one layering at the read makes all of them follow a correction —
+   * whereas fixing it in the UI would rename a book on its own screen and
+   * leave it filed under the old name on the shelf.
+   */
+  const overrides = await loadOverrides();
+
   const partsBy = new Map<string, PartRow[]>();
   for (const p of parts) {
     const list = partsBy.get(p.book_id);
@@ -483,11 +496,22 @@ export async function loadBooks(): Promise<Book[]> {
   return books.map((row) => {
     const bookParts = partsBy.get(row.id) ?? [];
     const palette = fallbackPalette(row.id);
+    const facts = applyOverride(
+      {
+        title: row.title,
+        author: row.author ?? '',
+        narrator: row.narrator ?? undefined,
+        series: row.series ?? undefined,
+        seriesIndex: row.series_index ?? undefined,
+        coverFile: row.cover_file ?? undefined,
+      },
+      overrides.get(row.id),
+    );
     return {
       id: row.id,
-      title: row.title,
-      author: row.author ?? '',
-      narrator: row.narrator ?? undefined,
+      title: facts.title,
+      author: facts.author,
+      narrator: facts.narrator,
       durationSec: row.duration_sec,
       sizeBytes: row.size_bytes,
       sourceRelPath: row.folder_rel_path,
@@ -495,7 +519,7 @@ export async function loadBooks(): Promise<Book[]> {
       chapters: chaptersBy.get(row.id) ?? [],
       // Stored as a bare file name so the row survives the app's data
       // directory moving; resolved to a URI only when handed to the UI.
-      coverThumbPath: row.cover_file ? coverUri(row.cover_file) : undefined,
+      coverThumbPath: facts.coverFile ? coverUri(facts.coverFile) : undefined,
       local: localStateFrom(row),
       progressSec: row.progress_sec,
       finishedAt: row.finished_at ?? undefined,
@@ -516,11 +540,43 @@ export async function loadBooks(): Promise<Book[]> {
       lastPlayedAt: row.last_played_at ?? undefined,
       sourceId: row.source_id ?? undefined,
       remoteId: row.remote_id ?? undefined,
-      series: row.series ?? undefined,
-      seriesIndex: row.series_index ?? undefined,
+      series: facts.series,
+      seriesIndex: facts.seriesIndex,
       remoteUpdatedAt: row.remote_updated_at ?? undefined,
+      // Empty for almost every book. Present so a screen can say a field was
+      // corrected, and offer to put it back.
+      overridden: facts.overridden.length > 0 ? facts.overridden : undefined,
     } satisfies Book;
   });
+}
+
+/**
+ * What the files say about one book, with no corrections applied.
+ *
+ * The details sheet shows the difference between this and what is on screen,
+ * so it needs the scan's own answer — and `loadBooks` has already layered
+ * the corrections in by the time anything downstream sees a `Book`.
+ */
+export async function loadScannedDetails(bookId: string) {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{
+    title: string;
+    author: string | null;
+    narrator: string | null;
+    series: string | null;
+    series_index: number | null;
+  }>(
+    'SELECT title, author, narrator, series, series_index FROM books WHERE id = ?',
+    bookId,
+  );
+  if (!row) return null;
+  return {
+    title: row.title,
+    author: row.author ?? '',
+    narrator: row.narrator ?? undefined,
+    series: row.series ?? undefined,
+    seriesIndex: row.series_index ?? undefined,
+  };
 }
 
 /** Rows for the dev screen, which wants the scan bookkeeping too. */
@@ -594,34 +650,6 @@ export async function updateProgress(id: string, positionSec: number, finishedAt
 }
 
 /** Records where each part's local copy landed after a successful copy. */
-/**
- * Retries a write that lost a race for the database.
- *
- * `withExclusiveTransactionAsync` runs on a connection of its own — the
- * expo-sqlite docs say outright that while one is open, "the other async write
- * queries will abort with `database is locked`". `PRAGMA busy_timeout` is set
- * per connection, so the one on ours does not cover the transaction's.
- *
- * Everything here is short, so waiting and trying again is the whole answer.
- * Only a lock is retried: a constraint failure would fail the same way for
- * ever.
- */
-const LOCK_BACKOFF_MS = [80, 200, 400, 800, 1600, 3000];
-
-function isLockedError(err: unknown): boolean {
-  return /database is locked|SQLITE_BUSY/i.test((err as Error)?.message ?? '');
-}
-
-export async function withLockRetry<T>(run: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      return await run();
-    } catch (err) {
-      if (!isLockedError(err) || attempt >= LOCK_BACKOFF_MS.length) throw err;
-      await new Promise((resolve) => setTimeout(resolve, LOCK_BACKOFF_MS[attempt]));
-    }
-  }
-}
 
 /**
  * Everything that turns a finished copy into a checked-out book, in one go.

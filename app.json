@@ -47,7 +47,15 @@
       "expo-sqlite",
       "./plugins/withBackupExclusion",
       "./plugins/withCleartextTraffic",
-    "./plugins/withLockScreenSeek",
+      "./plugins/withLockScreenSeek",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Due Back needs your photos only to let you pick a cover for a book whose artwork is missing or wrong.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
       [
         "expo-audio",
         {

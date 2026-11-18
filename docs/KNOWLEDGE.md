@@ -1674,3 +1674,94 @@ switching back brings the books and the notes with it.
 
 *`src/db/scope.ts`, `src/db/books.ts`, `src/store/scan.ts`,
 `src/app/settings.tsx`, tests in `tests/root-switch.test.ts`*
+
+### A correction has to be a layer, not an edit (2026-11-18)
+
+Metadata comes from the files and the files lie. "Hyperion" arrives filed
+under the author **"Top 100 scifi books"** because that is what its tags say.
+No scanner fixes that: the tag is not malformed, it is wrong.
+
+Writing the fix into `books.title` does not work, and the reason is one line
+of `upsertBook`:
+
+```sql
+title  = excluded.title,
+author = excluded.author,
+```
+
+Unconditional. An edit written there survives exactly until the drive is next
+plugged in — and the failure is silent, delayed by days, and looks like the
+app ignored the edit. Overwriting also throws away the only copy of what the
+files said, so "put it back" becomes impossible.
+
+So corrections live in `book_overrides`, one row per book, and `loadBooks`
+layers them over the scan. **That layering happens in exactly one place.**
+Shelves, the letter bands, the series ledges, search and every sort read
+`Book.title`, `Book.author` and `Book.series`, so one layering at the read
+makes all of them follow a correction. Fixing it in the UI instead would
+rename a book on its own screen and leave it filed under the old name on the
+shelf.
+
+**`null` is not `''`.** `null` means "not corrected, use the scan"; `''` means
+"corrected to nothing". The distinction is load-bearing, because the honest fix
+for that bogus author is *no author at all* rather than another guess — and
+collapsing the two makes the one field people most want to clear the one field
+they cannot. `series_index` is a TEXT column for this reason alone: a REAL has
+nowhere to put "deliberately none", and a sentinel number would be a worse lie
+than the metadata being corrected.
+
+Two rules that are easy to miss and were both bugs waiting to happen:
+
+- **An unchanged save stores nothing.** Open the editor, change nothing, press
+  Save, and no correction is recorded. Recording one would freeze that field
+  against every future rescan with nobody aware it had happened.
+- **A correction is per field.** The cover is saved on its own, so picking a
+  picture cannot quietly revert a title typed a moment earlier.
+
+*`src/lib/library/overrides.ts`, `src/db/overrides.ts`, `src/db/books.ts`,
+tests in `tests/overrides.test.ts` and `tests/overrides-db.test.ts`*
+
+### A picked cover must survive the next scan's sweep (2026-11-18)
+
+`deleteCoversFor` clears a book's thumbnails by prefix — every file starting
+`<bookId>.` — which is how storing new artwork replaces old without knowing
+what the old was called. A cover the listener picked sits in that same
+directory under that same prefix.
+
+So the next scan that found artwork on the drive deleted the picked cover while
+the book's correction went on naming it. Result: a book with no picture, days
+after the edit, no error anywhere, and every other part of the app believing it
+has artwork because the row names a file.
+
+The mark `.user.` in the file name is what survives the sweep;
+`shouldSweep` in `src/lib/files/coverNames.ts` is the one place that decides,
+and it is pure so it can be tested. `includeUser` is passed only when a book is
+being forgotten, which is the one time a picked cover should go.
+
+While fixing it: `CoverFace` had **no `onError`**, so any thumbnail that would
+not load rendered as a blank rectangle in the book's colour rather than falling
+back to the drawn cover. Reachable without picked covers at all — "Clear
+storage" empties that directory. It now falls back, keyed to the failed URI
+rather than a flag, because a thumbnail's name changes with its artwork and a
+flag would outlive the file it was about.
+
+*`src/lib/files/coverNames.ts`, `src/lib/files/access.ts`,
+`src/lib/files/covers.ts`, `src/components/CoverFace.tsx`, tests in
+`tests/cover-names.test.ts`*
+
+### expo-image-picker adds camera and microphone permissions (2026-11-18)
+
+Its config plugin adds `CAMERA` and `RECORD_AUDIO` to the manifest by default,
+plus legacy `READ_`/`WRITE_EXTERNAL_STORAGE`. On an offline audiobook player
+that wants nothing from anyone, a cover picker asking for the camera and the
+microphone is both alarming to read and more to declare on a store listing.
+
+`cameraPermission: false` and `microphonePermission: false` in `app.json` do
+better than omitting them: the plugin puts both into **blocked** permissions,
+so they emerge as `tools:node="remove"` and no other package can add them back.
+Verify in `android/app/src/main/AndroidManifest.xml` after a prebuild.
+
+No runtime permission request is needed. The system photo picker returns one
+chosen file and grants access to that file alone.
+
+*`app.json`, `src/app/book/[id].tsx`*

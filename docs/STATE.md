@@ -34,7 +34,7 @@ All correctly ignored, none of it missing by accident:
 This matters more than anything else in this file. There are two tiers of
 test, and they cover very different ground.
 
-**1. Node unit tests — `npm test`, ~300 cases, run in CI.**
+**1. Node unit tests — `npm test`, 667 cases, run in CI.**
 Pure logic only: grouping, identity, merge rules, the sound maths, note
 arithmetic, export, autosave, and the database migrations against `node:sqlite`.
 Fast, trustworthy, and the right place for anything that can live there.
@@ -107,8 +107,9 @@ Treat these as open questions, not as working features:
 
 A testing stage, not a feature. The app can connect to a server, sign in,
 pick one of its book libraries, read that library's catalogue onto the
-shelves with its covers, and open a book to its real chapters. Playing one
-is a later step: nothing is downloaded yet.
+shelves with its covers, open a book to its real chapters, and download it
+(`src/lib/abs/checkout.ts`, `src/lib/abs/download.ts`). **Nothing in the
+download path has run on a phone** — see below.
 
 Verified only against the Docker server in `tools/abs-test`, from Node —
 login, refresh, authorize, libraries, paginated items, expanded items,
@@ -137,10 +138,12 @@ cancel, which have only ever been reasoned about.
   phone, so the ruler shows the active library's share of it, and with
   downloads in two sources no single tray shows everything the phone
   holds. `tests/tray-scope.test.ts` pins the rule.
-- **A book on a server opens on its own plain screen**, `src/app/abs/[id]`,
-  not the polished Book screen. That one is built around checking out,
-  returning and holding, none of which mean anything yet for a book with no
-  audio on the phone.
+- **`src/app/abs/[id]` is now a diagnostics screen, not the book's screen.**
+  It holds what only a tester wants — the remote id, when the record was
+  cached, what the last progress push did — and is reached by the "server
+  details" link on the Book screen. See the "one screen per book" entry
+  below, which is the rule; this is the leftover of the old one, kept
+  deliberately.
 - **The position comes from `currentTime`**, and the newer of the two
   writes wins. Taking the server's shows "Picked up where you left off on
   another device".
@@ -217,11 +220,19 @@ account gets locked.
 Do not report these as findings. Report them as findings only with new
 evidence that the reasoning was wrong.
 
-- **No next/previous chapter on the lock screen, and no configurable skip
-  interval.** `expo-audio` removes `COMMAND_SEEK_TO_NEXT` and
-  `COMMAND_SEEK_TO_PREVIOUS` in `AudioMediaSessionCallback.onConnect`, and
-  hardcodes a 10 s interval. Fixing it means forking the module's Kotlin and
-  carrying that fork across every SDK upgrade.
+- **No next/previous chapter on the lock screen.** `expo-audio` removes
+  `COMMAND_SEEK_TO_NEXT` and `COMMAND_SEEK_TO_PREVIOUS` in
+  `AudioMediaSessionCallback.onConnect`. Adding them back means teaching the
+  session what a chapter boundary is, which the module has no concept of.
+
+  The **skip interval is no longer among these**, and neither are the dead
+  buttons. `plugins/withLockScreenSeek.js` rewrites three of the module's
+  Kotlin files at prebuild: the buttons were custom session commands answered
+  with `RESULT_ERROR_NOT_SUPPORTED`, so they drew and did nothing. They are
+  now `COMMAND_SEEK_BACK`/`COMMAND_SEEK_FORWARD` at 60 s. The fork this entry
+  warned about therefore exists, and is carried by a plugin that **fails the
+  build** rather than silently missing if an SDK upgrade moves the source.
+  Not yet confirmed on a phone.
 - **Cancelling a copy cannot interrupt the part in flight.** One part is one
   native `copy()` call with no abort. The button is answered immediately — the
   book returns to the shelf and the bytes are discarded — but the drive keeps
@@ -241,19 +252,25 @@ evidence that the reasoning was wrong.
 
 Roughly in the order I would take them.
 
-1. **The backup-frequency fix needs a build to reach the phone.** `b0ffc11` is
+1. **Editing a book's details has never run on hardware.** The data layer and
+   the merge rules are covered by `tests/overrides*.test.ts` and
+   `tests/cover-names.test.ts`, but nothing has proved the picker opens, a
+   picked cover survives a rescan, or a correction follows a book onto the
+   shelves and into search on a real library. `expo-image-picker` is a new
+   native module, so it needs a development build.
+2. **The backup-frequency fix needs a build to reach the phone.** `b0ffc11` is
    committed and unit-tested but not in any APK. What proves it is watching the
    generation number advance about once per ten minutes of listening instead of
    every few seconds.
-2. **Four Expo patch bumps and a missing `expo-asset` peer.** `expo-doctor`
+3. **Four Expo patch bumps and a missing `expo-asset` peer.** `expo-doctor`
    reports 19/21 for these two reasons. Deliberately deferred to a branch,
    because the one time the advice was taken it broke the dependency tree.
-3. **Conflicted copies need a prior sync to fire.** The first-ever merge
+4. **Conflicted copies need a prior sync to fire.** The first-ever merge
    between two phones is last-write-wins, so one side's edit to a note can be
    lost. Deliberate — the alternative litters the margins with copies — but it
    is the weakest point in the sync design, and the one part of sync no
    hardware has exercised.
-4. **Reconnect questions are transient.** Held in the store, not a table. An
+5. **Reconnect questions are transient.** Held in the store, not a table. An
    unanswered question is re-asked on the next scan, which is self-healing but
    does not survive a force-stop.
 

@@ -478,6 +478,49 @@ export const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
       CREATE INDEX IF NOT EXISTS idx_listening_book ON listening(book_id);
     `);
   },
+
+  /*
+   * What the listener says a book is, where the files are wrong.
+   *
+   * A layer, not an edit. `upsertBook` rewrites `books.title` on every scan,
+   * so a correction written into that row lives until the drive is next
+   * plugged in; and overwriting it would throw away the only copy of what the
+   * files said, which is what a revert needs. See
+   * `src/lib/library/overrides.ts` for the rules.
+   *
+   * Every column is nullable and means three things, which is the one piece
+   * of this table worth reading twice: NULL is "not corrected, use the
+   * scan", `''` is "corrected to nothing", and anything else is the
+   * correction. The distinction is load-bearing — the honest fix for an
+   * author tagged "Top 100 scifi books" is no author, and a schema that
+   * could not say so would fail at the one case that prompted it.
+   *
+   * `series_index` is TEXT for the same reason: a REAL column has nowhere to
+   * put "deliberately none", and a sentinel number would be a worse lie than
+   * the metadata being corrected.
+   *
+   * The stamp columns are the ones every synced record carries. A correction
+   * is something a person made and cannot be rebuilt by rescanning, which is
+   * `src/lib/sync/records.ts`'s own test for what belongs on the drive.
+   */
+  async (db) => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS book_overrides (
+        book_id         TEXT PRIMARY KEY NOT NULL,
+        title           TEXT,
+        author          TEXT,
+        narrator        TEXT,
+        series          TEXT,
+        series_index    TEXT,
+        cover_file      TEXT,
+        updated_at      TEXT NOT NULL,
+        writer_device   TEXT NOT NULL,
+        mutation_id     TEXT NOT NULL,
+        deleted_at      TEXT,
+        base_updated_at TEXT
+      );
+    `);
+  },
 ];
 
 export async function migrate(db: SQLite.SQLiteDatabase) {
