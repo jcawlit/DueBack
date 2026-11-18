@@ -177,12 +177,22 @@ cancel, which have only ever been reasoned about.
   book in a format the server will not pass through is the case that
   would reach it.
 
-- **`android.usesCleartextTraffic` is on, for the whole app.** DEV-STAGE.
-  An Audiobookshelf server on a LAN is reached over plain http and Android
-  blocks that by default, so without this a connect attempt dies at the
-  socket with nothing useful to show. Before release this must become a
-  network security config that permits cleartext only for private address
-  ranges — the app config carries the same note beside the flag.
+- **`android.usesCleartextTraffic` is on, for the whole app — deliberately,
+  and no longer a release blocker.** An Audiobookshelf server on a LAN is
+  reached over plain http and Android blocks that by default, so without the
+  flag a connect attempt dies at the socket with nothing useful to show.
+  This entry used to say the flag had to become "a network security config
+  that permits cleartext only for private address ranges" before release.
+  **That cannot be written:** a network security config's `<domain>` takes a
+  hostname or an IP literal and has no subnet syntax, so the rule cannot be
+  expressed in the manifest for an address typed in at runtime.
+  It is enforced in the app instead, at the single chokepoint every server
+  request passes through: `isCleartextToPublicHost` in
+  `src/lib/abs/client.ts` refuses any plain-http request to an address
+  outside the private ranges, loopback and the LAN naming conventions,
+  before it is sent — so it covers a server saved before the check existed,
+  not just the connect form. `tests/abs-client.test.ts` pins the address
+  classification.
 - **The connect form is in Settings under "Audiobookshelf (testing)".**
   Plain fields and square buttons on purpose. It is not meant to survive
   into Settings looking like that. "Check again" there is what re-reads the

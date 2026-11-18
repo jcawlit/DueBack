@@ -71,6 +71,27 @@ describe('the server address', () => {
     // https is fine wherever it points.
     assert.equal(isCleartextToPublicHost('https://books.example.com'), false);
   });
+
+  it('refuses the request rather than only warning about it', async () => {
+    /*
+     * Enforced in the client, not in the connect form, so it covers a server
+     * saved before the check existed and every later call — covers, streams,
+     * progress — not just signing in. The assertion that matters is the
+     * second one: nothing was sent, so the password never reached the wire.
+     */
+    const { fetchImpl, count } = scripted([json({ user: { id: 'u', username: 'j', type: 'user', token: 't' } })]);
+    await assert.rejects(
+      () => login('http://books.example.com', 'jake', 'hunter2', fetchImpl),
+      (err: unknown) => err instanceof AbsError && err.kind === 'insecure',
+    );
+    assert.equal(count(), 0, 'refused before anything was sent');
+  });
+
+  it('still allows plain http to a server on your own network', async () => {
+    const { fetchImpl, count } = scripted([json({ user: { id: 'u', username: 'j', type: 'user', token: 't' } })]);
+    await login('http://192.168.1.90:13378', 'jake', 'hunter2', fetchImpl);
+    assert.equal(count(), 1, 'a LAN server is the normal way to run this');
+  });
 });
 
 describe('signing in', () => {

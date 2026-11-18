@@ -9,7 +9,7 @@
 import { Directory, File, FileMode, Paths } from 'expo-file-system';
 import { INCOMPLETE_MARKER, isIncompleteMarker } from '@/lib/library/grouping';
 import { isSupportedAudio } from '@/lib/metadata';
-import { naturalCompare } from '@/lib/library/names';
+import { orderImportedParts } from '@/lib/library/importOrder';
 import { safeLocalName } from './localNames';
 import { safDisplayName } from './safNames';
 
@@ -134,6 +134,60 @@ export async function importBookFromFile(onProgress?: ImportProgress): Promise<I
   }
 }
 
+/**
+ * How deep a picked folder is walked for audio.
+ *
+ * Two is enough for every real arrangement: `Book/Disc 1/01.mp3`, or a
+ * `Book/Audio/` next to a `Book/Artwork/`. Deeper than that and the pick was
+ * probably a whole library rather than one book, which is what the library
+ * root is for.
+ */
+const IMPORT_DEPTH = 2;
+
+/**
+ * Every supported audio file in a picked folder, in playing order.
+ *
+ * This used to list the folder's immediate files only, so a book arranged as
+ * `Disc 1/` and `Disc 2/` — a common shape for a ripped audiobook — produced
+ * no audio at all and was refused as if it held none. Worse in the mixed case:
+ * a stray intro file loose at the top with the rest in subfolders imported as
+ * a one-part book. The scanner has always descended into disc folders; this is
+ * the same expectation.
+ *
+ * `orderImportedParts` holds the ordering and naming rules.
+ */
+function collectAudio(root: Directory): { uri: string; name: string }[] {
+  const found: { uri: string; path: string }[] = [];
+
+  const visit = (dir: Directory, prefix: string, depth: number) => {
+    let entries: (File | Directory)[];
+    try {
+      entries = dir.list();
+    } catch {
+      // One unreadable subfolder is not a reason to refuse the whole book.
+      return;
+    }
+    for (const entry of entries) {
+      /*
+       * Names come back as SAF document ids — `primary:Download/My Book/01.mp3`
+       * rather than `01.mp3` — so they are trimmed before anything reads them
+       * as a filename. Untrimmed, the volume prefix ended up in the book's
+       * title and in every one of its chapter names.
+       */
+      const name = safDisplayName(entry.name);
+      if (entry instanceof Directory) {
+        if (depth < IMPORT_DEPTH) visit(entry, `${prefix}${name}/`, depth + 1);
+        continue;
+      }
+      if (!isSupportedAudio(name)) continue;
+      found.push({ uri: entry.uri, path: `${prefix}${name}` });
+    }
+  };
+
+  visit(root, '', 0);
+  return orderImportedParts(found).map(({ uri, name }) => ({ uri, name }));
+}
+
 /** Lets the user pick a folder of audio and brings the whole book in. */
 export async function importBookFromFolder(onProgress?: ImportProgress): Promise<ImportResult> {
   let dir: Directory | null = null;
@@ -146,16 +200,7 @@ export async function importBookFromFolder(onProgress?: ImportProgress): Promise
 
   let audio: { uri: string; name: string }[] = [];
   try {
-    // Names come back as SAF document ids — `primary:Download/My Book/01.mp3`
-    // rather than `01.mp3` — so they are trimmed before anything reads them as
-    // a filename. Untrimmed, the volume prefix ended up in the book's title and
-    // in every one of its chapter names.
-    audio = dir
-      .list()
-      .filter((e): e is File => e instanceof File)
-      .map((f) => ({ uri: f.uri, name: safDisplayName(f.name) }))
-      .filter((f) => isSupportedAudio(f.name))
-      .sort((a, b) => naturalCompare(a.name, b.name));
+    audio = collectAudio(dir);
   } catch {
     return { ok: false, reason: 'failed', message: 'That folder could not be read.' };
   }
@@ -164,7 +209,7 @@ export async function importBookFromFolder(onProgress?: ImportProgress): Promise
     return {
       ok: false,
       reason: 'no-audio',
-      message: 'No .m4b, .m4a or .mp3 files in that folder.',
+      message: 'No .m4b, .m4a or .mp3 files in that folder, or in a folder inside it.',
     };
   }
 

@@ -26,6 +26,7 @@ import {
 } from '@/lib/library/grouping';
 import { resolveName } from '@/lib/library/names';
 import { sanitiseChapters } from '@/lib/library/chapters';
+import { unvouchedFolders, wasUnseen } from './coverage';
 import { newUuid, pathKeyFor } from '@/lib/library/ids';
 import { sampleBook } from './sample';
 import {
@@ -512,6 +513,15 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
   }
 
   const errors: string[] = [];
+  /*
+   * The folders whose books threw while being read.
+   *
+   * Kept beside `errors`, which is for showing a person: these are paths, for
+   * `markMissingExcept`. A book that failed to parse never reaches `seenIds`,
+   * and the sweep would otherwise read that absence as the book having gone
+   * from the drive.
+   */
+  const erroredFolders: string[] = [];
   const unreadableFiles: string[] = [];
   const seenIds: string[] = [];
   let updated = 0;
@@ -585,6 +595,7 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
     } catch (err) {
       // A whole book failing is still not a reason to abandon the scan.
       errors.push(`${group.folderName || group.folderRelPath}: ${(err as Error).message}`);
+      erroredFolders.push(group.folderRelPath);
     }
   }
 
@@ -611,10 +622,31 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
    * is missing, and offering to reconnect on that evidence would be inviting
    * someone to merge two books because the cable was loose.
    */
+  /*
+   * What this scan is entitled to conclude.
+   *
+   * `completed` and `rootReadable` say the walk ran to the end over a root it
+   * could read. They do not say it saw everything: a subfolder that would not
+   * list, a subtree past the depth limit, and a book that threw while being
+   * read all leave the scan with a gap — and both of the things below read a
+   * gap as proof that a book is gone. These are the folders it cannot vouch
+   * for, and a book in one of them is left exactly as it was.
+   */
+  const unvouched = unvouchedFolders(listing.unseenFolders, erroredFolders);
+
   let reconnected = 0;
   const reconnectQuestions: ReconnectQuestion[] = [];
   if (completed && rootReadable && freshlyFound.length > 0) {
-    const vanished = await loadVanishedBooks(seenIds);
+    /*
+     * A book whose folder was never read has not vanished, so it is not a
+     * candidate for being reconnected to something else. The comment above
+     * applies at folder granularity too: offering to merge a book with an
+     * unrelated one because its subfolder would not list is the same mistake
+     * as doing it because the cable was loose.
+     */
+    const vanished = (await loadVanishedBooks(seenIds)).filter(
+      (gone) => !wasUnseen(gone.folderRelPath, unvouched),
+    );
     const unclaimed = new Set(freshlyFound.map((b) => b.id));
 
     for (const gone of vanished) {
@@ -649,7 +681,7 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
     }
   }
 
-  await markMissingExcept(seenIds, { completed, rootReadable });
+  await markMissingExcept(seenIds, { completed, rootReadable, unvouched });
 
   const now = new Date().toISOString();
   // A partial or failed scan is not "last scanned at", either.

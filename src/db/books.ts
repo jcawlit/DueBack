@@ -10,6 +10,7 @@ import { coverUri } from '@/lib/files/access';
 import { fallbackPalette } from '@/lib/library/palette';
 import { fingerprintKey } from '@/lib/library/grouping';
 import { newUuid } from '@/lib/library/ids';
+import { wasUnseen } from '@/lib/scan/coverage';
 import { ensureDeviceId, getDb, getSetting, SETTING_KEYS } from './schema';
 import { DRIVE_BOOKS, PLACEHOLDER_DRIVE_BOOKS } from './scope';
 
@@ -297,11 +298,45 @@ export async function upsertBook(book: ScannedBook, options: UpsertOptions = {})
  */
 export async function markMissingExcept(
   seenIds: string[],
-  evidence: { completed: boolean; rootReadable: boolean },
+  evidence: {
+    completed: boolean;
+    rootReadable: boolean;
+    /**
+     * Folders this scan could not vouch for: unreadable, cut off by the depth
+     * limit, or holding a book that threw while being read. A book in one of
+     * them keeps whatever missing state it already had, because the scan never
+     * looked there and silence is not evidence. See `lib/scan/coverage.ts`.
+     */
+    unvouched?: string[];
+  },
 ) {
   if (!evidence.completed || !evidence.rootReadable) return;
   const db = await getDb();
+  const unvouched = evidence.unvouched ?? [];
   await db.withExclusiveTransactionAsync(async (txn) => {
+    /*
+     * The books the sweep below must not touch, and the state to put back.
+     *
+     * Read inside the transaction and before the sweep, so what is restored is
+     * what was actually there. Only books the scan did not find are protected:
+     * one it found is being proved present either way, and leaving it alone
+     * would strand a `missing` flag that is no longer true.
+     */
+    const protected_: { id: string; missing: number }[] = [];
+    if (unvouched.length > 0) {
+      const seen = new Set(seenIds);
+      const rows = await txn.getAllAsync<{
+        id: string;
+        folder_rel_path: string | null;
+        missing: number;
+      }>(`SELECT id, folder_rel_path, missing FROM books WHERE ${DRIVE_BOOKS}`);
+      for (const row of rows) {
+        if (seen.has(row.id)) continue;
+        if (!wasUnseen(row.folder_rel_path, unvouched)) continue;
+        protected_.push({ id: row.id, missing: row.missing });
+      }
+    }
+
     // Books added from the phone that have never been copied across were
     // never on the drive, so a drive scan cannot be evidence that they have
     // gone from it. Sweeping them up marked every fresh import "NOT ON DRIVE"
@@ -319,13 +354,29 @@ export async function markMissingExcept(
     );
     // Chunked so a very large library cannot exceed SQLite's variable limit.
     const CHUNK = 400;
-    for (let i = 0; i < seenIds.length; i += CHUNK) {
-      const chunk = seenIds.slice(i, i + CHUNK);
-      await txn.runAsync(
-        `UPDATE books SET missing = 0 WHERE id IN (${chunk.map(() => '?').join(',')})`,
-        ...chunk,
-      );
-    }
+    const setMissing = async (value: 0 | 1, ids: string[]) => {
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const chunk = ids.slice(i, i + CHUNK);
+        await txn.runAsync(
+          `UPDATE books SET missing = ? WHERE id IN (${chunk.map(() => '?').join(',')})`,
+          value,
+          ...chunk,
+        );
+      }
+    };
+
+    await setMissing(0, seenIds);
+
+    /*
+     * Put the unvouched books back as they were.
+     *
+     * Done after the sweep rather than by excluding them from it: the
+     * exclusion would be a `NOT IN` of unbounded length, and restoring a value
+     * read moments earlier in the same transaction says plainly what the rule
+     * is — a scan that did not look at a folder changes nothing about it.
+     */
+    await setMissing(1, protected_.filter((b) => b.missing === 1).map((b) => b.id));
+    await setMissing(0, protected_.filter((b) => b.missing !== 1).map((b) => b.id));
   });
 }
 

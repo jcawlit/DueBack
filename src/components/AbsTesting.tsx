@@ -211,7 +211,7 @@ function ConnectPanel({ onDone }: { onDone: () => void }) {
       {warnCleartext ? (
         <Message
           tone="bad"
-          text={'This is a plain http address outside your own network, so the password travels unencrypted. Fine on a LAN, not over the internet.'}
+          text={'This is a plain http address outside your own network, so the password would travel unencrypted. Connecting to it is refused. Use https, or reach the server over your own network.'}
         />
       ) : null}
 
@@ -239,7 +239,17 @@ function ConnectPanel({ onDone }: { onDone: () => void }) {
         secure
       />
 
-      <Button label="Test connection" onPress={test} busy={busy} />
+      {/*
+        Disabled rather than left to fail: the client refuses the request, so
+        a pressable Test button would only hand back the same sentence the
+        message above already says.
+      */}
+      <Button
+        label="Test connection"
+        onPress={test}
+        busy={busy}
+        disabled={warnCleartext}
+      />
 
       {error ? <Message tone="bad" text={error} /> : null}
       {tested ? (

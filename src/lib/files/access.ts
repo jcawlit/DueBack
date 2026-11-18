@@ -24,8 +24,20 @@ export type TreeListing = {
   files: ScannedFile[];
   /** Audio we recognise but do not support in v1. */
   unsupportedCount: number;
-  /** Folders that could not be listed, by relative path. */
+  /** Folders that could not be listed, as "relative path: reason". */
   unreadableFolders: string[];
+  /**
+   * Folders the walk did not see all of, by relative path alone.
+   *
+   * The same set as `unreadableFolders`, plus any subtree cut off by the depth
+   * limit — which used to return silently, so a library nested deeper than the
+   * limit lost books with nothing anywhere to say so.
+   *
+   * Paths rather than sentences, because this one is read by code: a book
+   * whose folder sits under one of these was not looked for, and a scan that
+   * did not look for it is no evidence that it has gone.
+   */
+  unseenFolders: string[];
   /**
    * Whether the root folder itself could be listed. A separate flag, not
    * `files.length === 0`: an empty folder is a legitimate, readable answer,
@@ -125,6 +137,7 @@ export async function listTree(
   const maxDepth = options.maxDepth ?? 8;
   const files: ScannedFile[] = [];
   const unreadableFolders: string[] = [];
+  const unseenFolders: string[] = [];
   let unsupportedCount = 0;
 
   const root = new Directory(asDirectoryUri(rootUri));
@@ -147,7 +160,8 @@ export async function listTree(
 
   if (!rootReadable) {
     unreadableFolders.push('.: the library folder could not be read');
-    return { files, unsupportedCount, unreadableFolders, rootReadable };
+    unseenFolders.push('');
+    return { files, unsupportedCount, unreadableFolders, unseenFolders, rootReadable };
   }
 
   /*
@@ -163,7 +177,21 @@ export async function listTree(
   };
 
   const visit = async (dir: Directory, relPrefix: string, depth: number) => {
-    if (depth > maxDepth) return;
+    if (depth > maxDepth) {
+      /*
+       * Recorded, not just skipped.
+       *
+       * This returned silently, so a book nested deeper than the limit was
+       * absent from the listing with nothing to explain it — and absent from
+       * a scan's `seenIds`, which is what `markMissingExcept` reads as proof
+       * the book has gone from the drive.
+       */
+      unreadableFolders.push(
+        `${relPrefix || '.'}: nested deeper than the scan goes (${maxDepth} folders)`,
+      );
+      unseenFolders.push(relPrefix);
+      return;
+    }
     let entries: (File | Directory)[];
     try {
       entries = dir.list();
@@ -173,6 +201,7 @@ export async function listTree(
       // as a bare path, which left "scanned no books" with nothing to act on.
       const reason = (err as Error)?.message ?? 'unreadable';
       unreadableFolders.push(`${relPrefix || '.'}: ${reason}`);
+      unseenFolders.push(relPrefix);
       return;
     }
     await breathe();
@@ -209,7 +238,7 @@ export async function listTree(
 
   await visit(root, '', 0);
   options.onProgress?.(files.length);
-  return { files, unsupportedCount, unreadableFolders, rootReadable };
+  return { files, unsupportedCount, unreadableFolders, unseenFolders, rootReadable };
 }
 
 /** Opens a seekable reader over one file. */

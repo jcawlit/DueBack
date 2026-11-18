@@ -17,11 +17,22 @@
  * mean something, so the flag can still live in app.json where a reader
  * would look for it.
  *
- * **Before release:** replace this with a network security config that
- * permits cleartext only for private address ranges — 10/8, 172.16/12,
- * 192.168/16, 169.254/16 and localhost — so a LAN server keeps working while
- * a password can never leave the house in clear. Tracked in docs/STATE.md
- * under the Audiobookshelf section.
+ * **This used to say "replace with a network security config scoped to
+ * private address ranges before release". That cannot be written.**
+ * `usesCleartextTraffic` is all or nothing, and a network security config's
+ * `<domain>` takes a hostname or an IP literal — there is no subnet syntax —
+ * so "http is fine on 192.168/16" is not a thing the manifest can say when
+ * the address is one the listener types in at runtime.
+ *
+ * So it is enforced in the app, at the one place every server request passes
+ * through: `isCleartextToPublicHost` in `src/lib/abs/client.ts` refuses any
+ * plain-http request to an address outside the private ranges, loopback and
+ * the LAN naming conventions, before it is sent. A LAN server keeps working;
+ * a password cannot leave the house in clear.
+ *
+ * The flag staying on is therefore deliberate rather than deferred. What it
+ * permits is cleartext *in principle*; what the app will actually send is
+ * narrower, and that is where the rule can be expressed at all.
  */
 
 const { withAndroidManifest } = require('expo/config-plugins');

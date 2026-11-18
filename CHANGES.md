@@ -1974,3 +1974,68 @@ entries.
 `src/lib/audio/expoAudioEngine.ts`, `scripts/kb.ts`, `app.json`, nine screens
 and components, `tests/marks.test.ts` (new), `docs/KNOWLEDGE.md`,
 `docs/DEVELOPMENT.md`*
+
+## What a scan is entitled to conclude, and two other refusals
+
+An audit found four things. All four were real; three needed work.
+
+**A partial scan could mark present books missing.** `markMissingExcept` marks
+every drive book missing and then un-marks the ones the scan found, so absence
+from `seenIds` is the entire evidence. Three things put a book that is
+physically on the drive outside that set: a subfolder that would not list, a
+subtree past the walk's depth limit, and a group that threw while being read.
+None was visible to the sweep, and the depth limit was visible to nobody — it
+returned silently, so a library nested deeper than eight folders lost books
+with nothing anywhere to say so.
+
+Nothing was destroyed on the spot; a wrongly-missing book keeps its progress
+and its library-card history. The cost arrives one step later, when Settings
+offers to "Forget N missing books" and the offer looks entirely reasonable.
+
+The protection is **per folder**, not per scan. Treating any unreadable folder
+as making the whole scan inconclusive was the recommendation and it is wrong: a
+drive with one permanently unreadable folder — a `System Volume Information`, a
+trashed folder, a broken permission — would then never mark anything missing
+again, and a book really deleted would sit on the shelf forever. Narrowing it
+to the subtrees that were not read keeps the answer right everywhere else.
+Protection means *unchanged*, not *present*, so a book already known missing
+stays missing. The reconnect pass is filtered the same way: offering to merge a
+book with an unrelated one because its subfolder would not list is the same
+mistake as doing it because the cable was loose.
+
+**Plain http to a public address is now refused, not warned about.** The note
+in `app.json` promised that release would scope cleartext to private address
+ranges with a network security config. **That cannot be written.**
+`usesCleartextTraffic` is all or nothing, and a config's `<domain>` takes a
+hostname or an IP literal — there is no subnet syntax — so the rule cannot be
+expressed in the manifest for an address typed in at runtime. It is enforced in
+`request` instead, the one place every server call passes through, so it covers
+a source saved before the check existed and covers streams, covers and progress
+reports rather than only the connect form. `isCleartextToPublicHost` already
+classified addresses for a warning; the client refuses on it now, before
+anything is sent, and the test asserts the fetch count is zero. The flag
+staying on is deliberate rather than deferred, and `docs/STATE.md` says so
+instead of calling it a blocker.
+
+**A folder import descends now.** It listed the picked folder's immediate files
+only, so a book arranged as `Disc 1/` and `Disc 2/` yielded no audio and was
+refused as if it held none — while the scanner had always handled disc folders.
+Two rules came with fixing it. Parts order by path rather than filename, or two
+discs numbering from one interleave and the book plays 1, 1, 2, 2. And a part
+out of a subfolder is renamed to carry it — `Disc 1 - 01.mp3` — because that
+name is what a later push to the drive calls the file, in one flat folder: two
+`01.mp3` files would have meant the second landing on top of the first.
+
+**And the sort picker said "Custom" over shelves in length order.** The
+fallback computed the sort it rendered with and then handed the header the
+saved one. The saved preference is deliberately still left alone: custom is
+where the listener put themselves, and writing it back would turn a bad scan
+into a lost choice.
+
+*`src/lib/scan/coverage.ts` (new), `src/lib/library/importOrder.ts` (new),
+`src/db/books.ts`, `src/lib/files/access.ts`, `src/lib/files/import.ts`,
+`src/lib/scan/scanner.ts`, `src/lib/abs/client.ts`, `src/lib/abs/errors.ts`,
+`src/components/AbsTesting.tsx`, `src/app/index.tsx`, `app.json`,
+`plugins/withCleartextTraffic.js`, `tests/coverage.test.ts` (new),
+`tests/import-parts.test.ts` (new), `tests/abs-client.test.ts`,
+`docs/KNOWLEDGE.md`, `docs/STATE.md`*

@@ -109,6 +109,10 @@ export function describeAbsError(error: unknown, context: AbsContext): string {
           `${what}. Check the address, and that the phone is on the same ` +
           'network as the server.'
         );
+      case 'insecure':
+        // The client's own message already says what to do about it, and
+        // repeating `what` in front of it adds nothing a reader needs.
+        return error.message;
       case 'auth':
         return `${what} — the sign-in has expired. Sign in again in Settings.`;
       case 'forbidden':

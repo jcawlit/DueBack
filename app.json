@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.dueback.app",
-      "//usesCleartextTraffic": "DEV-STAGE, must be scoped before release. An Audiobookshelf server on the LAN is reached over plain http, and Android blocks cleartext by default, so a connect attempt fails at the socket with no useful error. This opens it for the whole app, which is more than release should ship: the release version is a network security config that permits cleartext only for private address ranges. Tracked in docs/STATE.md.",
+      "//usesCleartextTraffic": "An Audiobookshelf server on the LAN is reached over plain http, and Android blocks cleartext by default, so a connect attempt fails at the socket with no useful error. This opens it for the whole app because the manifest cannot say otherwise: usesCleartextTraffic is all or nothing, and a network security config takes hostnames and IP literals rather than address ranges, so \"http only on a private network\" cannot be expressed for an address the listener types in. It is enforced in the app instead - isCleartextToPublicHost in src/lib/abs/client.ts refuses every request to a plain-http public address before it is sent. See docs/STATE.md.",
       "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#1b1410",

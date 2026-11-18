@@ -253,6 +253,25 @@ someone unplugged the drive is a lie that outlives the moment.
 
 ---
 
+### A folder import descends, and renames what it finds (2026-11-17)
+
+"Add a book folder" listed the picked folder's immediate files only, so a book
+arranged as `Disc 1/` and `Disc 2/` yielded no audio and was refused as if it
+held none — while the scanner had always handled disc folders. The mixed case
+was worse: a stray intro file loose at the top with the rest in subfolders
+imported as a one-part book.
+
+Two rules come with descending. Parts order by **path**, not filename, or two
+discs numbering from one interleave and the book plays 1, 1, 2, 2. And a part
+out of a subfolder is renamed to carry it — `Disc 1 - 01.mp3` — because that
+name is what a later push to the drive calls the file, in one flat folder: two
+`01.mp3` files would mean the second landing on top of the first.
+
+Depth stops at two. Deeper than that and the pick was a library rather than a
+book, which is what the library root is for.
+
+*`src/lib/library/importOrder.ts`, `src/lib/files/import.ts`*
+
 ## Metadata
 
 ### ID3v2.2 uses `PIC`, with a three-character format field
@@ -327,6 +346,35 @@ evidence used, and that happens in the scanner where the tags have been read.
 Disc folders (`CD 1`, `Disc 2`) merge into their parent.
 
 *`src/lib/library/grouping.ts`, `src/lib/scan/scanner.ts` (`partitionByAlbum`)*
+
+### A scan can only be evidence where it looked (2026-11-17)
+
+`markMissingExcept` marks every drive book missing, then un-marks the ones the
+scan found, so absence from `seenIds` is the entire evidence. Three things put
+a book that is physically present outside that set: a subfolder that would not
+list, a subtree past the walk's depth limit, and a group that threw while being
+read. None of them used to be visible to the sweep, and the depth limit was not
+visible to anyone — it returned silently.
+
+Nothing is destroyed on the spot: a wrongly-missing book keeps its progress and
+its library-card history. The cost arrives one step later, when Settings offers
+to "Forget N missing books" — the most destructive write in the app — and the
+offer looks entirely reasonable.
+
+The protection is **per folder**, not per scan. Treating any unreadable folder
+as making the whole scan inconclusive is the obvious move and it is wrong: a
+drive with one permanently unreadable folder — a `System Volume Information`, a
+trashed folder, a broken permission — would then never mark anything missing
+again, and books really deleted would sit on the shelf forever. Narrowing it to
+the subtrees that were not read keeps the answer right everywhere else.
+
+Protection means *unchanged*, not *present*: a book already known missing stays
+missing, or a gap elsewhere would quietly put it back on the shelf. The
+reconnect pass is filtered the same way — offering to merge a book with an
+unrelated one because its subfolder would not list is the same mistake as doing
+it because the cable was loose.
+
+*`src/lib/scan/coverage.ts`, `src/db/books.ts`, `src/lib/files/access.ts`*
 
 ---
 
@@ -1378,6 +1426,27 @@ a book because a renewal failed would be worse than letting it run on —
 the source is marked "Sign in again" and the next play settles it.
 
 *`src/store/sources.ts`, `src/store/player.ts`*
+
+### Android cannot be told "http, but only on my own network" (2026-11-17)
+
+`usesCleartextTraffic` is all or nothing, and a network security config's
+`<domain>` takes a hostname or an IP literal — there is **no subnet syntax**.
+So the fix this repo had written down for release, "scope cleartext to private
+address ranges", cannot be expressed in the manifest at all when the address is
+one the listener types in at runtime.
+
+It is enforced in the app instead, in `request` in `src/lib/abs/client.ts` —
+the one place every server call passes through, so it covers a source saved
+before the check existed, and covers covers, streams and progress reports, not
+just the connect form. `isCleartextToPublicHost` already classified addresses
+for a warning; the client now refuses on it, before the request is sent, with
+its own `AbsError` kind so the message can say what to do.
+
+The global flag staying on is therefore deliberate rather than deferred. What
+the manifest permits is cleartext in principle; what the app will send is
+narrower, and the app is the only place that distinction can be drawn.
+
+*`src/lib/abs/client.ts`, `plugins/withCleartextTraffic.js`*
 
 ## Google Drive via SAF
 
