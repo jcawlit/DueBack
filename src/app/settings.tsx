@@ -21,7 +21,7 @@ import { THEMES } from '@/theme/palettes';
 import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { ChevronLeft } from '@/components/icons';
 import { ScanProgressBar } from '@/components/FirstRun';
-import { AbsTestingSection } from '@/components/AbsTesting';
+import { AbsSettingsSection } from '@/components/AbsSettings';
 import { BudgetSheet } from '@/components/BudgetSheet';
 import { ContactSheet } from '@/components/ContactSheet';
 import { availableBytes } from '@/lib/files/copy';
@@ -550,7 +550,7 @@ export default function SettingsScreen() {
           />
         </View>
 
-        <AbsTestingSection />
+        <AbsSettingsSection />
 
         <View style={{ gap: space.sm }}>
           <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}>

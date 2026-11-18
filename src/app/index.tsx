@@ -315,7 +315,10 @@ export default function LibraryScreen() {
     void loadSources();
   }, [loadSources]);
 
-  const switchable = useMemo(() => switchableSources(sources), [sources]);
+  const switchable = useMemo(
+    () => switchableSources(sources, driveConnected),
+    [sources, driveConnected],
+  );
   const refreshCatalogue = useSources((s) => s.refreshCatalogue);
   const refreshingSource = useSources((s) => s.refreshing);
   /*
@@ -342,6 +345,19 @@ export default function LibraryScreen() {
    * Tapping the status looks for the drive there and then, rather than sending
    * the user to Settings to press a second button.
    */
+  /**
+   * Look at whichever source is showing. The drive for the drive, a catalogue
+   * refresh for a server: both answer "can this actually be reached", which
+   * is the question the light is reporting on.
+   */
+  const recheckSource = (source: { id: string; kind: string }) => {
+    if (source.kind === 'usb') {
+      recheckDrive();
+      return;
+    }
+    void refreshCatalogue(source.id);
+  };
+
   const recheckDrive = () => {
     // The spinner state is this screen's; the looking and the answer are the
     // store's, so Settings behaves identically. See `lookForDrive`.
@@ -674,11 +690,12 @@ export default function LibraryScreen() {
           subtitle={libraryRoot ? 'No books indexed yet' : 'No library folder chosen'}
           connected={driveConnected}
           onCheckDrive={recheckDrive}
-          checking={checkingDrive}
+          checking={checkingDrive || !!refreshingSource[activeSourceId]}
           onOpenSettings={libraryRoot ? () => router.push('/settings') : undefined}
           sources={switchable}
           activeSourceId={activeSourceId}
           onSelectSource={setActiveSourceId}
+          onCheckSource={recheckSource}
         />
         {scanProgress && scanBusy ? <ScanProgressBar progress={scanProgress} /> : null}
         <FirstRun onPick={() => void chooseFolderAndScan()} busy={scanBusy} />
@@ -703,8 +720,9 @@ export default function LibraryScreen() {
         connected={driveConnected}
         lastSeenLabel={relativeTime(driveLastSeenAt)}
         onCheckDrive={recheckDrive}
-        checking={checkingDrive}
+        checking={checkingDrive || !!refreshingSource[activeSourceId]}
         onOpenSettings={() => router.push('/settings')}
+        onCheckSource={recheckSource}
         sort={shownSort}
         onSort={setSort}
         search={search}

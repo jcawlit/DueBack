@@ -504,29 +504,30 @@ function SourcePanel({ source }: { source: Source }) {
 
 // ------------------------------------------------------------------ section
 
-export function AbsTestingSection() {
+/**
+ * The Audiobookshelf panel in Settings.
+ *
+ * **One server.** Not a limitation to be lifted later — a decision. Shelves,
+ * search and the checked-out tray already show one source at a time, the
+ * budget is global because it is about the phone, and a second server would
+ * multiply every one of those questions for a case nobody here has. Signing
+ * in replaces what is there; removing is how you leave.
+ *
+ * It no longer says "(TESTING)", and no longer warns that the audio does not
+ * arrive. Both were true and are not: downloads, progress in both directions
+ * and the catalogue have all run against a real server on a real phone.
+ */
+export function AbsSettingsSection() {
   const sources = useSources((s) => s.sources);
-  const [adding, setAdding] = useState(false);
-  const servers = sources.filter((s) => s.kind === 'abs');
+  const server = sources.find((s) => s.kind === 'abs');
 
   return (
     <View style={{ gap: space.sm }}>
       <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}>
-        AUDIOBOOKSHELF (TESTING)
-      </Text>
-      <Text style={{ fontFamily: font.mono, fontSize: 10, color: color.faint }}>
-        Unfinished. The catalogue and chapters arrive; the audio does not yet.
+        AUDIOBOOKSHELF
       </Text>
 
-      {servers.map((source) => (
-        <SourcePanel key={source.id} source={source} />
-      ))}
-
-      {adding || servers.length === 0 ? (
-        <ConnectPanel onDone={() => setAdding(false)} />
-      ) : (
-        <Button label="Add another server" onPress={() => setAdding(true)} />
-      )}
+      {server ? <SourcePanel source={server} /> : <ConnectPanel onDone={() => {}} />}
     </View>
   );
 }
