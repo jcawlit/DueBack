@@ -104,6 +104,16 @@ export default function SettingsScreen() {
   const driveConnected = useLibrary((s) => s.driveConnected);
   const driveLastSeenAt = useLibrary((s) => s.driveLastSeenAt);
   const checkDrive = useLibrary((s) => s.checkDrive);
+  const lookForDrive = useLibrary((s) => s.lookForDrive);
+  /*
+   * Whether a look for the drive is in flight.
+   *
+   * The button used to call `checkDrive()` and say nothing. When the answer
+   * does not change — which is most of the time, and always when the drive
+   * really is unplugged — pressing it looked identical to the app ignoring
+   * the press, so the only thing to do was press it again.
+   */
+  const [checking, setChecking] = useState(false);
   const importBook = useLibrary((s) => s.importBook);
   const importing = useLibrary((s) => s.importing);
   const pendingDriveImports = useLibrary((s) => s.pendingDriveImports);
@@ -315,9 +325,21 @@ export default function SettingsScreen() {
             }
           />
           <Row
-            label="Check again"
-            detail="Looks for the drive now"
-            onPress={() => void checkDrive()}
+            label={checking ? 'Looking…' : 'Check again'}
+            detail={checking ? 'Asking the drive' : 'Looks for the drive now'}
+            disabled={checking}
+            onPress={() => {
+              void (async () => {
+                setChecking(true);
+                try {
+                  // Says what it found, including "still not there". Shared
+                  // with the Library header so the two cannot disagree.
+                  await lookForDrive();
+                } finally {
+                  setChecking(false);
+                }
+              })();
+            }}
           />
           <Row
             label="Change library folder"

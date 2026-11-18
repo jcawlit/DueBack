@@ -93,8 +93,7 @@ export default function LibraryScreen() {
   const driveConnected = useLibrary((s) => s.driveConnected);
   const libraryOnDevice = useLibrary((s) => s.libraryOnDevice);
   const driveLastSeenAt = useLibrary((s) => s.driveLastSeenAt);
-  const checkDrive = useLibrary((s) => s.checkDrive);
-  const showSlip = useLibrary((s) => s.showSlip);
+  const lookForDrive = useLibrary((s) => s.lookForDrive);
 
   const checkOut = useLibrary((s) => s.checkOut);
   const cancelCopy = useLibrary((s) => s.cancelCopy);
@@ -344,33 +343,15 @@ export default function LibraryScreen() {
    * the user to Settings to press a second button.
    */
   const recheckDrive = () => {
+    // The spinner state is this screen's; the looking and the answer are the
+    // store's, so Settings behaves identically. See `lookForDrive`.
     if (checkingDrive) return;
     setCheckingDrive(true);
     void (async () => {
-      /*
-       * Held on screen for a moment, whatever the answer.
-       *
-       * Looking for the drive is a single directory listing and usually
-       * finishes in a few milliseconds, so the slip saying it is not connected
-       * appeared to arrive before the tap had landed — it read as a button
-       * that did not check anything. Long enough for the arrow to turn once.
-       */
-      const [connected] = await Promise.all([
-        checkDrive(),
-        new Promise((resolve) => setTimeout(resolve, 650)),
-      ]);
-      setCheckingDrive(false);
-      // `checkDrive` already announces anything it picked up off hold.
-      if (!useLibrary.getState().slip) {
-        showSlip(
-          connected
-            ? { kind: 'note', stamp: 'DRIVE CONNECTED', text: 'Drive found. The shelves are live.' }
-            : {
-                kind: 'note',
-                stamp: 'DRIVE NOT CONNECTED',
-                text: "Still can't see the drive. Checked-out books keep playing.",
-              },
-        );
+      try {
+        await lookForDrive();
+      } finally {
+        setCheckingDrive(false);
       }
     })();
   };

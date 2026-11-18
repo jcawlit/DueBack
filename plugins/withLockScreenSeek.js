@@ -19,6 +19,14 @@
  *    both hardcoded, so both move to a minute, and the `_10` icons — which
  *    draw the number — become the plain ones.
  *
+ * 3. **And none of it reached the app at first.** expo-audio ships a prebuilt
+ *    AAR, declared as a `publication` in its `expo-module.config.json`, so
+ *    autolinking linked that and never compiled the Kotlin being patched here.
+ *    The patch applied, every assertion passed, and the lock screen was
+ *    unchanged. `buildFromSource: ["expo-audio"]` in package.json is what
+ *    makes the source the thing that gets built, and
+ *    `assertBuiltFromSource` below refuses to run without it.
+ *
  * ## Why a plugin and not patch-package
  *
  * patch-package would be the conventional answer and needs a `postinstall`
@@ -142,11 +150,61 @@ import com.google.common.util.concurrent.ListenableFuture`,
   ],
 ];
 
+/**
+ * Refuses to run unless Gradle will actually compile what we are about to
+ * patch.
+ *
+ * The failure this exists to prevent already happened. expo-audio ships a
+ * **prebuilt AAR** — its `expo-module.config.json` carries a `publication`
+ * block pointing at `local-maven-repo` — so autolinking links that artifact
+ * and never compiles `android/src/main/java` at all. Every rewrite below
+ * applied cleanly, every assertion passed, the patched Kotlin sat in
+ * node_modules looking exactly right, and the lock screen kept its
+ * ten-second buttons. Nothing anywhere said why.
+ *
+ * `buildFromSource` in package.json is what makes the source the thing that
+ * gets built. Patching without it is worse than doing nothing, because it
+ * looks like it worked.
+ */
+function assertBuiltFromSource(root) {
+  const manifest = path.join(root, 'package.json');
+  let pkg;
+  try {
+    pkg = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+  } catch (error) {
+    throw new Error(`[withLockScreenSeek] could not read package.json: ${error.message}`);
+  }
+
+  const autolinking = pkg.expo?.autolinking ?? {};
+  const lists = [autolinking.buildFromSource, autolinking.android?.buildFromSource];
+  const patterns = lists.filter(Array.isArray).flat();
+  const covered = patterns.some((pattern) => {
+    try {
+      return new RegExp(pattern).test('expo-audio');
+    } catch {
+      return false;
+    }
+  });
+
+  if (!covered) {
+    throw new Error(
+      '[withLockScreenSeek] expo-audio is not set to build from source, so the ' +
+        'Kotlin this plugin patches is never compiled — Gradle links the ' +
+        'prebuilt AAR from its local-maven-repo instead, and the patch has no ' +
+        'effect whatsoever. Add to package.json: "expo": { "autolinking": ' +
+        '{ "android": { "buildFromSource": ["expo-audio"] } } }. ' +
+        'Do not remove this check: without it the patch silently does nothing ' +
+        'and the only symptom is a lock screen that still jumps ten seconds.',
+    );
+  }
+}
+
 const withLockScreenSeek = (config) =>
   withDangerousMod(config, [
     'android',
     (modConfig) => {
       const root = modConfig.modRequest.projectRoot;
+      assertBuiltFromSource(root);
 
       for (const [relative, pairs] of REWRITES) {
         const file = path.join(root, relative);

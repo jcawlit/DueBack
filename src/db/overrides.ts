@@ -61,11 +61,16 @@ export function overrideFromRow(row: OverrideRow | null | undefined): BookOverri
   return override;
 }
 
-/** Every live correction, keyed by book, for `loadBooks` to layer in one pass. */
-export async function loadOverrides(): Promise<Map<string, BookOverride>> {
+/**
+ * Live corrections, keyed by book, for `loadBooks` to layer in one pass.
+ *
+ * `onlyId` narrows it to one book, for the single-book reload behind an edit.
+ */
+export async function loadOverrides(onlyId?: string): Promise<Map<string, BookOverride>> {
   const db = await getDb();
   const rows = await db.getAllAsync<OverrideRow>(
-    'SELECT * FROM book_overrides WHERE deleted_at IS NULL',
+    `SELECT * FROM book_overrides WHERE deleted_at IS NULL${onlyId ? ' AND book_id = ?' : ''}`,
+    ...(onlyId ? [onlyId] : []),
   );
   const byBook = new Map<string, BookOverride>();
   for (const row of rows) {

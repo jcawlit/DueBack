@@ -446,22 +446,54 @@ export async function existingFingerprints(libraryId?: string): Promise<
   );
 }
 
-export async function loadBooks(): Promise<Book[]> {
+/**
+ * One book, assembled exactly as `loadBooks` assembles it.
+ *
+ * For an edit that changed one book. Reloading the library to show a
+ * corrected title means re-reading every row of every table and rebuilding
+ * every object, on the JS thread — which is felt as a stutter right after
+ * pressing Save. Shares `loadBooks` so the two cannot drift: a book loaded
+ * one at a time must be identical to the same book loaded with the rest.
+ */
+export async function loadBook(id: string): Promise<Book | null> {
+  const [book] = await loadBooks(id);
+  return book ?? null;
+}
+
+export async function loadBooks(onlyId?: string): Promise<Book[]> {
   const db = await getDb();
-  const books = await db.getAllAsync<BookRow>('SELECT * FROM books ORDER BY title');
+  // One book or all of them, through one path. The `?` is bound rather than
+  // interpolated even though the id is internal.
+  const where = onlyId ? ' WHERE id = ?' : '';
+  const scope = onlyId ? ' WHERE book_id = ?' : '';
+  const args = onlyId ? [onlyId] : [];
+
+  const books = await db.getAllAsync<BookRow>(
+    `SELECT * FROM books${where} ORDER BY title`,
+    ...args,
+  );
   if (books.length === 0) return [];
 
-  const parts = await db.getAllAsync<PartRow>('SELECT * FROM parts ORDER BY book_id, idx');
+  const parts = await db.getAllAsync<PartRow>(
+    `SELECT * FROM parts${scope} ORDER BY book_id, idx`,
+    ...args,
+  );
   const chapters = await db.getAllAsync<{
     book_id: string;
     title: string;
     start_sec: number;
-  }>('SELECT book_id, title, start_sec FROM chapters ORDER BY book_id, idx');
+  }>(
+    `SELECT book_id, title, start_sec FROM chapters${scope} ORDER BY book_id, idx`,
+    ...args,
+  );
   const checkouts = await db.getAllAsync<{
     book_id: string;
     out_at: string;
     back_at: string | null;
-  }>('SELECT book_id, out_at, back_at FROM checkouts ORDER BY book_id, out_at');
+  }>(
+    `SELECT book_id, out_at, back_at FROM checkouts${scope} ORDER BY book_id, out_at`,
+    ...args,
+  );
 
   /*
    * The listener's corrections, layered over the scan.
@@ -472,7 +504,7 @@ export async function loadBooks(): Promise<Book[]> {
    * whereas fixing it in the UI would rename a book on its own screen and
    * leave it filed under the old name on the shelf.
    */
-  const overrides = await loadOverrides();
+  const overrides = await loadOverrides(onlyId);
 
   const partsBy = new Map<string, PartRow[]>();
   for (const p of parts) {

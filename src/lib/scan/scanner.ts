@@ -62,7 +62,7 @@ import { resolveLibraryId } from '@/lib/sync/libraryIdentity';
  * and the manifest may be from before a book moved.
  */
 async function seedIdentity(rootUri: string, libraryId: string): Promise<Map<string, string>> {
-  const drive = readDrive(rootUri, libraryId);
+  const drive = await readDrive(rootUri, libraryId);
   await seedRestoredIdentities(libraryId, drive.payload?.identity ?? []);
   return loadPathKeyIndex(libraryId);
 }

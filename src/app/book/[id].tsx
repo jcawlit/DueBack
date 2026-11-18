@@ -220,6 +220,7 @@ export default function BookScreen() {
   const showSlip = useLibrary((s) => s.showSlip);
   const sources = useSources((s) => s.sources);
   const refresh = useLibrary((s) => s.refresh);
+  const refreshBook = useLibrary((s) => s.refreshBook);
   const stream = usePlayer((s) => s.stream);
   const backupEnabled = useBackup((s) => s.enabled);
   const backupPending = useBackup((s) => s.pending);
@@ -1054,7 +1055,10 @@ export default function BookScreen() {
             void (async () => {
               await saveOverride(book.id, patch);
               setOverride(await loadOverride(book.id));
-              await refresh();
+              // One book, not the library. `refresh` rebuilds every book,
+              // part, chapter and checkout, which is a visible stutter right
+              // after Save on a real library.
+              await refreshBook(book.id);
             })();
           }}
           onPickCover={() => {
@@ -1077,21 +1081,21 @@ export default function BookScreen() {
               if (!stored) return;
               await saveOverride(book.id, { coverFile: stored.fileName });
               setOverride(await loadOverride(book.id));
-              await refresh();
+              await refreshBook(book.id);
             })();
           }}
           onClearCover={() => {
             void (async () => {
               await saveOverride(book.id, { coverFile: null });
               setOverride(await loadOverride(book.id));
-              await refresh();
+              await refreshBook(book.id);
             })();
           }}
           onRevertAll={() => {
             void (async () => {
               await clearOverride(book.id);
               setOverride(null);
-              await refresh();
+              await refreshBook(book.id);
             })();
           }}
           onClose={() => setEditingDetails(false)}

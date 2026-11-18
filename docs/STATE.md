@@ -244,10 +244,14 @@ evidence that the reasoning was wrong.
   buttons. `plugins/withLockScreenSeek.js` rewrites three of the module's
   Kotlin files at prebuild: the buttons were custom session commands answered
   with `RESULT_ERROR_NOT_SUPPORTED`, so they drew and did nothing. They are
-  now `COMMAND_SEEK_BACK`/`COMMAND_SEEK_FORWARD` at 60 s. The fork this entry
-  warned about therefore exists, and is carried by a plugin that **fails the
-  build** rather than silently missing if an SDK upgrade moves the source.
-  Not yet confirmed on a phone.
+  now `COMMAND_SEEK_BACK`/`COMMAND_SEEK_FORWARD` at 60 s.
+
+  **The first attempt reached the phone and changed nothing**, because
+  expo-audio ships a prebuilt AAR and Gradle never compiled the patched
+  Kotlin. `buildFromSource: ["expo-audio"]` in `package.json` is what makes
+  the source the thing that gets built, and the plugin now refuses to run
+  without it. `npm run kb -- "builds from source"`. Confirmed in a build;
+  **not yet confirmed on a phone.**
 - **Cancelling a copy cannot interrupt the part in flight.** One part is one
   native `copy()` call with no abort. The button is answered immediately — the
   book returns to the shelf and the bytes are discarded — but the drive keeps

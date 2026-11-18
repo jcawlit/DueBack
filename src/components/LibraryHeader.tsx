@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { USB_SOURCE_ID } from '@/db/sources';
 import {
   Animated,
   Easing,
@@ -100,20 +101,52 @@ export function SourceSwitcher({
   sources,
   activeId,
   onSelect,
+  driveIsActive,
+  connected,
+  checking,
+  onCheckDrive,
 }: {
   sources: { id: string; label: string }[];
   activeId: string;
   onSelect: (id: string) => void;
+  /**
+   * Whether the source showing is the USB drive.
+   *
+   * The light and the long-press are about the drive, so both are hidden for
+   * a server: a green dot beside a server's name would be read as saying
+   * something about the server, which this knows nothing about.
+   */
+  driveIsActive: boolean;
+  connected: boolean;
+  checking: boolean;
+  onCheckDrive: () => void;
 }) {
   const index = Math.max(0, sources.findIndex((s) => s.id === activeId));
   const active = sources[index] ?? sources[0];
   const next = sources[(index + 1) % sources.length];
+  const showLight = driveIsActive;
 
   return (
     <Pressable
       onPress={() => onSelect(next.id)}
+      /*
+       * Long-press looks for the drive.
+       *
+       * Once a server is configured this button's tap is spent on switching
+       * sources, which left no way to ask "is the drive there?" from the one
+       * place showing whether it is — the only route was Settings. Long-press
+       * is the app's existing idiom for a second action on a thing.
+       */
+      onLongPress={driveIsActive ? onCheckDrive : undefined}
+      delayLongPress={350}
       accessibilityRole="button"
-      accessibilityLabel={`Library source: ${active.label}. Tap to switch to ${next.label}.`}
+      accessibilityLabel={
+        driveIsActive
+          ? `Library source: ${active.label}. ${
+              connected ? 'Drive connected.' : 'Drive not connected.'
+            } Tap to switch to ${next.label}. Press and hold to look for the drive.`
+          : `Library source: ${active.label}. Tap to switch to ${next.label}.`
+      }
       style={({ pressed }) => ({
         flexDirection: 'row',
         alignItems: 'center',
@@ -131,6 +164,28 @@ export function SourceSwitcher({
       <Text numberOfLines={1} style={{ fontFamily: font.mono, fontSize: 11, color: color.paper }}>
         {active.label.toUpperCase()}
       </Text>
+      {showLight ? (
+        /*
+         * The palette's own green and red rather than signal colours: beside
+         * this paper and lamp amber, a pure #0f0 would look like a different
+         * app. Hollow while a look is in flight, so pressing and holding is
+         * visibly doing something.
+         */
+        <View
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: 4,
+            backgroundColor: checking
+              ? 'transparent'
+              : connected
+                ? color.checkout
+                : color.warning,
+            borderWidth: checking ? 1 : 0,
+            borderColor: color.muted,
+          }}
+        />
+      ) : null}
       <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>
         {sources.length > 1 ? '⇄' : ''}
       </Text>
@@ -421,6 +476,10 @@ export function LibraryHeader({
             sources={sources}
             activeId={activeSourceId}
             onSelect={onSelectSource}
+            driveIsActive={activeSourceId === USB_SOURCE_ID}
+            connected={connected}
+            checking={checking ?? false}
+            onCheckDrive={() => onCheckDrive?.()}
           />
         ) : (
           <DriveStatusButton

@@ -2178,3 +2178,71 @@ of it is a second thing to keep true.
 *`tests/fakeDrive.ts` (new), `tests/drive-read.test.ts` (new),
 `tests/checkout-copy.test.ts` (new), `tests/import-drive.test.ts` (new),
 `docs/KNOWLEDGE.md`, `docs/STATE.md`*
+
+## The lock-screen fix was never in the app, and the lag has two causes
+
+**The lock screen patch reached the phone and did nothing.** Three Kotlin
+files rewritten at prebuild, every literal matched, every assertion passed,
+`grep` confirming `60000` and `COMMAND_SEEK_BACK` in the patched source — and
+the buttons still jumped ten seconds on the device.
+
+expo-audio **ships a prebuilt AAR**, declared as a `publication` in its
+`expo-module.config.json`, so autolinking links that artifact and Gradle never
+compiles the Kotlin being patched. Verifying the source verified nothing, which
+is why the fault survived a build, a publish and a device session. The local
+module under `./modules` has no publication, which is why patching *that* has
+always worked and nothing had ever caught this.
+
+`buildFromSource: ["expo-audio"]` in `package.json` makes the source the thing
+that gets built, and `assertBuiltFromSource` in the plugin now refuses to run
+without it — a patch that silently does nothing is worse than no patch. The
+signal that it took is `node_modules/expo-audio/android/build/` existing after
+a build; the patched `.kt` file proves nothing either way.
+
+**The lag after saving has two separate causes, and both were real.**
+
+The first is that correcting one field reloaded the whole library. `refresh()`
+re-reads every book, part, chapter, checkout and correction and rebuilds every
+object, on the JS thread — right after Save, which is exactly when the screen
+should be answering taps. `loadBook(id)` and the store's `refreshBook` are for
+edits that touched one book, and they share `loadBooks` so a book loaded alone
+cannot drift from the same book loaded with the rest.
+
+The second explains the lag that turns up "periodically, after doing
+something", which is the harder one to attribute. Every filesystem call in
+`src/lib/sync/` is **synchronous** — `list()`, `textSync()` and `write()` all
+are — so a backup was one unbroken block of JavaScript: write the generation,
+then read all of it back off the drive to validate. An authored change of any
+kind schedules that 1.5 seconds later, so the freeze arrives detached from
+whatever caused it. `readGeneration`, `readDrive` and `writeGeneration` now
+yield between files, exactly as `listTree` does. That does not make a backup
+faster; it turns one long freeze into many short ones. Making it faster would
+mean not reading the generation back, and that read-back is the only thing
+that makes a backup trustworthy.
+
+**"Check again" in Settings said nothing at all.** It called `checkDrive()`
+and fired and forgot, so when the answer did not change — which is always,
+when the drive really is unplugged — pressing it was indistinguishable from
+the app ignoring the press. The Library header had the right behaviour already,
+including a deliberate 650 ms floor so the answer cannot appear to arrive
+before the tap landed. That behaviour is now one store action, `lookForDrive`,
+used by both; Settings had none of it and the header had a private copy.
+
+**The drive light, and a way to look for the drive once a server exists.**
+With an Audiobookshelf source configured the header's button becomes a source
+switcher, whose tap is spent on switching — leaving no way to ask "is the
+drive there?" from the one place that shows whether it is. Long-press now
+looks, and a small dot shows the answer: the palette's own olive and red
+rather than signal colours, hollow while a look is in flight. Both are hidden
+when the active source is a server, because a light beside a server's name
+would be read as saying something about the server, which this knows nothing
+about.
+
+One stray character fixed on the way past: a drive-identity error read "this
+library?s identity".
+
+*`package.json`, `plugins/withLockScreenSeek.js`, `src/lib/sync/driveSync.ts`,
+`src/lib/sync/libraryIdentity.ts`, `src/db/books.ts`, `src/db/overrides.ts`,
+`src/store/library.ts`, `src/app/book/[id].tsx`, `src/app/index.tsx`,
+`src/app/settings.tsx`, `src/components/LibraryHeader.tsx`,
+`tests/audit-regressions.test.ts`, `docs/KNOWLEDGE.md`, `docs/STATE.md`*

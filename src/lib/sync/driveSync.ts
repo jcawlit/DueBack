@@ -40,6 +40,22 @@ export type SyncOutcome = {
   message: string;
 };
 
+/**
+ * Hands the thread back between files.
+ *
+ * Every filesystem call in here is **synchronous** — `list()`, `textSync()`
+ * and `write()` all are — so one backup is one unbroken block of JS. On a USB
+ * drive over OTG that block is long enough to see: an authored change
+ * schedules a backup 1.5 s later, and the screen stops answering taps while
+ * it runs. That is the lag you feel a moment after saving something.
+ *
+ * Yielding does not make a backup faster. It turns one long freeze into many
+ * short ones, which is the difference between an app that is janky and an app
+ * that is unresponsive. `listTree` in `src/lib/files/access.ts` does the same
+ * for the same reason.
+ */
+const breathe = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 function readJsonFile<T>(file: File): T | null {
   try {
     if (!file.exists) return null;
@@ -66,13 +82,14 @@ function generationFolders(driveFolder: Directory): { n: number; dir: Directory 
   return found.sort((a, b) => b.n - a.n);
 }
 
-function readGeneration(dir: Directory, libraryId: string) {
+async function readGeneration(dir: Directory, libraryId: string) {
   const manifestFile = childByName<File>(dir, MANIFEST_FILE, 'file');
   const manifest = manifestFile ? readJsonFile<Manifest>(manifestFile) : null;
   const parts: Partial<Record<PartName, PartFile | null>> = {};
   for (const part of PART_FILES) {
     const file = childByName<File>(dir, `${part}.json`, 'file');
     parts[part] = file ? readJsonFile<PartFile>(file) : null;
+    await breathe();
   }
   return validateGeneration(libraryId, manifest, parts);
 }
@@ -99,7 +116,7 @@ export type DriveRead = {
  * generation damaged by a pulled cable costs the writing done since the one
  * before it, and nothing else.
  */
-export function readDrive(rootUri: string, libraryId: string): DriveRead {
+export async function readDrive(rootUri: string, libraryId: string): Promise<DriveRead> {
   const result: DriveRead = {
     payload: null,
     generation: 0,
@@ -117,7 +134,7 @@ export function readDrive(rootUri: string, libraryId: string): DriveRead {
 
   for (const { n, dir } of folders) {
     let validation;
-    try { validation = readGeneration(dir, libraryId); } catch {
+    try { validation = await readGeneration(dir, libraryId); } catch {
       result.skipped.push(`gen-${n}: malformed generation`);
       continue;
     }
@@ -150,11 +167,11 @@ export function readDrive(rootUri: string, libraryId: string): DriveRead {
  * is left alone rather than deleted: the next write takes the number after
  * it, and a folder that does not validate is never used for anything.
  */
-function writeGeneration(
+async function writeGeneration(
   driveFolder: Directory,
   payload: SyncPayload,
   options: { libraryId: string; generation: number; writerDevice: string },
-): { ok: boolean; message: string } {
+): Promise<{ ok: boolean; message: string }> {
   const { manifest, parts } = buildGeneration(payload, options);
   let dir: Directory;
   try {
@@ -167,6 +184,7 @@ function writeGeneration(
     for (const part of parts) {
       const file = dir.createFile(`${part.part}.json`, 'application/json');
       file.write(JSON.stringify(part));
+      await breathe();
     }
     /*
      * The manifest goes last. Until it is there the generation cannot
@@ -181,7 +199,7 @@ function writeGeneration(
   }
 
   // Read the whole thing back off the drive, not out of memory.
-  const check = readGeneration(dir, options.libraryId);
+  const check = await readGeneration(dir, options.libraryId);
   if (!check.ok) {
     return { ok: false, message: `the backup did not read back correctly: ${check.detail}` };
   }
@@ -213,7 +231,7 @@ export async function syncToDrive(
   writerDevice: string,
   mine: SyncPayload,
 ): Promise<SyncOutcome & { read: DriveRead }> {
-  const read = readDrive(rootUri, libraryId);
+  const read = await readDrive(rootUri, libraryId);
   const merged = read.payload ? mergePayloads(mine, read.payload) : mine;
 
   if (read.newerSchema) {
@@ -243,7 +261,11 @@ export async function syncToDrive(
   const highest = read.all.length > 0 ? Math.max(...read.all) : 0;
   const generation = highest + 1;
 
-  const written = writeGeneration(folder, merged, { libraryId, generation, writerDevice });
+  const written = await writeGeneration(folder, merged, {
+    libraryId,
+    generation,
+    writerDevice,
+  });
   if (!written.ok) {
     return { ok: false, merged, read, needsNewerApp: read.newerSchema, message: written.message };
   }
@@ -271,7 +293,7 @@ export async function syncToDrive(
 }
 
 /** Recover the bootstrap identity from a complete generation, not a single marker. */
-export function recoverDriveLibraryId(rootUri: string): string | null {
+export async function recoverDriveLibraryId(rootUri: string): Promise<string | null> {
   const folder = findDriveFolder(rootUri);
   if (!folder) return null;
   const folders = generationFolders(folder);
@@ -281,12 +303,12 @@ export function recoverDriveLibraryId(rootUri: string): string | null {
     const manifest = file ? readJsonFile<Manifest>(file) : null;
     if (!manifest || typeof manifest.libraryId !== 'string') continue;
     try {
-      const result = readGeneration(dir, manifest.libraryId);
+      const result = await readGeneration(dir, manifest.libraryId);
       if (result.ok || result.reason === 'newer-schema') ids.add(manifest.libraryId);
     } catch { /* A malformed generation cannot establish identity. */ }
   }
   if (ids.size > 1) throw new Error('The drive contains conflicting library identities. Choose the correct backup before scanning.');
   if (ids.size === 1) return [...ids][0];
-  if (folders.length) throw new Error('No complete drive backup could establish this library?s identity. Restore a valid generation before scanning.');
+  if (folders.length) throw new Error('No complete drive backup could establish this library’s identity. Restore a valid generation before scanning.');
   return null;
 }

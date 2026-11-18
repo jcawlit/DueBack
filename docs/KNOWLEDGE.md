@@ -1836,3 +1836,74 @@ A test here is worth writing only if it can fail: the manifest check in
 
 *`tests/fakeDrive.ts`, `tests/drive-read.test.ts`,
 `tests/checkout-copy.test.ts`, `tests/import-drive.test.ts`*
+
+### Patching an Expo module's Kotlin does nothing unless it builds from source (2026-11-18)
+
+**This cost a build and a device session.** `plugins/withLockScreenSeek.js`
+rewrote three of expo-audio's Kotlin files at prebuild. Every rewrite applied,
+every assertion passed, `grep` confirmed `60000` and
+`COMMAND_SEEK_BACK` in `node_modules/expo-audio/android/src/main/java/…`, the
+build succeeded — and the lock screen still jumped ten seconds.
+
+expo-audio **ships a prebuilt AAR.** Its `expo-module.config.json` carries:
+
+```json
+"android": { "publication": { "repository": "local-maven-repo", … } }
+```
+
+so autolinking links `node_modules/expo-audio/local-maven-repo/…/*.aar` and
+**never compiles that Kotlin at all**. The patched source sits there looking
+exactly right, which is worse than no patch, because verifying the source
+verifies nothing.
+
+The fix is `buildFromSource`, a list of regexes matched against the gradle
+project name, in `package.json`:
+
+```json
+"expo": { "autolinking": { "android": { "buildFromSource": ["expo-audio"] } } }
+```
+
+`assertBuiltFromSource` in the plugin now refuses to run without it, because
+the failure is silent in both directions.
+
+**How to tell which modules this affects:** a module with a `publication`
+block in its `expo-module.config.json` uses a prebuilt artifact.
+
+```
+npx expo-modules-autolinking resolve -p android --json
+```
+
+prints each project with its `publication`. Local modules under `./modules`
+(`dueback-audio`) have none, which is why patching *those* has always worked.
+
+**How to verify it took:** after a build, `node_modules/<module>/android/build/`
+exists only if the module was compiled from source. Checking the patched
+`.kt` file proves nothing.
+
+*`plugins/withLockScreenSeek.js`, `package.json`*
+
+### The drive backup blocks the JS thread (2026-11-18)
+
+Every filesystem call in `src/lib/sync/` is **synchronous** — `list()`,
+`textSync()` and `write()` all are — so one backup was one unbroken block of
+JavaScript: write N generation files, then read all of them back off the drive
+to validate. Over OTG that is long enough to see.
+
+An authored change — a note, a character, a check-out, a corrected title —
+schedules a backup 1.5 s later (`AUTHORED_DEBOUNCE_MS`). So the symptom is
+the app going unresponsive for a moment *shortly after* you did something,
+which is both intermittent and hard to attribute to the thing that caused it.
+
+`readGeneration`, `readDrive` and `writeGeneration` are now async and yield
+between files, exactly as `listTree` does and for the same reason. **That does
+not make a backup faster** — it turns one long freeze into many short ones,
+which is the difference between janky and unresponsive. Making it actually
+faster would mean not reading the whole generation back, and that read-back is
+the only thing that makes a backup trustworthy.
+
+The other half of the same symptom was `refresh()`: correcting one field
+reloaded every book, part, chapter, checkout and correction and rebuilt every
+object. `loadBook(id)` and the store's `refreshBook` exist for edits that
+touched one book, and share `loadBooks` so the two cannot drift.
+
+*`src/lib/sync/driveSync.ts`, `src/db/books.ts`, `src/store/library.ts`*
