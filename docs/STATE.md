@@ -34,15 +34,30 @@ All correctly ignored, none of it missing by accident:
 This matters more than anything else in this file. There are two tiers of
 test, and they cover very different ground.
 
-**1. Node unit tests — `npm test`, 667 cases, run in CI.**
-Pure logic only: grouping, identity, merge rules, the sound maths, note
-arithmetic, export, autosave, and the database migrations against `node:sqlite`.
-Fast, trustworthy, and the right place for anything that can live there.
+**1. Node unit tests — `npm test`, 724 cases, run in CI.**
+Two kinds, and the second is new.
 
-**2. A Pixel with a real USB drive and a real library.** Everything the unit
-tests cannot reach: the Storage Access Framework, audio hardware, Android
-power management, and whether any of it behaves on hundreds of real books
-with names no generator would invent. Done by hand, and recorded below.
+*Pure logic*: grouping, identity, merge rules, the sound maths, note
+arithmetic, export, autosave, and the database migrations against
+`node:sqlite`.
+
+*The drive itself, against a fake native layer.* `tests/fakeDrive.ts` stands
+in for `expo-file-system`, so the production `listTree`, `copyBookToDevice`,
+`swapIntoPlace`, `recoverInterruptedSwaps`, `collectAudio` and
+`copyImportToDrive` all run here — including the failure paths that used to
+need a real cable to provoke: a folder that will not list, a subtree past the
+depth limit, a book deleted from the drive since the last scan, a phone with
+no room, a cancel between parts, a resume after a kill, and a push that dies
+half-written. Only the native leaf is replaced; nothing here reimplements the
+code it tests. `npm run kb -- "node --test"` for the fidelity rules and, more
+importantly, for what it deliberately does **not** model.
+
+**2. A Pixel with a real USB drive and a real library.** What tier 1 cannot
+reach, which is now a shorter and sharper list: real SAF behaviour (renaming
+a file you asked it to create, descriptors going stale, permission revoked
+between launches), audio hardware, Android power management, speed, and
+whether any of it behaves on hundreds of real books with names no generator
+would invent. Done by hand, and recorded below.
 
 There used to be a third tier — scripted suites A1–A14, run from a Settings
 button against a generated fixture library. They were removed on 15 October

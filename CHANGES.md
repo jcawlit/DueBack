@@ -2116,3 +2116,65 @@ cycle with the one that reads them.
 `tests/overrides.test.ts` (new), `tests/overrides-db.test.ts` (new),
 `tests/cover-names.test.ts` (new), `tests/sync.test.ts`, `docs/KNOWLEDGE.md`,
 `docs/STATE.md`*
+
+## The drive can be read, copied and written without a phone
+
+`listTree`, `copyBookToDevice`, `swapIntoPlace`, `recoverInterruptedSwaps`,
+`collectAudio` and `copyImportToDrive` are around 2,200 lines that had no unit
+tests at all, because every one of them reaches `expo-file-system` and would
+not load in Node. They are the lines that read the library, fill the phone and
+write into the only copy of anything — so they were simultaneously the riskiest
+code here and the least covered.
+
+`tests/fakeDrive.ts` stands in for `expo-file-system` through `registerHooks`
+from `node:module`, and **only** for that. The walk, the copy and the import
+are the real ones; nothing here is a second implementation to compare against,
+which would prove nothing. 57 new cases, and most of them are failure paths
+that used to need a cable to provoke: a folder that will not list, a subtree
+past the depth limit, a book deleted from the drive since the last scan, a
+phone with no room, a cancel between parts, a resume after a kill, two
+same-sized parts that swapped places, and a push that dies half-written.
+
+**The fidelity rules are the point, not the plumbing.** A model of the Storage
+Access Framework is not SAF, and most of the expensive bugs in this repository
+were ones a model would have got wrong. Three rules have already earned their
+place. `File` and `Directory` have to be **unrelated classes**, because the
+real ones are, and `listTree` branches on `instanceof Directory` while
+`localPathsFor` branches on `instanceof File` — with one extending the other, a
+`.previous` folder reads as audio. `copy` and `move` have to be **async** while
+`delete`, `write`, `create` and `list` are **not**, or the fake would have let
+`npm run kb -- "asynchronous"` straight through. And `entry.name` has to be
+able to return a **SAF document id**, or nothing proves `safDisplayName` is
+still applied.
+
+What it does not model is written down beside it, so nothing is mistaken for
+covered: SAF renaming a file you asked it to create, descriptors going stale,
+permission revoked between launches, and speed. Those stay device checks, and
+`docs/STATE.md` now says so.
+
+**`copy` and `move` do not land where the docs suggest.** The rule is not
+documented; it is in `CopyMoveStrategy.prepareAsDestination` in
+expo-file-system's Android source, and it is conditional: a directory moved
+onto a directory that **exists** lands *inside* it, and only renames when the
+destination does not exist. That is why `swapIntoPlace` moves the old copy
+aside *before* moving the new one in — reverse the order and the staged book
+lands at `books/<id>/<id>/`, one folder too deep, where the player, the part
+paths and `deleteLocalCopy` all miss it. A checked-out book with invisible
+audio and no error anywhere. The fake implements the real rule, so the test
+asserts the behaviour rather than a guess.
+
+Two things found while writing it, both in the tests rather than the app. A
+test for the staging manifest passed for the wrong reason — a malformed
+manifest takes the same "start over" path as a mismatched one, so it would
+have passed with the check deleted. It now uses the case the manifest actually
+exists for and the size check cannot catch: two parts of equal length that
+swapped places on the drive, which without the manifest would be read back
+under each other's names and play the book's halves in the wrong order. That
+one was verified by breaking `stagingIsFor` on purpose and watching it go red.
+And a test asserting a marked folder is invisible to a scan was removed rather
+than fixed: `tests/grouping.test.ts` already pins that rule, and a second copy
+of it is a second thing to keep true.
+
+*`tests/fakeDrive.ts` (new), `tests/drive-read.test.ts` (new),
+`tests/checkout-copy.test.ts` (new), `tests/import-drive.test.ts` (new),
+`docs/KNOWLEDGE.md`, `docs/STATE.md`*

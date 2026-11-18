@@ -1765,3 +1765,74 @@ No runtime permission request is needed. The system photo picker returns one
 chosen file and grants access to that file alone.
 
 *`app.json`, `src/app/book/[id].tsx`*
+
+### Where `copy` and `move` actually land (2026-11-18)
+
+Not in the Expo docs, and not what it looks like. Transcribed from
+`CopyMoveStrategy.prepareAsDestination` in expo-file-system's Android source:
+
+| source | destination | result |
+|---|---|---|
+| dir | dir that **exists** | lands *inside*, as `dest/sourceName` |
+| dir | dir that **does not** exist | the destination path **is** the target (a rename), if its parent exists |
+| dir | file | refused — `CopyOrMoveDirectoryToFileException` |
+| file | dir | dir must exist; lands as `dest/sourceName` |
+| file | file | the destination path is the target; parent must exist |
+
+An existing target is refused with `DestinationAlreadyExistsException` unless
+`overwrite: true`, which then deletes it recursively.
+
+**Why it matters here.** `swapIntoPlace` moves the old copy aside *before*
+moving the new one in, and that order is load-bearing rather than tidy: with
+the destination still present, `staging.move(finalDir)` would land the staged
+book at `books/<id>/<id>/`, one folder too deep, where the player, the part
+paths and `deleteLocalCopy` would all miss it. A checked-out book with
+invisible audio, and no error anywhere.
+
+`move` also **updates the instance's `uri`** to where the file actually went,
+and callers read it afterwards.
+
+*`src/lib/files/copy.ts`, `tests/checkout-copy.test.ts`,
+`tests/fakeDrive.ts`*
+
+### The drive can be read and written inside `node --test` (2026-11-18)
+
+`tests/fakeDrive.ts` stands in for `expo-file-system` through
+`registerHooks` from `node:module`, so `listTree`, `copyBookToDevice`,
+`swapIntoPlace`, `collectAudio` and `copyImportToDrive` all run for real off a
+phone. It also teaches Node the two things the bundler does: the `@/` alias,
+and extension-less relative and directory imports.
+
+Importing it **registers the hooks**, so it must be imported before anything
+it stands in for: a test file imports it statically and everything it
+exercises with `await import(...)`. `tests/audit-regressions.test.ts` has the
+same shape and came first.
+
+**Only the native leaf is replaced.** This is not a second implementation of
+the walk to compare against, which would prove nothing. But it is a model of
+SAF, and most of the expensive bugs in this repository's history are ones a
+model would have got wrong, so the fidelity rules in its header are load-
+bearing, not decoration. The ones that have already caught something:
+
+- **`File` and `Directory` must be unrelated classes.** The real ones extend
+  `FileSystemFile` and `FileSystemDirectory`, so a directory is *not* an
+  `instanceof File`. `listTree` branches on `instanceof Directory` and
+  `localPathsFor` on `instanceof File` — with one extending the other, a
+  `.previous` folder reads as audio.
+- **`copy`/`move` are async; `delete`/`write`/`create`/`list` are not.** A fake
+  that made everything async would have let the bug in
+  `npm run kb -- "asynchronous"` straight through.
+- **`entry.name` can be a SAF document id**, so `nameAs()` exists to make one.
+  A fake that only produced tidy names could not test that `safDisplayName` is
+  still applied.
+
+Deliberately **not** modelled, so nothing is mistaken for covering it: SAF
+renaming a file you asked it to create, descriptors going stale, permission
+revoked between launches, and anything about speed. Those stay device checks.
+
+A test here is worth writing only if it can fail: the manifest check in
+`copyBookToDevice` was verified by breaking it on purpose and watching
+`tests/checkout-copy.test.ts` go red.
+
+*`tests/fakeDrive.ts`, `tests/drive-read.test.ts`,
+`tests/checkout-copy.test.ts`, `tests/import-drive.test.ts`*
