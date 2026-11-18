@@ -271,6 +271,16 @@ export default function LibraryScreen() {
    * arrangement underneath.
    */
   const liveBookIds = useMemo(() => new Set(found.map((b) => b.id)), [found]);
+  /*
+   * What the shelves are actually in — and therefore what the picker has to
+   * say. Showing the saved `sort` there while rendering this one made the chip
+   * read "Custom" over shelves in length order.
+   *
+   * The saved preference is deliberately left alone. Custom is where the
+   * listener put themselves, the fallback is temporary cover while the seeding
+   * repairs the arrangement, and overwriting the setting would turn a bad
+   * scan into a lost choice.
+   */
   const shownSort = effectiveSort(sort, liveBookIds, previewRows);
   const shelves = useMemo(
     () => buildShelves(found, shownSort, previewRows),
@@ -566,7 +576,7 @@ export default function LibraryScreen() {
           sources={switchable}
           activeSourceId={activeSourceId}
           onSelectSource={setActiveSourceId}
-          sort={sort}
+          sort={shownSort}
           onSort={setSort}
           search={search}
           onSearch={setSearch}
@@ -714,7 +724,7 @@ export default function LibraryScreen() {
         onCheckDrive={recheckDrive}
         checking={checkingDrive}
         onOpenSettings={() => router.push('/settings')}
-        sort={sort}
+        sort={shownSort}
         onSort={setSort}
         search={search}
         onSearch={setSearch}
