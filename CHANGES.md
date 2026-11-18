@@ -2305,3 +2305,67 @@ go red.
 
 *`src/lib/scan/scanner.ts`, `tests/scan-end-to-end.test.ts` (new),
 `tests/fakeDrive.ts`, `docs/KNOWLEDGE.md`, `docs/STATE.md`*
+
+## A removed server took its books to the drive
+
+Reported from a real phone: remove an Audiobookshelf source, sign back in, and
+some server books — a mix of checked-out and not — are sitting in the USB
+library stamped "the last scan couldn't find this one on the drive", with a
+second, live copy of each beside them.
+
+One statement did all of it. `removeSource` kept books holding a place or a
+note, on the reasoning that those are the listener's and outlive the server.
+The reasoning is right. The statement was:
+
+```sql
+UPDATE books SET source_id = NULL, remote_id = NULL, missing = 1
+ WHERE source_id = ?
+```
+
+and `DRIVE_BOOKS` is literally `source_id IS NULL`. So every kept book became
+a book on the drive. It appeared on the drive's shelf unplayable; the next
+scan's sweep stamped it missing; `forgetMissingBooks` — which selects exactly
+`missing = 1 AND source_id IS NULL` — offered to delete it beside genuinely
+missing books with nothing distinguishing them. Clearing `remote_id` then
+destroyed the only link by which signing in again could have recognised the
+book, so a fresh row was made beside it. Only books holding something survived
+to become ghosts, which is why the symptom was "some of them, a mix of
+checked-out and not": precisely the ones worth keeping.
+
+A source is tombstoned now rather than deleted. Its books keep `source_id` and
+`remote_id` and are left entirely alone, and `addSource` revives the row when
+the same server and account are signed into again — matched on the server URL
+and username rather than the label, which is only a name. Everything comes
+back attached to it with its place, its notes and its card history, and nothing
+duplicates. Books holding nothing of the listener's are still deleted outright,
+since there is nothing in them to protect.
+
+The rule worth remembering: a book's `source_id` is its identity, not a link
+to tidy up. Clearing it does not detach a book from a server — it hands the
+book to the drive.
+
+**It had a passing test that blessed it.** `tests/sources-migration.test.ts`
+contained a case called "unhooks a removed source from its books instead of
+deleting them" which hand-copied the statement above and asserted `source_id`
+came out null, as though that were the contract. It executed its own copy
+rather than calling `removeSource`, so it could not fail when `removeSource`
+was wrong; it only ever agreed with itself. That is the failure mode
+`tests/fakeDrive.ts` was written to avoid, found in the wild in the same
+afternoon. It is gone, with a note in its place saying what it did.
+
+`tests/sources-removal.test.ts` replaces it: twelve cases calling the real
+`removeSource`, `addSource`, `listSources` and `forgetMissingBooks` against
+real SQLite. Putting the old statement back fails five of them, including the
+duplicate on re-add — checked by doing exactly that.
+
+Migration 19 cleans up the books already orphaned on the phone. The signature
+is exact and cannot catch a book that came off a drive: a drive scan never
+writes `remote_updated_at`, so `source_id IS NULL` together with one can only
+be a book cut loose by the old code. Their parts and checkouts go with them;
+notes are kept, as all housekeeping here keeps them, and the audio left in
+`books/<id>/` is swept on the next launch by the reconciliation that already
+removes any folder no checked-out book claims.
+
+*`src/db/sources.ts`, `src/db/migrations.ts`, `docs/KNOWLEDGE.md`,
+`docs/STATE.md`, `tests/sources-removal.test.ts` (new),
+`tests/sources-migration.test.ts`*

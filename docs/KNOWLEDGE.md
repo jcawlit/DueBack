@@ -1966,3 +1966,59 @@ book is not possible through `scanLibrary` — `tests/coverage.test.ts` pins tha
 directly instead.
 
 *`tests/scan-end-to-end.test.ts`, `tests/fakeDrive.ts`*
+
+### `source_id IS NULL` means "on the drive", so never clear it (2026-11-18)
+
+**This reached a real phone and scrambled a real library.** Removing an
+Audiobookshelf source and signing back in left server books sitting in the USB
+library stamped "not on drive", beside a second live copy of each.
+
+`removeSource` kept books holding a place or a note — right, those are the
+listener's and outlive the server — but kept them like this:
+
+```sql
+UPDATE books SET source_id = NULL, remote_id = NULL, missing = 1
+ WHERE source_id = ?
+```
+
+`DRIVE_BOOKS` in `src/db/scope.ts` is literally `source_id IS NULL`. So every
+kept book *became a book on the drive*:
+
+- it appeared on the drive's shelf, unplayable;
+- the next scan's sweep stamped it `missing = 1`, "not on drive";
+- `forgetMissingBooks` selects exactly `missing = 1 AND source_id IS NULL`, so
+  one button offered to delete it beside genuinely missing books, with nothing
+  on screen distinguishing them;
+- and clearing `remote_id` destroyed the only link by which signing in again
+  could have recognised the book, guaranteeing a duplicate per book.
+
+Only books holding something survived to become ghosts, so the symptom is
+"some of my server books, a mix of checked-out and not" — precisely the ones
+worth keeping.
+
+**A source is tombstoned now** (`sources.removed_at`), its books keep both
+`source_id` and `remote_id`, and `addSource` revives the row when the same
+server and account are signed into again — matched on
+`(kind, serverUrl, username)`, not the label. Everything comes back attached,
+nothing duplicates, and nothing ever lands in the drive's scope.
+
+**The rule:** a book's `source_id` is its identity, not a link to tidy up.
+Clearing it does not detach a book from a server, it *hands the book to the
+drive*. Removal is expressed on the source row.
+
+**Why it survived so long:** it had a passing test that blessed it.
+`tests/sources-migration.test.ts` hand-copied the statement and asserted
+`source_id` came out null as though that were the contract. It executed its own
+copy rather than calling `removeSource`, so it could not fail when
+`removeSource` was wrong — it only agreed with itself. A test that
+reimplements the code it tests is worse than no test. Replaced by
+`tests/sources-removal.test.ts`, which calls the real functions and fails on
+five counts if the old statement returns.
+
+A book orphaned by the old code is identifiable exactly — a drive scan never
+writes `remote_updated_at`, so `source_id IS NULL AND remote_updated_at IS NOT
+NULL` can only be one — and migration 19 deletes those, their parts and their
+checkouts. Notes are kept, as all housekeeping here keeps them.
+
+*`src/db/sources.ts`, `src/db/scope.ts`, `src/db/migrations.ts`,
+`tests/sources-removal.test.ts`*

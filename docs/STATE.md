@@ -34,7 +34,7 @@ All correctly ignored, none of it missing by accident:
 This matters more than anything else in this file. There are two tiers of
 test, and they cover very different ground.
 
-**1. Node unit tests — `npm test`, 743 cases, run in CI.**
+**1. Node unit tests — `npm test`, 754 cases, run in CI.**
 Two kinds, and the second is new.
 
 *Pure logic*: grouping, identity, merge rules, the sound maths, note
@@ -319,6 +319,12 @@ Roughly in the order I would take them.
 ## Traps
 
 Things that have already cost a day each.
+
+- **Clearing a book's `source_id` hands it to the drive.** `DRIVE_BOOKS` is
+  `source_id IS NULL`, so "unhooking" a removed server's books turned them
+  into drive books: on the drive's shelf, stamped "not on drive" by the next
+  scan, and offered up by "Forget missing books" beside real ones. It reached
+  a phone. `npm run kb -- "means on the drive"`.
 
 - **`npx expo install --fix` breaks the build here.** It nests
   `expo-modules-core` and `expo-audio` stops resolving it. `npm run kb -- "expo
