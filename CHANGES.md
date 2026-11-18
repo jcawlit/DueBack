@@ -2369,3 +2369,50 @@ removes any folder no checked-out book claims.
 *`src/db/sources.ts`, `src/db/migrations.ts`, `docs/KNOWLEDGE.md`,
 `docs/STATE.md`, `tests/sources-removal.test.ts` (new),
 `tests/sources-migration.test.ts`*
+
+## The tray shows everything again, in groups
+
+Reported from a phone, and the right complaint: a book downloaded from an
+Audiobookshelf server, after that server was removed, was still on the phone
+holding gigabytes and appeared in no tray at all. Nothing offered to release
+it. Invisible storage is worse than storage in the wrong place.
+
+The tray has now been both global and scoped. Global first — what is on the
+phone is on the phone — which held while the drive was the only thing that
+could put a book there. Then scoped to the active source, because standing in
+a server's library and seeing the drive's checkouts answered a question nobody
+asked. Scoping fixed that and introduced this, which is worse, because the
+first version was merely untidy and the second one loses track of real files.
+
+So it is global again, in labelled groups laid out left to right: the drive,
+then each server signed into, then a **"Signed out"** group for anything whose
+source has gone. A thin rule separates them and the summary line names the
+counts in the same order — "4 books · 12.1 of 32 GB · 3 Drive · 1 Home" — so
+the line reads across the covers. With one group there is no rule and no
+breakdown, which is every library without a server: the tray looks exactly as
+it always has.
+
+`trayGroups` in `src/lib/library/tray.ts` is the rule and it is pure, so it is
+tested rather than reasoned about. `tests/tray-scope.test.ts` was the file
+asserting the old scoped behaviour; it now asserts this one, and its header
+records both reversals and why.
+
+**The ruler is global with it, and finally agrees with the fan above it.** The
+old note in `index.tsx` said a per-library ruler was the lesser evil because
+"a ruler that disagreed with the fan above it" would be worse. With the tray
+showing everything, that objection is gone, and the ruler now says what the
+budget was always about: this phone. Shelves stay scoped, because mixing two
+libraries into one set of generated shelves really does produce a "6 hours or
+less" shelf full of books that cannot be reached.
+
+Two things needed no code, which is worth saying rather than implementing
+twice. **Releasing a signed-out book already works**: `returnBook` is entirely
+local — patch the status, stop the audio, delete the copy — and never asks the
+source anything. It also does not warn about being the only copy, which is
+correct, because the server still has it. And **nothing offers to put a server
+book on the drive**: `importsAwaitingDrive` requires
+`source_kind = 'imported'`, and a downloaded book's kind is `'library'`.
+
+*`src/lib/library/tray.ts` (new), `src/components/CheckedOutTray.tsx`,
+`src/app/index.tsx`, `tests/tray-scope.test.ts`, `docs/KNOWLEDGE.md`,
+`docs/STATE.md`*

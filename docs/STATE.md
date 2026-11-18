@@ -34,7 +34,7 @@ All correctly ignored, none of it missing by accident:
 This matters more than anything else in this file. There are two tiers of
 test, and they cover very different ground.
 
-**1. Node unit tests — `npm test`, 754 cases, run in CI.**
+**1. Node unit tests — `npm test`, 760 cases, run in CI.**
 Two kinds, and the second is new.
 
 *Pure logic*: grouping, identity, merge rules, the sound maths, note
@@ -168,16 +168,17 @@ cancel, which have only ever been reasoned about.
   drive. A refresh diffs on the server's own `updatedAt` and marks a
   vanished book missing rather than deleting it, mirroring what a USB scan
   does.
-- **Shelves, search and the checked-out tray show one source at a time.**
-  The tray was global at first — what is on the phone is on the phone —
-  which held while the drive was the only thing that could put a book
-  there. With a second source it stopped holding: standing in a server's
-  library and seeing the drive's checkouts answers a question nobody
-  asked, and a book downloaded from the server did not appear under it.
-  The consequence to know: the budget is global because it is about the
-  phone, so the ruler shows the active library's share of it, and with
-  downloads in two sources no single tray shows everything the phone
-  holds. `tests/tray-scope.test.ts` pins the rule.
+- **Shelves and search show one source at a time; the tray does not.**
+  The tray has been both. Global first, then scoped to the active source,
+  and scoping turned out worse: a book downloaded from a server that was
+  later removed belonged to no library you could switch to, so it appeared
+  nowhere while still holding gigabytes. It is global again, in labelled
+  groups — the drive, each server, then a "Signed out" group for anything
+  whose source has gone. The ruler is global with it, and so finally agrees
+  with the fan above it. Shelves stay scoped, because mixing two libraries
+  into one set of generated shelves really does produce a "6 hours or less"
+  shelf full of books that cannot be reached.
+  `npm run kb -- "global again"`; `tests/tray-scope.test.ts` pins the rule.
 - **`src/app/abs/[id]` is now a diagnostics screen, not the book's screen.**
   It holds what only a tester wants — the remote id, when the record was
   cached, what the last progress push did — and is reached by the "server
@@ -245,6 +246,12 @@ cancel, which have only ever been reasoned about.
   drive button it always has. The switcher only appears once there is
   something to switch to, so the USB path is untouched for anyone who never
   opens this.
+- **One server, by decision rather than by omission.** Shelves and search show
+  one source at a time, the budget is global because it is about the phone,
+  and a second server multiplies both questions for a case nobody here has.
+  Signing in replaces what is there; removing is how you leave. The Settings
+  panel no longer says "(TESTING)" either — downloads, progress both ways and
+  the catalogue have all run against a real server on a real phone.
 - **No Pro gating yet**, deliberately, while it is being tested.
 
 Secrets: the access and refresh tokens live in SecureStore keyed by the

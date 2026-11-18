@@ -2022,3 +2022,43 @@ checkouts. Notes are kept, as all housekeeping here keeps them.
 
 *`src/db/sources.ts`, `src/db/scope.ts`, `src/db/migrations.ts`,
 `tests/sources-removal.test.ts`*
+
+### The checked-out tray is global again, in groups (2026-11-18)
+
+It has now been both. Global first — what is on the phone is on the phone —
+which held while the drive was the only thing that could put a book there.
+Then scoped to the active source, because standing in a server's library and
+seeing the drive's checkouts answers a question nobody asked.
+
+**Scoping was worse, and it cost storage.** A book downloaded from a server
+that was later removed belonged to no source you could switch to, so it
+appeared in no tray at all: still on the phone, still holding gigabytes, with
+no screen offering to release it. Found on a real phone after a server was
+removed and signed into again.
+
+So: global, in labelled groups — the drive, then each server signed into, then
+a **"Signed out"** group for anything whose source is gone. `trayGroups` in
+`src/lib/library/tray.ts` is the rule, and it is pure so it is tested. Empty
+groups are dropped, so a library with no server renders exactly one group and
+the tray looks as it always did.
+
+Consequences worth knowing:
+
+- **The ruler is global now too**, and finally agrees with the fan above it.
+  The old note said a per-library ruler was the lesser evil because "a ruler
+  that disagreed with the fan above it" was worse; with the tray showing
+  everything, that objection is gone and the ruler says what the budget was
+  always about: this phone.
+- **Shelves are still scoped**, and must stay so. Mixing two libraries into
+  one set of generated shelves really does produce a "6 hours or less" shelf
+  full of books that cannot be reached.
+- **Releasing a signed-out book already works.** `returnBook` is entirely
+  local — patch the status, stop the audio, delete the copy — and never asks
+  the source anything. It also does not warn about being the only copy, which
+  is right: the server still has it.
+- **Nothing offers to put a server book on the drive**, and nothing had to be
+  added to prevent it: `importsAwaitingDrive` requires
+  `source_kind = 'imported'`, and a downloaded book's kind is `'library'`.
+
+*`src/lib/library/tray.ts`, `src/components/CheckedOutTray.tsx`,
+`src/app/index.tsx`, `tests/tray-scope.test.ts`*

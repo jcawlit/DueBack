@@ -39,6 +39,7 @@ import {
   type Shelf as ShelfModel,
 } from '@/lib/shelves';
 import { cascade } from '@/lib/library/cascade';
+import { trayGroups } from '@/lib/library/tray';
 import { searchBooks } from '@/lib/library/search';
 import { daysOfListening, relativeTime, relativeTimeShort } from '@/lib/format';
 import { color, font, space } from '@/theme/tokens';
@@ -121,12 +122,13 @@ export default function LibraryScreen() {
    * of generated shelves would produce a "6 hours or less" shelf containing
    * books you cannot reach.
    *
-   * The tray was global once — what is on the phone is on the phone, whichever
-   * library it came from. That broke down as soon as a second source could put
-   * books on the phone: standing in an Audiobookshelf library and seeing the
-   * drive's checkouts in the tray below answers a question nobody asked. A
-   * library's tray now holds that library's books, and a book downloaded from
-   * a server appears under that server.
+   * **The tray is not scoped, and that is a reversal.** It was global, then
+   * per-source, and per-source turned out worse: a book downloaded from a
+   * server that was later removed belonged to no library you could switch to,
+   * so it appeared nowhere while still holding gigabytes. It is global again,
+   * in labelled groups — see `src/lib/library/tray.ts`. Shelves stay scoped,
+   * because mixing two libraries into one set of generated shelves really
+   * does produce a "6 hours or less" shelf full of books you cannot reach.
    */
   const inSource = useMemo(
     () => books.filter((b) => belongsToSource(b, activeSourceId, USB_SOURCE_ID)),
@@ -135,19 +137,37 @@ export default function LibraryScreen() {
 
   // Derived here rather than in a store selector: a selector that builds a new
   // array every call re-renders without end under zustand v5.
-  const checkedOut = useMemo(() => checkedOutFrom(inSource), [inSource]);
   const onHoldCount = useMemo(() => heldCount(inSource), [inSource]);
 
+  /** The servers signed into, for the tray's groups and their labels. */
+  const absServers = useMemo(
+    () => sources.filter((s) => s.kind === 'abs').map(({ id, label }) => ({ id, label })),
+    [sources],
+  );
+
   /*
-   * The ruler measures this library's share of the budget.
-   *
-   * The budget itself is global, because it is about the phone — so with
-   * downloads in more than one source, no single tray shows everything the
-   * phone is holding. The alternative was a ruler that disagreed with the fan
-   * above it, which is worse: a reader can switch libraries to see the rest.
+   * Every book on the phone, grouped by where it came from — not just the
+   * library being looked at. A book from a removed server lands in its own
+   * group rather than vanishing, which is the whole reason this is not scoped.
    */
-  const used = usedBytes(inSource);
-  const heldBytes = holdBytes(inSource);
+  const trayStacks = useMemo(
+    () => trayGroups(books, { driveSourceId: USB_SOURCE_ID, servers: absServers }),
+    [books, absServers],
+  );
+  // Global too: the hint is about whether anything at all has been taken out.
+  const checkedOut = useMemo(() => checkedOutFrom(books), [books]);
+
+  /*
+   * The ruler measures the whole phone, and now agrees with the fan above it.
+   *
+   * It used to measure the active library's share, because the tray did — and
+   * the note here said the alternative was "a ruler that disagreed with the
+   * fan above it, which is worse". With the tray showing everything, that
+   * objection is gone and the ruler says what the budget was always about:
+   * this phone.
+   */
+  const used = usedBytes(books);
+  const heldBytes = holdBytes(books);
 
   // What the folder takes up, for a library that is already in phone storage.
   const onDeviceBooks = useMemo(() => inSource.filter((b) => !isRemote(b)), [inSource]);
@@ -640,7 +660,7 @@ export default function LibraryScreen() {
 
         <View onLayout={(e) => setBottomObstruction(e.nativeEvent.layout.height)}>
           <CheckedOutTray
-            books={checkedOut}
+            groups={trayStacks}
             usedBytes={used}
             holdBytes={heldBytes}
             budgetBytes={budgetBytes}
@@ -813,7 +833,7 @@ export default function LibraryScreen() {
         onLayout={(e) => setBottomObstruction(e.nativeEvent.layout.height)}
       >
         <CheckedOutTray
-          books={checkedOut}
+          groups={trayStacks}
           usedBytes={used}
           holdBytes={heldBytes}
           budgetBytes={budgetBytes}
