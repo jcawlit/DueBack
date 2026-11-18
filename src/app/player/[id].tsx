@@ -12,8 +12,9 @@ import { selectBook, useLibrary } from '@/store/library';
 import { useNotes } from '@/store/notes';
 import { isBookmark } from '@/data/notes';
 import { isPro } from '@/lib/pro';
+import { markLabelCaps, markTitle, markWord } from '@/lib/library/marks';
 import { SLEEP_OPTIONS, SPEEDS, realSecondsLeft, usePlayer } from '@/store/player';
-import { clock, hoursLeft, tidyChapterTitle } from '@/lib/format';
+import { clock, hoursLeft } from '@/lib/format';
 import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
 import { useTheme } from '@/store/theme';
 import { BookCover } from '@/components/BookCover';
@@ -314,7 +315,7 @@ export default function PlayerScreen() {
             color: color.paper,
           }}
         >
-          {tidyChapterTitle(chapter.title)}
+          {markTitle(book, chapter, index)}
         </Text>
       </View>
 
@@ -569,7 +570,7 @@ export default function PlayerScreen() {
         <TrayButton
           label="contents"
           onPress={() => setContentsOpen(true)}
-          accessibilityLabel={`Contents, chapter ${index + 1} of ${book.chapters.length}`}
+          accessibilityLabel={`Contents, ${markWord(book)} ${index + 1} of ${book.chapters.length}`}
           icon={<ContentsIcon />}
         />
         <TrayButton
@@ -610,7 +611,7 @@ export default function PlayerScreen() {
         note={editingNote}
         characters={characters}
         atSec={editing?.atSec ?? position}
-        chapterLabel={book.chapters.length > 0 ? `CH. ${index + 1}` : null}
+        chapterLabel={book.chapters.length > 0 ? markLabelCaps(book, index) : null}
         canTag={isPro()}
         onSave={(text) => {
           void saveNote(text);
@@ -637,7 +638,7 @@ export default function PlayerScreen() {
 
       <NoteReader
         note={readingNote}
-        chapterLabel={book.chapters.length > 0 ? `CH. ${index + 1}` : null}
+        chapterLabel={book.chapters.length > 0 ? markLabelCaps(book, index) : null}
         characters={characters}
         onPlayFrom={(sec) => {
           setReading(null);

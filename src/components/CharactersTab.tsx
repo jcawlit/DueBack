@@ -22,6 +22,7 @@ import {
   type Note,
 } from '@/data/notes';
 import { timestamp } from '@/lib/format';
+import { markLabelCaps } from '@/lib/library/marks';
 import { color, font, space, TOUCH } from '@/theme/tokens';
 import { Aside } from './Aside';
 import { ChevronRight } from './icons';
@@ -41,7 +42,7 @@ function groupByChapter(book: Book, characters: Character[], notes: Note[]) {
       heard === null
         ? 'NOT HEARD YET'
         : book.chapters.length > 0
-          ? `CH. ${chapterAt(book, heard).index + 1}`
+          ? markLabelCaps(book, chapterAt(book, heard).index)
           : 'IN THIS BOOK';
     const last = groups[groups.length - 1];
     const row = { character, heard, count: noteCountFor(character.id, notes) };

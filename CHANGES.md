@@ -1917,3 +1917,60 @@ README had carried as "no license has been added yet". The copyright line says
 
 *`README.md`, `docs/DEVELOPMENT.md` (new), `LICENSE` (new), `CHANGES.md`,
 `docs/STATE.md`, `HANDOFF.md`; removed `README_NEW.md`, a draft folded in*
+
+## Three things the ear and the lock screen noticed
+
+**A mark is not always a chapter.** A book cut into equal lengths with no
+chapter marks of its own gets one mark per file, and the tenth file was
+labelled "Ch. 10" while the listener was somewhere in chapter four. The scan
+already knew: `chaptersFromParts` has been set and stored since the fallback
+was written, so this is a wording change over data that is already right, and
+an existing library says the correct thing without a rescan.
+
+`src/lib/library/marks.ts` is the only place that reads the flag, and
+everything that names a mark goes through it — the mini player, the book
+screen, the player's heading, the contents sheet, the chapters tab and its
+gutter, the character sheet, the note chips, the tab label, the server screen.
+The word is spelled out. "Section 10", never "Sec. 10", which sitting beside
+`1:23:45` reads as ten seconds; "Part" was the other candidate and is already
+the app's word for one file of a book.
+
+**The lock screen's skip buttons did nothing, and ten seconds was wrong
+anyway.** expo-audio 57 builds them as custom session commands and then
+answers `RESULT_ERROR_NOT_SUPPORTED`, which a controller is entitled to act on
+by ignoring the button — so they rendered and nothing happened. Wired to
+`COMMAND_SEEK_BACK`/`COMMAND_SEEK_FORWARD` instead, media3 does the seeking
+itself, using the increments the player was built with. Those are hardcoded in
+two files, and the `_10` icons draw the number, so all of it moves together: a
+minute, on plain icons.
+
+`plugins/withLockScreenSeek.js` applies it at prebuild rather than through
+patch-package, which would need a `postinstall` hook. `android/` is generated
+and never committed here, so prebuild runs before every native build, locally
+and on EAS: the edits land exactly when they can matter. Every rewrite is a
+literal string that must match, and a miss **fails the build** — on an upgrade
+that silently reformats one of those lines, the alternative is an app whose
+lock screen is quietly broken again.
+
+**The first half-second after a rewind was warped.** `preservesPitch` is true,
+so above 1× audio runs through Sonic, ExoPlayer's time-stretcher, and a seek
+flushes the pipeline it has to re-prime in. An MP3 with no seek table can also
+land mid-frame. Two causes, one shape — a short burst of wrong audio at a known
+instant — so the engine covers the instant rather than chasing either: volume
+to zero, seek, a 220 ms ramp back. Status arrives twice a second and restores a
+volume left below full, because a book stuck silent would be far worse than the
+artefact the fade exists to hide.
+
+**And `npm run kb` had been answering "nothing" for everything.** The parser
+split on `\n`, `core.autocrlf` is on, and `/^## (.+)$/` cannot match a line
+ending in a carriage return: `.` stops before it and `$` finds a character
+still to come. Every heading failed, so the knowledge base parsed to zero
+entries and every query came back "Nothing for <term>" — indistinguishable
+from a knowledge base with nothing to say, while `AGENTS.md` tells everyone to
+search it before debugging. It splits on either ending now, and finds its 105
+entries.
+
+*`src/lib/library/marks.ts` (new), `plugins/withLockScreenSeek.js` (new),
+`src/lib/audio/expoAudioEngine.ts`, `scripts/kb.ts`, `app.json`, nine screens
+and components, `tests/marks.test.ts` (new), `docs/KNOWLEDGE.md`,
+`docs/DEVELOPMENT.md`*

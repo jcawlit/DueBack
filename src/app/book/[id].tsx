@@ -30,6 +30,7 @@ import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { useNotes } from '@/store/notes';
 import { exportNotes } from '@/lib/notes/export';
 import { isPro } from '@/lib/pro';
+import { markLabel, markLabelCaps, markWordPlural } from '@/lib/library/marks';
 import { useBackup } from '@/store/backup';
 import type { Character, Note } from '@/data/notes';
 
@@ -418,7 +419,7 @@ export default function BookScreen() {
     (book.local.status === 'copying' ? book.local.progress : 0) * 100,
   );
   const here = chapterAt(book, position);
-  const chapterLabel = book.chapters.length > 0 ? `Ch. ${here.index + 1}` : null;
+  const chapterLabel = book.chapters.length > 0 ? markLabel(book, here.index) : null;
   /*
    * Where pressing the bar would put you: the chapter, and the position to
    * the minute. Seconds were three characters of precision nobody asked
@@ -883,6 +884,7 @@ export default function BookScreen() {
         <View style={{ marginTop: space.md }}>
           <BookTabs
             active={tab}
+            chaptersLabel={markWordPlural(book)}
             counts={{
               chapters: book.chapters.length,
               notes: mine.length,
@@ -1003,7 +1005,7 @@ export default function BookScreen() {
         note={editingNote}
         chapterLabel={
           editingNote && book.chapters.length > 0
-            ? `CH. ${chapterAt(book, editingNote.positionSec).index + 1}`
+            ? markLabelCaps(book, chapterAt(book, editingNote.positionSec).index)
             : null
         }
         characters={characters}

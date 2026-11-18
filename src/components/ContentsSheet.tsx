@@ -7,7 +7,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import { FlatList, Modal, Pressable, Text, View } from 'react-native';
 import type { Book } from '@/data/types';
 import { color, font, space, TOUCH } from '@/theme/tokens';
-import { clock, hoursMinutes, tidyChapterTitle } from '@/lib/format';
+import { clock, hoursMinutes } from '@/lib/format';
+import { markTitle, markWord } from '@/lib/library/marks';
 import { Ribbon } from './Ribbon';
 
 const ROW_HEIGHT = 56;
@@ -33,7 +34,7 @@ export function ContentsSheet({ visible, book, currentIndex, onSelect, onClose }
       const showPart = !!chapter.part && chapter.part !== book.chapters[index - 1]?.part;
       return {
         index,
-        title: tidyChapterTitle(chapter.title),
+        title: markTitle(book, chapter, index),
         part: chapter.part,
         startSec: chapter.startSec,
         lengthSec: Math.max(0, end - chapter.startSec),
@@ -110,7 +111,7 @@ export function ContentsSheet({ visible, book, currentIndex, onSelect, onClose }
                 Contents
               </Text>
               <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.faint }}>
-                {book.chapters.length} chapters · {hoursMinutes(book.durationSec)}
+                {book.chapters.length} {markWord(book)}s · {hoursMinutes(book.durationSec)}
               </Text>
             </View>
             <Pressable

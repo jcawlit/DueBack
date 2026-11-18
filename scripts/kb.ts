@@ -21,7 +21,18 @@ function parse(markdown: string): Entry[] {
   let section = '';
   let current: Entry | null = null;
 
-  for (const line of markdown.split('\n')) {
+  /*
+   * Split on either ending.
+   *
+   * `core.autocrlf` is on, so every checkout on Windows hands this file CRLF
+   * — and splitting on `\n` alone leaves a `\r` at the end of every line.
+   * `/^## (.+)$/` then cannot match: `.` does not match a carriage return, so
+   * the capture stops before it and `$` finds a character still to come. Every
+   * heading failed, the parser returned no entries at all, and `npm run kb`
+   * answered "Nothing for <term>" for every term in the knowledge base —
+   * indistinguishable from a knowledge base that had nothing to say.
+   */
+  for (const line of markdown.split(/\r?\n/)) {
     const h2 = /^## (.+)$/.exec(line);
     const h3 = /^### (.+)$/.exec(line);
     if (h2) {

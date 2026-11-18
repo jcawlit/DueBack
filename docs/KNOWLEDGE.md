@@ -472,6 +472,65 @@ a slow `open` cannot overwrite a newer one.
 
 *`src/store/player.ts`*
 
+### The lock screen's skip buttons were wired to do nothing (2026-11-17)
+
+expo-audio 57 builds them as **custom session commands** —
+`setSessionCommand(SessionCommand(ACTION_SEEK_FORWARD, …))` — and
+`AudioMediaSessionCallback.onCustomCommand` then returns
+`super.onCustomCommand(…)`, which is `RESULT_ERROR_NOT_SUPPORTED`. A controller
+told a command is unsupported may ignore the button, and Android's media
+controls do: the buttons render and nothing happens.
+
+`setPlayerCommand(Player.COMMAND_SEEK_BACK / COMMAND_SEEK_FORWARD)` instead
+hands the work to media3, which seeks by the increments the ExoPlayer was built
+with and needs no cooperation from the session callback.
+
+The jump itself is hardcoded twice and in two places: `SEEK_JUMP_INTERVAL_MS`
+in `AudioPlayer.kt` (what `seekBack()`/`seekForward()` use) and
+`SEEK_INTERVAL_MS` in `AudioControlsService.kt` (what the pre-Android-13
+notification's pending intents use). Both have to move together, and the
+`ICON_SKIP_BACK_10` / `ICON_SKIP_FORWARD_10` icons draw the number, so a
+different interval needs the plain `ICON_SKIP_BACK` / `ICON_SKIP_FORWARD`.
+
+It is a minute here, applied by `plugins/withLockScreenSeek.js` at prebuild
+rather than by patch-package: `android/` is generated and never committed, so
+prebuild runs before every native build and no `postinstall` hook is needed.
+Each rewrite is a literal string that **must** match or the build fails — on an
+expo-audio upgrade, read `SEEK` in its CHANGELOG and either update the plugin
+or delete it, but never loosen the match. A silent miss means the buttons go
+back to doing nothing.
+
+*`plugins/withLockScreenSeek.js`*
+
+### A seek is covered by a fade, because the first moment after it is wrong
+
+`preservesPitch` defaults to true, so above 1x ExoPlayer runs audio through
+Sonic, its time-stretcher. A `seekTo` flushes that pipeline and Sonic has to
+re-prime: roughly the first half-second after a rewind comes out warped. An MP3
+with no seek table can separately land mid-frame and give a scrap of noise.
+
+Two causes, one shape — a short burst of wrong audio at a known instant — so
+the engine covers the instant instead of chasing either: volume to zero, seek,
+then a ~220 ms ramp back. Status arrives twice a second and heals a volume left
+below full, because a book stuck silent is far worse than the artefact.
+
+*`src/lib/audio/expoAudioEngine.ts`*
+
+### `chapters` is two different things, and the UI has to say which
+
+A book's marks are either real chapter marks from the file's metadata, or the
+scan's one-per-file fallback for a book that had none. The second kind is
+numbered by file, so a book cut into equal lengths shows "Ch. 10" while the
+listener is in chapter four.
+
+`chaptersFromParts` is set at scan time and stored, so the answer is already in
+the database for every existing library — reading it is a UI change and needs
+no rescan. `src/lib/library/marks.ts` is the one place that reads it, and the
+word is spelled out: "Section 10", never "Sec. 10", which beside a timestamp
+reads as ten seconds.
+
+*`src/lib/library/marks.ts`*
+
 ---
 
 ## Identity

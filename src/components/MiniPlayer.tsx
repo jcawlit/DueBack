@@ -16,6 +16,7 @@ import { usePlayer } from '@/store/player';
 import { useUi } from '@/store/ui';
 import { chapterAt } from '@/data/types';
 import { hoursClock } from '@/lib/format';
+import { markLabel } from '@/lib/library/marks';
 import { color, font, shadow, space } from '@/theme/tokens';
 import { CoverFace } from './CoverFace';
 import { PauseIcon, PlayIcon } from './icons';
@@ -78,7 +79,7 @@ export function MiniPlayer() {
     book.durationSec > 0 ? Math.min(1, Math.max(0, positionSec / book.durationSec)) : 0;
 
   const chapter = book.chapters.length > 0 ? chapterAt(book, positionSec) : null;
-  const place = [chapter ? `Ch. ${chapter.index + 1}` : null, hoursClock(positionSec)]
+  const place = [chapter ? markLabel(book, chapter.index) : null, hoursClock(positionSec)]
     .filter(Boolean)
     .join(' · ');
 

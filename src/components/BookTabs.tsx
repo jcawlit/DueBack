@@ -18,14 +18,17 @@ export type BookTab = 'chapters' | 'notes' | 'characters';
 export function BookTabs({
   active,
   counts,
+  chaptersLabel,
   onChange,
 }: {
   active: BookTab;
   counts: Record<BookTab, number>;
+  /** "Chapters" or "Sections", depending on what the book's marks really are. */
+  chaptersLabel?: string;
   onChange: (tab: BookTab) => void;
 }) {
   const tabs: { key: BookTab; label: string }[] = [
-    { key: 'chapters', label: 'Chapters' },
+    { key: 'chapters', label: chaptersLabel ?? 'Chapters' },
     { key: 'notes', label: 'Notes' },
     { key: 'characters', label: 'Characters' },
   ];
