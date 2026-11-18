@@ -2246,3 +2246,62 @@ library?s identity".
 `src/store/library.ts`, `src/app/book/[id].tsx`, `src/app/index.tsx`,
 `src/app/settings.tsx`, `src/components/LibraryHeader.tsx`,
 `tests/audit-regressions.test.ts`, `docs/KNOWLEDGE.md`, `docs/STATE.md`*
+
+## A whole scan, in a test — and what it found on the first run
+
+`scanLibrary` is the largest thing here and the one that decides what a library
+*is*. Its helpers were well covered; the orchestration joining them had no
+tests at all. It does now: `tests/scan-end-to-end.test.ts` runs a scan from
+files on a drive to rows in a database, 19 cases.
+
+Three natives are stood in for and nothing else is. The filesystem is the
+in-memory drive; the database is **real** SQLite through `node:sqlite`, so the
+production migrations and every production statement run for real; the image
+manipulator stores without resizing. The audio is real too — the committed
+fixtures carry genuine ID3 tags, chapters, cover art and a Xing duration
+header — so the parser, naming, grouping, identity and sweep are all the real
+ones. A book now arrives in the test titled "The Count of Monte Cristo" by
+Alexandre Dumas with five chapters and a cover, because that is what is in the
+file.
+
+**It found a silent data-loss bug on the first run.** `planReconnection`
+refuses to guess when one missing book matches several new folders — "which one
+someone meant is not ours to guess". It could not see the mirror image. Several
+missing books matching **one** new folder is the same ambiguity with the same
+cost, and the loop gave the folder to whichever vanished book it reached first,
+reporting a clean reconnect and raising no question.
+
+The way it bites: two copies of one rip, `Hyperion` with three hours of
+progress and twenty notes and `Hyperion copy` untouched. Delete the copy on a
+computer and rename the one you listen to. The next scan sees two vanished
+books and one new folder, and could move the renamed folder onto the *copy's*
+identity — leaving the progress and every note stranded on a book now marked
+missing, with no undo and nothing on screen to explain it.
+
+Fixed by running the same rule backwards rather than writing a second one: the
+new folder as the thing that went, the still-missing books as its candidates.
+More than one match and nobody is reconnected without being asked, and both
+matching books raise their own question so the listener hears about every book
+the folder might be. Two identical books plus one new folder is three lines to
+set up and had never once been tried by hand.
+
+Two of my own tests were wrong in ways worth recording. One asserted the book
+id matched a uuid pattern; `newUuid` deliberately mints a timestamp-and-random
+id, not an RFC uuid, and the code was right. The other claimed to test the
+depth limit and tested nothing: the limit is fixed at eight and not a scan
+option, so a plausible-looking end-to-end version passes whether or not the
+protection works — nest the library deeper and the old shallow path is simply
+gone from a readable root, which *should* mark it missing. It was removed with
+a note saying why, since `tests/coverage.test.ts` pins that rule directly.
+
+An early version of the suite also scanned zero-filled files, which are not
+audio: they produce a book with no parts and "Nothing in this folder could be
+read as audio". Correct behaviour, now tested deliberately rather than by
+accident.
+
+The reconnection guard and the depth-limit regression were both
+mutation-checked — the production code broken on purpose to confirm the tests
+go red.
+
+*`src/lib/scan/scanner.ts`, `tests/scan-end-to-end.test.ts` (new),
+`tests/fakeDrive.ts`, `docs/KNOWLEDGE.md`, `docs/STATE.md`*

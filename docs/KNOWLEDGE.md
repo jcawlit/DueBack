@@ -1907,3 +1907,62 @@ object. `loadBook(id)` and the store's `refreshBook` exist for edits that
 touched one book, and share `loadBooks` so the two cannot drift.
 
 *`src/lib/sync/driveSync.ts`, `src/db/books.ts`, `src/store/library.ts`*
+
+### Reconnection has to refuse in both directions (2026-11-18)
+
+`planReconnection` is handed **one** missing book and the folders newly found,
+and it refuses to guess when several folders match it — "a duplicate of the
+same rip in two folders is the usual cause, and which one someone meant is not
+ours to guess".
+
+It could not see the mirror image. Several **missing books** matching **one**
+new folder is the same ambiguity with the same cost, and the scanner's loop
+gave the folder to whichever vanished book it reached first — silently, with
+`reconnected: 1` and no question raised.
+
+The way it bites: two copies of one rip, `Hyperion` with three hours of
+progress and twenty notes and `Hyperion copy` untouched. Delete the copy on a
+computer, rename the one you listen to. Next scan sees two vanished books and
+one new folder, and may move the renamed folder onto the *copy's* identity —
+leaving the progress and every note on a book now marked missing, with no undo
+and nothing on screen to explain it.
+
+Fixed by running the same rule backwards rather than writing a second one: the
+new folder as the thing that went, the still-missing books as its candidates.
+More than one match and nobody is reconnected without being asked. Both
+matching books raise their own question, so the listener is told about every
+book the folder might be.
+
+Found by `tests/scan-end-to-end.test.ts`, which is the first thing to run a
+whole scan. Two identical books plus one new folder is three lines to set up
+and was never once tried by hand.
+
+*`src/lib/scan/scanner.ts`, `src/lib/library/identity.ts`,
+`tests/scan-end-to-end.test.ts`*
+
+### A whole scan runs in `node --test` (2026-11-18)
+
+`tests/scan-end-to-end.test.ts` runs `scanLibrary` from files on a drive to
+rows in a database. Three natives are stood in for and nothing else is:
+`expo-file-system` by the in-memory drive, `expo-sqlite` by **real** SQLite
+through `node:sqlite` (so the production migrations and every production
+statement run for real), and `expo-image-manipulator` by a stub that stores
+without resizing.
+
+The audio is real. `tests/fixtures/` holds small committed files with genuine
+ID3 tags, chapters, cover art and a Xing duration header, and `fixtureBytes()`
+loads them, so the parser, naming, grouping, identity and sweep are all the
+real ones. **This matters:** zero-filled bytes are not audio, and a folder of
+them scans to a book with no parts, no duration and "Nothing in this folder
+could be read as audio" — correct behaviour, but not a library anyone has, and
+an early version of this suite tested that by accident.
+
+Not covered, and written down so it is not mistaken for covered: speed; lock
+contention, because the fake's `withExclusiveTransactionAsync` is an ordinary
+transaction where the real one opens its own connection, which is the whole
+reason `withLockRetry` exists; and the depth limit, which is fixed at eight and
+not a scan option, so arranging a truncated subtree around an already-indexed
+book is not possible through `scanLibrary` — `tests/coverage.test.ts` pins that
+directly instead.
+
+*`tests/scan-end-to-end.test.ts`, `tests/fakeDrive.ts`*

@@ -648,6 +648,8 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
       (gone) => !wasUnseen(gone.folderRelPath, unvouched),
     );
     const unclaimed = new Set(freshlyFound.map((b) => b.id));
+    /** Vanished books already reconnected, so the mirror check ignores them. */
+    const claimed = new Set<string>();
 
     for (const gone of vanished) {
       const candidates = freshlyFound
@@ -662,20 +664,60 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
         });
 
       const plan = planReconnection(gone, candidates);
+
+      /*
+       * The same question asked the other way round.
+       *
+       * `planReconnection` refuses to guess when one missing book matches
+       * several new folders. It cannot see the mirror image — several missing
+       * books matching *one* new folder — because it is handed one missing
+       * book at a time, and this loop gives the folder to whichever reaches
+       * it first.
+       *
+       * That is the same mistake with the same cost. Two copies of one rip in
+       * two folders is the usual cause: delete the untouched copy, rename the
+       * one you have been listening to, and a scan could move the renamed
+       * folder onto the copy's identity — leaving three hours of progress and
+       * every note on a book now marked missing, silently, with no undo.
+       *
+       * So the rule is applied in both directions, by running it backwards:
+       * the new folder as the thing that went, the still-missing books as its
+       * candidates. More than one match and nobody may be reconnected without
+       * being asked.
+       */
+      let mirrored = plan;
       if (plan.kind === 'reconnect') {
-        await reconnectBook(plan.to.id, gone.id);
-        unclaimed.delete(plan.to.id);
+        const target = candidates.find((c) => c.book.id === plan.to.id);
+        const stillMissing = vanished
+          .filter((other) => other.id !== gone.id && !claimed.has(other.id))
+          .map((other) => ({ book: other, shape: other.shape, sampleHash: other.sampleHash }));
+        const backwards = planReconnection(
+          { shape: target?.shape ?? gone.shape, sampleHash: target?.sampleHash ?? null },
+          [{ book: gone, shape: gone.shape, sampleHash: gone.sampleHash }, ...stillMissing],
+        );
+        if (backwards.kind !== 'reconnect') {
+          // Asked against the folder it could be, which is the one candidate
+          // there is. The other matching book raises its own question, so the
+          // listener is told about every book this folder might be.
+          mirrored = { kind: 'ask', candidates: [plan.to], reason: 'ambiguous' };
+        }
+      }
+
+      if (mirrored.kind === 'reconnect') {
+        claimed.add(gone.id);
+        await reconnectBook(mirrored.to.id, gone.id);
+        unclaimed.delete(mirrored.to.id);
         // The found row is gone; the identity that kept its place is seen.
-        const at = seenIds.indexOf(plan.to.id);
+        const at = seenIds.indexOf(mirrored.to.id);
         if (at >= 0) seenIds[at] = gone.id;
         reconnected += 1;
-      } else if (plan.kind === 'ask') {
+      } else if (mirrored.kind === 'ask') {
         reconnectQuestions.push({
           missingId: gone.id,
           missingTitle: gone.title,
           missingFolder: gone.folderRelPath,
-          candidates: plan.candidates,
-          reason: plan.reason,
+          candidates: mirrored.candidates,
+          reason: mirrored.reason,
         });
       }
     }

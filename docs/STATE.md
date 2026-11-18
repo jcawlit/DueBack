@@ -34,17 +34,20 @@ All correctly ignored, none of it missing by accident:
 This matters more than anything else in this file. There are two tiers of
 test, and they cover very different ground.
 
-**1. Node unit tests — `npm test`, 724 cases, run in CI.**
+**1. Node unit tests — `npm test`, 743 cases, run in CI.**
 Two kinds, and the second is new.
 
 *Pure logic*: grouping, identity, merge rules, the sound maths, note
 arithmetic, export, autosave, and the database migrations against
 `node:sqlite`.
 
-*The drive itself, against a fake native layer.* `tests/fakeDrive.ts` stands
-in for `expo-file-system`, so the production `listTree`, `copyBookToDevice`,
-`swapIntoPlace`, `recoverInterruptedSwaps`, `collectAudio` and
-`copyImportToDrive` all run here — including the failure paths that used to
+*The drive itself, and a whole scan, against a fake native layer.*
+`tests/fakeDrive.ts` stands in for `expo-file-system`, `expo-sqlite` (by real
+SQLite through `node:sqlite`) and `expo-image-manipulator`, so the production
+`listTree`, `copyBookToDevice`, `swapIntoPlace`, `recoverInterruptedSwaps`,
+`collectAudio`, `copyImportToDrive` and **`scanLibrary` itself** all run here
+— against the real committed audio fixtures, so the parser, naming, grouping,
+identity and missing sweep are the real ones too — including the failure paths that used to
 need a real cable to provoke: a folder that will not list, a subtree past the
 depth limit, a book deleted from the drive since the last scan, a phone with
 no room, a cancel between parts, a resume after a kill, and a push that dies
@@ -293,17 +296,14 @@ evidence that the reasoning was wrong.
 
 Roughly in the order I would take them.
 
-1. **`src/lib/scan/scanner.ts` has no tests.** 722 lines, the largest file
-   here, and the one that decides what a library *is*: which files are which
-   book, which book is the one that moved, and what a scan may conclude from
-   not finding something. Its pure helpers are covered (`grouping`, `identity`,
-   `coverage`) and so are the two layers under it — `tests/fakeDrive.ts` for
-   the filesystem and `node:sqlite` for the database — but nothing exercises
-   the orchestration that joins them. Wiring the two harnesses together would
-   let a whole scan run end to end: files on a fake drive in, book rows out,
-   reconnect prompts and missing-sweep decisions included.
-2. **Pro gating does not exist**, on the branch named for it. What is free and
+1. **Pro gating does not exist**, on the branch named for it. What is free and
    what is not is a decision, not an implementation.
+2. **The reconnection fix has not run on hardware.** A scan may now ask a
+   question where it used to reconnect silently — when one new folder could be
+   either of two missing books. Covered by `tests/scan-end-to-end.test.ts`
+   and mutation-checked, but what proves it is a real library where a folder
+   was renamed still reconnecting without a prompt.
+   `npm run kb -- "both directions"`.
 3. **Four Expo patch bumps and a missing `expo-asset` peer.** `expo-doctor`
    reports 19/21 for these two reasons. Deliberately deferred to a branch,
    because the one time the advice was taken it broke the dependency tree.

@@ -45,7 +45,8 @@
  */
 
 import { registerHooks } from 'node:module';
-import { existsSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
@@ -548,6 +549,19 @@ export function build(root: string, tree: Tree) {
   walk(trim(root), tree);
 }
 
+/**
+ * The bytes of a committed fixture, for a test that needs audio which really
+ * parses.
+ *
+ * `tests/fixtures/` holds small real files — `chap.mp3` carries ID3 chapters,
+ * a cover and a Xing duration header. Zero-filled bytes are a legitimate
+ * thing to scan and produce a book with "nothing in this folder could be read
+ * as audio", which is worth testing but is not the same library anyone has.
+ */
+export function fixtureBytes(name: string): Uint8Array {
+  return new Uint8Array(readFileSync(path.join('tests', 'fixtures', name)));
+}
+
 /** Every URI that exists, sorted — for asserting on what a write left behind. */
 export function listAll(prefix = ''): string[] {
   return [...entries.keys()].filter((uri) => uri.startsWith(prefix)).sort();
@@ -565,6 +579,78 @@ export function sizeOf(uri: string): number | null {
 
 /* ------------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------------ */
+
+/**
+ * The database, for tests that run code reaching both the drive and SQLite.
+ *
+ * `node:sqlite` is real SQLite, so the production migrations and every
+ * statement run for real — the adapter below only reshapes expo-sqlite's
+ * async API onto it. Install it before the first database access, which for
+ * `scanLibrary` means before calling it.
+ *
+ * `withExclusiveTransactionAsync` is modelled as an ordinary transaction.
+ * That is **not** what the real one does: it opens its own connection, which
+ * is the whole reason `withLockRetry` exists. A test here can therefore never
+ * reproduce a lock contention bug, and should not claim to.
+ */
+export function installFakeDatabase() {
+  const raw = new DatabaseSync(':memory:');
+  raw.exec('PRAGMA foreign_keys = OFF');
+
+  const run = (sql: string, args: unknown[]) => {
+    // Expo accepts `?1`-style placeholders; node:sqlite wants positional `?`.
+    const expanded: unknown[] = [];
+    const query = sql.replace(/\?(\d+)/g, (_, n) => {
+      expanded.push(args[Number(n) - 1]);
+      return '?';
+    });
+    return { query, args: expanded.length > 0 ? expanded : args };
+  };
+
+  const api = {
+    async execAsync(sql: string) {
+      raw.exec(sql);
+    },
+    async runAsync(sql: string, ...args: unknown[]) {
+      const { query, args: bound } = run(sql, args);
+      return raw.prepare(query).run(...(bound as never[]));
+    },
+    async getFirstAsync<T>(sql: string, ...args: unknown[]) {
+      const { query, args: bound } = run(sql, args);
+      return (raw.prepare(query).get(...(bound as never[])) as T) ?? null;
+    },
+    async getAllAsync<T>(sql: string, ...args: unknown[]) {
+      const { query, args: bound } = run(sql, args);
+      return raw.prepare(query).all(...(bound as never[])) as T[];
+    },
+    async withTransactionAsync(fn: () => Promise<void>) {
+      raw.exec('BEGIN');
+      try {
+        await fn();
+        raw.exec('COMMIT');
+      } catch (error) {
+        raw.exec('ROLLBACK');
+        throw error;
+      }
+    },
+    async withExclusiveTransactionAsync(fn: (txn: unknown) => Promise<void>) {
+      raw.exec('BEGIN IMMEDIATE');
+      try {
+        await fn(api);
+        raw.exec('COMMIT');
+      } catch (error) {
+        raw.exec('ROLLBACK');
+        throw error;
+      }
+    },
+    async closeAsync() {},
+  };
+
+  (globalThis as { __duebackFakeDb?: unknown }).__duebackFakeDb = api;
+  return raw;
+}
+
 const native = (text: string) => ({
   url: `data:text/javascript,${encodeURIComponent(text)}`,
   shortCircuit: true as const,
@@ -577,6 +663,36 @@ const native = (text: string) => ({
  */
 const hooks = registerHooks({
   resolve(specifier, context, next) {
+    if (specifier === 'expo-sqlite') {
+      // Resolved lazily, so a test that never installs one simply fails on
+      // first use rather than at import time.
+      return native(
+        'export async function openDatabaseAsync() {' +
+          '  const db = globalThis.__duebackFakeDb;' +
+          '  if (!db) throw new Error("tests/fakeDrive.ts: call installFakeDatabase() first");' +
+          '  return db;' +
+          '}',
+      );
+    }
+    if (specifier === 'expo-image-manipulator') {
+      /*
+       * Enough of the manipulator for `storeCover` to complete. It does not
+       * resize anything: the thumbnail's *pixels* are not what any test here
+       * is about, and `storeCover` already falls back to the original bytes
+       * when manipulation fails, so a stub that threw would silently exercise
+       * only that fallback.
+       */
+      return native(
+        'export const SaveFormat = { JPEG: "jpeg", PNG: "png" };' +
+          'export const ImageManipulator = {' +
+          '  manipulate(uri) {' +
+          '    return { resize() { return this; }, async renderAsync() {' +
+          '      return { async saveAsync() { return { uri }; } };' +
+          '    } };' +
+          '  },' +
+          '};',
+      );
+    }
     if (specifier === 'expo-file-system') {
       const here = pathToFileURL(path.resolve('tests/fakeDrive.ts')).href;
       return native(
