@@ -43,6 +43,17 @@ export type EngineTrack = {
   artworkUri?: string;
   parts: EnginePart[];
   durationSec: number;
+  /**
+   * Whether this book has chapter marks to navigate between.
+   *
+   * The engine needs it because the lock screen's chapter buttons are decided
+   * when the session is built, once per book, and a button that cannot do
+   * anything is worse than no button. A single file with nothing embedded in
+   * it genuinely has no chapters — `chapterAt` reports one spanning the whole
+   * book so the screens have something to draw, but there is nowhere to skip
+   * to and the lock screen should not pretend otherwise.
+   */
+  hasChapters: boolean;
 };
 
 export type EngineStatus = {
@@ -85,6 +96,18 @@ export type AudioEngine = {
    * does, and should not know what kind of native object implements it.
    */
   onSessionChange(listener: (nativePlayer: unknown) => void): () => void;
+  /**
+   * Told when the lock screen's own next/previous chapter button is pressed.
+   *
+   * The engine does not act on it: it does not know where chapters are, and
+   * the whole-book position it would need is the store's. So it reports the
+   * press and the store seeks, which is the same shape as everything else
+   * here — the engine owns the lock screen, the store owns the book.
+   *
+   * Returns an unsubscribe function. A platform with no such buttons returns
+   * one that does nothing, and nothing has to care which it got.
+   */
+  onRemoteChapterSkip(listener: (direction: 1 | -1) => void): () => void;
 };
 
 /** Playback speeds the UI offers. The API tops out at 2×. */

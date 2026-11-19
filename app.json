@@ -48,6 +48,7 @@
       "./plugins/withBackupExclusion",
       "./plugins/withCleartextTraffic",
       "./plugins/withLockScreenSeek",
+      "./plugins/withLockScreenChapters",
       [
         "expo-image-picker",
         {

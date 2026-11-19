@@ -46,3 +46,55 @@ export function sanitiseChapters(chapters: Chapter[], durationSec: number): Chap
     title: chapter.title.trim() || `Chapter ${index + 1}`,
   }));
 }
+
+/**
+ * How far back into a chapter you can be and still have "previous" mean the
+ * start of this one rather than the one before it.
+ *
+ * The behaviour every music player has, and the reason is the same: you press
+ * previous because you missed something, and almost always you mean the thing
+ * you are in.
+ */
+export const CHAPTER_RESTART_THRESHOLD_SEC = 3;
+
+/**
+ * Where a next/previous press lands, on the whole-book timeline.
+ *
+ * Pulled out of the player store to be tested on its own, because it is now
+ * reachable from the lock screen as well as from the screen — and a lock
+ * screen button is the one control nobody can watch while it misbehaves.
+ *
+ * Returns null when there is nowhere to go: no chapters at all, or already in
+ * the last chapter pressing next. Null means **do nothing**, which matters —
+ * seeking to where you already are would restart a chapter somebody is
+ * halfway through, and clamping "next" to the final chapter does exactly
+ * that every time it is pressed at the end of a book.
+ */
+export function chapterSkipTarget(
+  chapters: Chapter[],
+  positionSec: number,
+  direction: 1 | -1,
+  restartThresholdSec: number = CHAPTER_RESTART_THRESHOLD_SEC,
+): number | null {
+  if (chapters.length === 0) return null;
+
+  // The chapter holding the position: the last one that has started. The list
+  // is sorted by `sanitiseChapters`, which is what lets this stop early.
+  let index = 0;
+  for (let i = 0; i < chapters.length; i += 1) {
+    if (chapters[i].startSec <= positionSec) index = i;
+    else break;
+  }
+
+  const intoChapter = positionSec - chapters[index].startSec;
+  const target =
+    direction === -1 && intoChapter > restartThresholdSec ? index : index + direction;
+
+  // Off either end is nowhere to go. Going back from the first chapter is the
+  // one exception: restarting it is what somebody pressing previous at the
+  // beginning of a book means, and it is what the threshold above already
+  // does everywhere else.
+  if (target < 0) return direction === -1 ? chapters[0].startSec : null;
+  if (target > chapters.length - 1) return null;
+  return chapters[target].startSec;
+}

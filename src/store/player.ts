@@ -9,6 +9,7 @@
 
 import { create } from 'zustand';
 import { chapterAt, isRemote, type Book } from '@/data/types';
+import { chapterSkipTarget } from '@/lib/library/chapters';
 import { createExpoAudioEngine } from '@/lib/audio/expoAudioEngine';
 import { SPEEDS, type AudioEngine, type EngineTrack } from '@/lib/audio/engine';
 import { loadParts } from '@/db/books';
@@ -172,6 +173,7 @@ function trackFor(
     author: book.author || undefined,
     artworkUri: book.coverThumbPath,
     durationSec: book.durationSec,
+    hasChapters: book.chapters.length > 0,
     parts,
   };
 }
@@ -199,6 +201,21 @@ async function endSession(positionSec: number) {
  */
 engine.onSessionChange((nativePlayer) => {
   useSound.getState().useSession(nativePlayer);
+});
+
+/*
+ * The lock screen's chapter buttons.
+ *
+ * Subscribed at module scope for the same reason as the line above: these
+ * presses arrive precisely when no screen is mounted — that is what a lock
+ * screen is — so there is nothing on screen to own the subscription.
+ *
+ * `skipChapter` is the same function the Player screen's arrows call, which
+ * is the point. One rule about where a chapter press lands, and no second
+ * implementation of it in Kotlin that could drift.
+ */
+engine.onRemoteChapterSkip((direction) => {
+  usePlayer.getState().skipChapter(direction);
 });
 
 /*
@@ -322,9 +339,6 @@ function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<
     }),
   ]).finally(() => clearTimeout(timer)) as Promise<T>;
 }
-
-/** How far through a chapter counts as "into it" for a previous-chapter tap. */
-const CHAPTER_RESTART_THRESHOLD_SEC = 3;
 
 /**
  * Coming back after a while, you have usually lost the thread of the sentence
@@ -685,6 +699,7 @@ export const usePlayer = create<PlayerState>((set, get) => {
           author: b.author || undefined,
           artworkUri: b.coverThumbPath,
           durationSec: b.durationSec,
+          hasChapters: b.chapters.length > 0,
           parts: rows.map((p, i) => ({
             uri: localUris[i]!,
             startSec: p.start_sec,
@@ -904,18 +919,19 @@ export const usePlayer = create<PlayerState>((set, get) => {
      * Chapter navigation on the whole-book timeline, so it crosses file
      * boundaries without the caller knowing. Going back restarts the current
      * chapter unless you are only a moment into it.
+     *
+     * Reached from the Player screen and from the lock screen's own buttons,
+     * which is why the arithmetic is `chapterSkipTarget` and tested on its
+     * own: a button somebody is not looking at has to be right the first time.
      */
     skipChapter: (direction) => {
       const b = book();
-      if (!b || b.chapters.length === 0) return;
-      const position = get().positionSec;
-      const { index, chapter } = chapterAt(b, position);
-      const target =
-        direction === -1 && position - chapter.startSec > CHAPTER_RESTART_THRESHOLD_SEC
-          ? index
-          : index + direction;
-      const bounded = Math.max(0, Math.min(b.chapters.length - 1, target));
-      get().seekTo(b.chapters[bounded].startSec);
+      if (!b) return;
+      const target = chapterSkipTarget(b.chapters, get().positionSec, direction);
+      // Null is "nowhere to go" — no chapters, or next at the end of the book.
+      // Seeking anyway would restart a chapter nobody asked to restart.
+      if (target === null) return;
+      get().seekTo(target);
     },
 
     cycleSpeed: () => {

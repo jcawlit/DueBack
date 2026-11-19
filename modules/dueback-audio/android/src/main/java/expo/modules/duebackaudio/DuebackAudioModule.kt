@@ -10,6 +10,7 @@ import android.media.audiofx.LoudnessEnhancer
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.common.Player
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import expo.modules.kotlin.functions.Queues
@@ -68,6 +69,18 @@ class SoundCapabilities : Record {
  */
 private const val LOUDNESS_CEILING_MB = 1200
 
+/**
+ * The broadcast the patched lock-screen buttons send, and the extra carrying
+ * which way to go.
+ *
+ * Duplicated in `plugins/withLockScreenChapters.js`, which is the only way
+ * two modules that share no code can agree on anything — and that plugin
+ * fails the build if these strings are not found here, because the symptom
+ * otherwise is a button that is drawn, is pressed, and does nothing.
+ */
+private const val CHAPTER_SKIP_ACTION = "dueback.audio.action.CHAPTER_SKIP"
+private const val CHAPTER_SKIP_DIRECTION = "direction"
+
 @UnstableApi
 class DuebackAudioModule : Module() {
   private var eqEffect: Equalizer? = null
@@ -76,6 +89,7 @@ class DuebackAudioModule : Module() {
   private var loudnessReason: String? = null
   private var sessionId: Int = 0
   private var noisyReceiver: BroadcastReceiver? = null
+  private var chapterReceiver: BroadcastReceiver? = null
   private var activePlayer: ExoPlayer? = null
   private val sessionListener = object : Player.Listener {
     override fun onAudioSessionIdChanged(audioSessionId: Int) {
@@ -101,15 +115,17 @@ class DuebackAudioModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("DuebackAudio")
 
-    Events("onBecomingNoisy", "onSessionChanged")
+    Events("onBecomingNoisy", "onSessionChanged", "onChapterSkip")
 
     OnCreate {
       registerNoisyReceiver()
+      registerChapterReceiver()
     }
 
     OnDestroy {
       Handler(Looper.getMainLooper()).post { detachPlayer() }
       unregisterNoisyReceiver()
+      unregisterChapterReceiver()
     }
 
     /**
@@ -337,6 +353,65 @@ class DuebackAudioModule : Module() {
     }
   }
 
+  /**
+   * The lock screen asking for the next or previous chapter.
+   *
+   * Only forwarded, never acted on, and that is the whole reason this
+   * receiver exists rather than the jump being done in Kotlin. A chapter
+   * boundary lives on the **whole-book** timeline, and a book is played one
+   * file at a time — so the target chapter may well be in a different file,
+   * and switching files is `replace()` + `seekTo()` from JavaScript. Doing it
+   * here would mean a second implementation of part switching, in another
+   * language, against the same files.
+   *
+   * Unlike the headphone receiver there is no native fallback worth having:
+   * the app is a foreground service with a live JS thread whenever the lock
+   * screen is showing a book — that is how a part boundary is crossed mid-
+   * chapter already — so if JavaScript could not answer this, it could not
+   * have got the listener to a second file either.
+   */
+  private fun registerChapterReceiver() {
+    if (chapterReceiver != null) return
+    val receiver = object : BroadcastReceiver() {
+      override fun onReceive(context: Context?, intent: Intent?) {
+        if (intent?.action != CHAPTER_SKIP_ACTION) return
+        val direction = intent.getIntExtra(CHAPTER_SKIP_DIRECTION, 0)
+        // 0 means an extra that did not arrive. Guessing a direction is
+        // worse than ignoring the press.
+        if (direction == 0) return
+        this@DuebackAudioModule.sendEvent(
+          "onChapterSkip",
+          mapOf("direction" to if (direction < 0) -1 else 1),
+        )
+      }
+    }
+    try {
+      val filter = IntentFilter(CHAPTER_SKIP_ACTION)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        // Ours alone. Android 13 made the flag compulsory for app-defined
+        // broadcasts, and exporting a playback control to every app on the
+        // phone would be a strange thing to do on purpose.
+        context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+      } else {
+        context.registerReceiver(receiver, filter)
+      }
+      chapterReceiver = receiver
+    } catch (_: Throwable) {
+      // The buttons then do nothing, which is how the app behaved before
+      // they existed. Nothing else is affected.
+      chapterReceiver = null
+    }
+  }
+
+  private fun unregisterChapterReceiver() {
+    val receiver = chapterReceiver ?: return
+    try {
+      context.unregisterReceiver(receiver)
+    } catch (_: Throwable) {
+      // Never registered, or the context has gone.
+    }
+    chapterReceiver = null
+  }
   private fun unregisterNoisyReceiver() {
     val receiver = noisyReceiver ?: return
     try {

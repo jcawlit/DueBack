@@ -19,6 +19,7 @@ import {
   type AudioPlayer,
   type AudioStatus,
 } from 'expo-audio';
+import { DuebackAudio, type ChapterSkipEvent } from '../../../modules/dueback-audio';
 import {
   locatePart,
   sourceFor,
@@ -119,7 +120,21 @@ export function createExpoAudioEngine(): AudioEngine {
     player.setActiveForLockScreen(true, metadataFor(), {
       showSeekForward: true,
       showSeekBackward: true,
-    });
+      /*
+       * Not in expo-audio's own types: the field is added to the Kotlin
+       * record by `plugins/withLockScreenChapters.js`, which is also what
+       * draws the buttons. Cast rather than patched into the `.d.ts`, because
+       * a type assertion here is visible and a rewritten type declaration in
+       * node_modules is not.
+       *
+       * Decided once per book, here, which is the only place it can be:
+       * `setActiveForLockScreen` builds the MediaSession, and the layout is
+       * fixed when it does. A book with no chapter marks gets no buttons,
+       * because a lock-screen button that does nothing is the exact fault
+       * `withLockScreenSeek` was written to repair.
+       */
+      showChapterButtons: track.hasChapters,
+    } as Parameters<AudioPlayer['setActiveForLockScreen']>[2]);
   };
 
   /** Refreshes the text in place, leaving the session and its buttons alone. */
@@ -422,6 +437,27 @@ export function createExpoAudioEngine(): AudioEngine {
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+
+    /*
+     * The lock screen's chapter buttons, straight through to the caller.
+     *
+     * The engine deliberately does nothing with this. It holds one file at a
+     * time and has no chapter list; the store has both the chapters and the
+     * whole-book position, so it is the only thing that can answer a press.
+     */
+    onRemoteChapterSkip(listener) {
+      // Absent on a build made before the native module existed, and on any
+      // future iOS build. The buttons are not there either, so there is
+      // nothing to subscribe to and nothing to report.
+      if (!DuebackAudio) return () => {};
+      const subscription = DuebackAudio.addListener(
+        'onChapterSkip',
+        ({ direction }: ChapterSkipEvent) => {
+          listener(direction);
+        },
+      );
+      return () => subscription.remove();
     },
 
     onSessionChange(listener) {

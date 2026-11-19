@@ -13,7 +13,7 @@ let failEffect = false;
 let failWrite = false;
 let session = 1;
 let attached = false;
-const events = new Map<string, () => void>();
+const events = new Map<string, (payload?: unknown) => void>();
 const applied: { levels: number[]; boost: number; session: number }[] = [];
 const capabilities = () => ({ attached, sessionId: session,
   equalizer: { available: true, bandCount: 3, minMillibels: -600, maxMillibels: 600, centerFrequenciesHz: [100, 1000, 3000] },
@@ -41,7 +41,7 @@ Object.assign(globalThis, {
       applied.push({ levels, boost, session });
       return capabilities();
     },
-    addListener(name: string, listener: () => void) { events.set(name, listener); return { remove() { events.delete(name); } }; },
+    addListener(name: string, listener: (payload?: unknown) => void) { events.set(name, listener); return { remove() { events.delete(name); } }; },
   },
 });
 const mock = (code: string) => ({ url: `data:text/javascript,${encodeURIComponent(code)}`, shortCircuit: true });
@@ -70,7 +70,7 @@ test('sound persistence, defaults, session changes and optional effects use prod
   const engine = createExpoAudioEngine();
   engine.onSessionChange((p) => useSound.getState().useSession(p));
   await useSound.getState().load('hyperion');
-  await engine.load({ bookId: 'hyperion', title: 'Hyperion', durationSec: 20, parts: [
+  await engine.load({ bookId: 'hyperion', title: 'Hyperion', durationSec: 20, hasChapters: true, parts: [
     { uri: 'part1', startSec: 0, durationSec: 10 }, { uri: 'part2', startSec: 10, durationSec: 10 },
   ] }, 0);
   await useSound.getState().setPreset('quiet-recording');
@@ -116,4 +116,36 @@ test('sound persistence, defaults, session changes and optional effects use prod
   await engine.unload();
   await settle();
   assert.equal(attached, false);
+});
+
+test('the lock screen chapter buttons reach the app', async () => {
+  /*
+   * The one part of this feature a test can reach. The buttons are drawn by
+   * Kotlin patched into expo-audio and the press arrives as an Android
+   * broadcast, so none of that runs here — but the seam between the native
+   * event and the engine is a **string**, and a typo in it produces a button
+   * that is drawn, reports success, and does nothing. That is precisely the
+   * fault `withLockScreenSeek` was written to repair, so it is worth a test
+   * on the side that can have one.
+   *
+   * The Kotlin half of the same seam is checked by
+   * `assertAppHalfPresent` in `plugins/withLockScreenChapters.js`, which
+   * fails the build if the broadcast strings have drifted.
+   */
+  const { createExpoAudioEngine } = await import('../src/lib/audio/expoAudioEngine.ts');
+  const engine = createExpoAudioEngine();
+
+  const pressed: number[] = [];
+  const stop = engine.onRemoteChapterSkip((direction) => pressed.push(direction));
+
+  // Subscribed under the name the native module sends, and no other.
+  assert.ok(events.has('onChapterSkip'), 'nothing subscribed to onChapterSkip');
+
+  events.get('onChapterSkip')!({ direction: -1 });
+  events.get('onChapterSkip')!({ direction: 1 });
+  assert.deepEqual(pressed, [-1, 1]);
+
+  // And it lets go, so a reloaded engine does not leave the old one listening.
+  stop();
+  assert.equal(events.has('onChapterSkip'), false);
 });
