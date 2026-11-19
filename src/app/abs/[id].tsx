@@ -330,7 +330,7 @@ export default function AbsBookScreen() {
           <Line label="LENGTH" value={hoursMinutes(durationSec)} />
           <Line label="SIZE" value={formatBytes(sizeBytes)} />
           <Line
-            label="CHAPTERS"
+            label={loaded?.chaptersFromParts ? 'SECTIONS' : 'CHAPTERS'}
             value={
               chapters.length === 0
                 ? 'none'
@@ -356,7 +356,7 @@ export default function AbsBookScreen() {
           <Text
             style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}
           >
-            CHAPTERS
+            {loaded?.chaptersFromParts ? 'SECTIONS' : 'CHAPTERS'}
           </Text>
           {chapters.length === 0 ? (
             <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>

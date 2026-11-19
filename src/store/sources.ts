@@ -32,10 +32,11 @@ import {
   getSource,
   listSources,
   removeSource,
+  type Source,
+  type SourceKind,
   touchSource,
   updateSourceConfig,
   USB_SOURCE_ID,
-  type Source,
 } from '@/db/sources';
 
 /** What the connect form has collected. The password is not kept past use. */
@@ -318,9 +319,39 @@ export function setSourceClosedListener(listener: ((sourceId: string) => void) |
 }
 
 /** The drive is always first and always there; the rest are configured. */
-export function switchableSources(sources: Source[]): { id: string; label: string }[] {
+export type SwitchableSource = {
+  id: string;
+  label: string;
+  kind: SourceKind;
+  /**
+   * Whether this source is good to use, or null when it cannot be known
+   * without asking.
+   *
+   * For the drive it is whether the cable is in, which the store polls. For a
+   * server it is whether this phone is still signed in — **not** whether the
+   * server answers right now, which nothing here pings for. A source that
+   * needs signing into cannot serve a single byte, so it is the honest thing
+   * for the light to report.
+   */
+  ready: boolean | null;
+};
+
+export function switchableSources(
+  sources: Source[],
+  driveConnected?: boolean,
+): SwitchableSource[] {
   return [
-    { id: USB_SOURCE_ID, label: 'Drive' },
-    ...sources.map((source) => ({ id: source.id, label: source.label })),
+    {
+      id: USB_SOURCE_ID,
+      label: 'Drive',
+      kind: 'usb',
+      ready: driveConnected ?? null,
+    },
+    ...sources.map((source) => ({
+      id: source.id,
+      label: source.label,
+      kind: source.kind,
+      ready: source.config.needsSignIn !== true,
+    })),
   ];
 }

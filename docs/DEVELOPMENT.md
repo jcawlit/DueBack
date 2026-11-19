@@ -261,8 +261,11 @@ Known gaps:
    picked folder is lost on relaunch. Android persists its permission and is
    unaffected. Either re-pick each launch or add a small native module.
 2. **No next/previous chapter on the lock screen.** `expo-audio` does not
-   expose it, and the seek interval is hardcoded at 10 s, so ±30 s is not
-   configurable there either. Both need a patch to the module's Kotlin.
+   expose it. The skip buttons it does expose were wired as custom session
+   commands the controller is told are unsupported, so they rendered and did
+   nothing; `plugins/withLockScreenSeek.js` rewrites them to player commands
+   and moves the jump to one minute at prebuild. Chapter navigation would need
+   more than a rewrite — see `npm run kb -- "skip buttons"`.
 3. The running list of smaller things lives at the end of
    [CHANGES.md](../CHANGES.md).
 

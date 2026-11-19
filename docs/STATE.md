@@ -34,15 +34,33 @@ All correctly ignored, none of it missing by accident:
 This matters more than anything else in this file. There are two tiers of
 test, and they cover very different ground.
 
-**1. Node unit tests — `npm test`, ~300 cases, run in CI.**
-Pure logic only: grouping, identity, merge rules, the sound maths, note
-arithmetic, export, autosave, and the database migrations against `node:sqlite`.
-Fast, trustworthy, and the right place for anything that can live there.
+**1. Node unit tests — `npm test`, 760 cases, run in CI.**
+Two kinds, and the second is new.
 
-**2. A Pixel with a real USB drive and a real library.** Everything the unit
-tests cannot reach: the Storage Access Framework, audio hardware, Android
-power management, and whether any of it behaves on hundreds of real books
-with names no generator would invent. Done by hand, and recorded below.
+*Pure logic*: grouping, identity, merge rules, the sound maths, note
+arithmetic, export, autosave, and the database migrations against
+`node:sqlite`.
+
+*The drive itself, and a whole scan, against a fake native layer.*
+`tests/fakeDrive.ts` stands in for `expo-file-system`, `expo-sqlite` (by real
+SQLite through `node:sqlite`) and `expo-image-manipulator`, so the production
+`listTree`, `copyBookToDevice`, `swapIntoPlace`, `recoverInterruptedSwaps`,
+`collectAudio`, `copyImportToDrive` and **`scanLibrary` itself** all run here
+— against the real committed audio fixtures, so the parser, naming, grouping,
+identity and missing sweep are the real ones too — including the failure paths that used to
+need a real cable to provoke: a folder that will not list, a subtree past the
+depth limit, a book deleted from the drive since the last scan, a phone with
+no room, a cancel between parts, a resume after a kill, and a push that dies
+half-written. Only the native leaf is replaced; nothing here reimplements the
+code it tests. `npm run kb -- "node --test"` for the fidelity rules and, more
+importantly, for what it deliberately does **not** model.
+
+**2. A Pixel with a real USB drive and a real library.** What tier 1 cannot
+reach, which is now a shorter and sharper list: real SAF behaviour (renaming
+a file you asked it to create, descriptors going stale, permission revoked
+between launches), audio hardware, Android power management, speed, and
+whether any of it behaves on hundreds of real books with names no generator
+would invent. Done by hand, and recorded below.
 
 There used to be a third tier — scripted suites A1–A14, run from a Settings
 button against a generated fixture library. They were removed on 15 October
@@ -50,6 +68,27 @@ button against a generated fixture library. They were removed on 15 October
 enough to test against directly, and the button sat one tap away in a release
 build while doing destructive things to app storage. `git log` has them if
 they are ever wanted back.
+
+### Passed on a Pixel with a real drive, 18 November 2026
+
+The build was the APK at commit `fa097a9`. Everything below had accumulated
+across five commits without ever running on hardware, and all of it passed.
+
+- **Editing a book's details.** A correction survives a rescan, follows the
+  book onto the shelves and into search, and a picked cover is not swept away
+  by the next scan. `expo-image-picker` is a new native module, so this also
+  proves the development build.
+- **Migration 18** (`book_overrides`) against a real library, on first launch.
+- **The lock screen's minute jumps**, in both directions — after the second
+  attempt. The first reached the phone and changed nothing; see the entry under
+  "deliberately not fixed" and `npm run kb -- "builds from source"`.
+- **The lag after saving is gone**, and so is the periodic stutter a second or
+  two after writing anything. Two separate causes: a whole-library reload for a
+  one-book edit, and the drive backup blocking the JS thread with synchronous
+  file calls. `npm run kb -- "blocks the JS thread"`.
+- **The drive light and long-press on the source pill**, with an Audiobookshelf
+  server configured, and **"Check again"** in Settings now answering.
+- **A multi-disc folder through "Add a book folder"**, arriving in order.
 
 ### Passed on a Pixel with a real drive, 15 October 2026
 
@@ -85,9 +124,10 @@ bug — see "A position tick must never reach the drive" below, fixed in
 
 Treat these as open questions, not as working features:
 
-- **The backup-frequency fix (`b0ffc11`) is in no APK.** The build on the phone
-  still writes a generation every few seconds of playback. Correct, just
-  wasteful; a rebuild is what proves the fix.
+- **The backup frequency during playback.** The fix (`b0ffc11`) has shipped —
+  it is in every build since — but nobody has watched the generation number to
+  confirm it advances about once per ten minutes of listening rather than every
+  few seconds. One number, observed once, closes this.
 - **What the Sound panel printed for this device.** It works, but the line
   naming the band count and level range was not written down, so whether this
   Pixel's `Equalizer` gave five bands or ten is still unknown. Worth capturing
@@ -107,8 +147,9 @@ Treat these as open questions, not as working features:
 
 A testing stage, not a feature. The app can connect to a server, sign in,
 pick one of its book libraries, read that library's catalogue onto the
-shelves with its covers, and open a book to its real chapters. Playing one
-is a later step: nothing is downloaded yet.
+shelves with its covers, open a book to its real chapters, and download it
+(`src/lib/abs/checkout.ts`, `src/lib/abs/download.ts`). **Nothing in the
+download path has run on a phone** — see below.
 
 Verified only against the Docker server in `tools/abs-test`, from Node —
 login, refresh, authorize, libraries, paginated items, expanded items,
@@ -127,20 +168,23 @@ cancel, which have only ever been reasoned about.
   drive. A refresh diffs on the server's own `updatedAt` and marks a
   vanished book missing rather than deleting it, mirroring what a USB scan
   does.
-- **Shelves, search and the checked-out tray show one source at a time.**
-  The tray was global at first — what is on the phone is on the phone —
-  which held while the drive was the only thing that could put a book
-  there. With a second source it stopped holding: standing in a server's
-  library and seeing the drive's checkouts answers a question nobody
-  asked, and a book downloaded from the server did not appear under it.
-  The consequence to know: the budget is global because it is about the
-  phone, so the ruler shows the active library's share of it, and with
-  downloads in two sources no single tray shows everything the phone
-  holds. `tests/tray-scope.test.ts` pins the rule.
-- **A book on a server opens on its own plain screen**, `src/app/abs/[id]`,
-  not the polished Book screen. That one is built around checking out,
-  returning and holding, none of which mean anything yet for a book with no
-  audio on the phone.
+- **Shelves and search show one source at a time; the tray does not.**
+  The tray has been both. Global first, then scoped to the active source,
+  and scoping turned out worse: a book downloaded from a server that was
+  later removed belonged to no library you could switch to, so it appeared
+  nowhere while still holding gigabytes. It is global again, in labelled
+  groups — the drive, each server, then a "Signed out" group for anything
+  whose source has gone. The ruler is global with it, and so finally agrees
+  with the fan above it. Shelves stay scoped, because mixing two libraries
+  into one set of generated shelves really does produce a "6 hours or less"
+  shelf full of books that cannot be reached.
+  `npm run kb -- "global again"`; `tests/tray-scope.test.ts` pins the rule.
+- **`src/app/abs/[id]` is now a diagnostics screen, not the book's screen.**
+  It holds what only a tester wants — the remote id, when the record was
+  cached, what the last progress push did — and is reached by the "server
+  details" link on the Book screen. See the "one screen per book" entry
+  below, which is the rule; this is the leftover of the old one, kept
+  deliberately.
 - **The position comes from `currentTime`**, and the newer of the two
   writes wins. Taking the server's shows "Picked up where you left off on
   another device".
@@ -177,12 +221,22 @@ cancel, which have only ever been reasoned about.
   book in a format the server will not pass through is the case that
   would reach it.
 
-- **`android.usesCleartextTraffic` is on, for the whole app.** DEV-STAGE.
-  An Audiobookshelf server on a LAN is reached over plain http and Android
-  blocks that by default, so without this a connect attempt dies at the
-  socket with nothing useful to show. Before release this must become a
-  network security config that permits cleartext only for private address
-  ranges — the app config carries the same note beside the flag.
+- **`android.usesCleartextTraffic` is on, for the whole app — deliberately,
+  and no longer a release blocker.** An Audiobookshelf server on a LAN is
+  reached over plain http and Android blocks that by default, so without the
+  flag a connect attempt dies at the socket with nothing useful to show.
+  This entry used to say the flag had to become "a network security config
+  that permits cleartext only for private address ranges" before release.
+  **That cannot be written:** a network security config's `<domain>` takes a
+  hostname or an IP literal and has no subnet syntax, so the rule cannot be
+  expressed in the manifest for an address typed in at runtime.
+  It is enforced in the app instead, at the single chokepoint every server
+  request passes through: `isCleartextToPublicHost` in
+  `src/lib/abs/client.ts` refuses any plain-http request to an address
+  outside the private ranges, loopback and the LAN naming conventions,
+  before it is sent — so it covers a server saved before the check existed,
+  not just the connect form. `tests/abs-client.test.ts` pins the address
+  classification.
 - **The connect form is in Settings under "Audiobookshelf (testing)".**
   Plain fields and square buttons on purpose. It is not meant to survive
   into Settings looking like that. "Check again" there is what re-reads the
@@ -192,6 +246,12 @@ cancel, which have only ever been reasoned about.
   drive button it always has. The switcher only appears once there is
   something to switch to, so the USB path is untouched for anyone who never
   opens this.
+- **One server, by decision rather than by omission.** Shelves and search show
+  one source at a time, the budget is global because it is about the phone,
+  and a second server multiplies both questions for a case nobody here has.
+  Signing in replaces what is there; removing is how you leave. The Settings
+  panel no longer says "(TESTING)" either — downloads, progress both ways and
+  the catalogue have all run against a real server on a real phone.
 - **No Pro gating yet**, deliberately, while it is being tested.
 
 Secrets: the access and refresh tokens live in SecureStore keyed by the
@@ -207,11 +267,23 @@ account gets locked.
 Do not report these as findings. Report them as findings only with new
 evidence that the reasoning was wrong.
 
-- **No next/previous chapter on the lock screen, and no configurable skip
-  interval.** `expo-audio` removes `COMMAND_SEEK_TO_NEXT` and
-  `COMMAND_SEEK_TO_PREVIOUS` in `AudioMediaSessionCallback.onConnect`, and
-  hardcodes a 10 s interval. Fixing it means forking the module's Kotlin and
-  carrying that fork across every SDK upgrade.
+- **No next/previous chapter on the lock screen.** `expo-audio` removes
+  `COMMAND_SEEK_TO_NEXT` and `COMMAND_SEEK_TO_PREVIOUS` in
+  `AudioMediaSessionCallback.onConnect`. Adding them back means teaching the
+  session what a chapter boundary is, which the module has no concept of.
+
+  The **skip interval is no longer among these**, and neither are the dead
+  buttons. `plugins/withLockScreenSeek.js` rewrites three of the module's
+  Kotlin files at prebuild: the buttons were custom session commands answered
+  with `RESULT_ERROR_NOT_SUPPORTED`, so they drew and did nothing. They are
+  now `COMMAND_SEEK_BACK`/`COMMAND_SEEK_FORWARD` at 60 s.
+
+  **The first attempt reached the phone and changed nothing**, because
+  expo-audio ships a prebuilt AAR and Gradle never compiled the patched
+  Kotlin. `buildFromSource: ["expo-audio"]` in `package.json` is what makes
+  the source the thing that gets built, and the plugin now refuses to run
+  without it. `npm run kb -- "builds from source"`. Confirmed in a build;
+  **not yet confirmed on a phone.**
 - **Cancelling a copy cannot interrupt the part in flight.** One part is one
   native `copy()` call with no abort. The button is answered immediately — the
   book returns to the shelf and the bytes are discarded — but the drive keeps
@@ -231,25 +303,35 @@ evidence that the reasoning was wrong.
 
 Roughly in the order I would take them.
 
-1. **The backup-frequency fix needs a build to reach the phone.** `b0ffc11` is
-   committed and unit-tested but not in any APK. What proves it is watching the
-   generation number advance about once per ten minutes of listening instead of
-   every few seconds.
-2. **Four Expo patch bumps and a missing `expo-asset` peer.** `expo-doctor`
+1. **Pro gating does not exist**, on the branch named for it. What is free and
+   what is not is a decision, not an implementation.
+2. **The reconnection fix has not run on hardware.** A scan may now ask a
+   question where it used to reconnect silently — when one new folder could be
+   either of two missing books. Covered by `tests/scan-end-to-end.test.ts`
+   and mutation-checked, but what proves it is a real library where a folder
+   was renamed still reconnecting without a prompt.
+   `npm run kb -- "both directions"`.
+3. **Four Expo patch bumps and a missing `expo-asset` peer.** `expo-doctor`
    reports 19/21 for these two reasons. Deliberately deferred to a branch,
    because the one time the advice was taken it broke the dependency tree.
-3. **Conflicted copies need a prior sync to fire.** The first-ever merge
+4. **Conflicted copies need a prior sync to fire.** The first-ever merge
    between two phones is last-write-wins, so one side's edit to a note can be
    lost. Deliberate — the alternative litters the margins with copies — but it
    is the weakest point in the sync design, and the one part of sync no
    hardware has exercised.
-4. **Reconnect questions are transient.** Held in the store, not a table. An
+5. **Reconnect questions are transient.** Held in the store, not a table. An
    unanswered question is re-asked on the next scan, which is self-healing but
    does not survive a force-stop.
 
 ## Traps
 
 Things that have already cost a day each.
+
+- **Clearing a book's `source_id` hands it to the drive.** `DRIVE_BOOKS` is
+  `source_id IS NULL`, so "unhooking" a removed server's books turned them
+  into drive books: on the drive's shelf, stamped "not on drive" by the next
+  scan, and offered up by "Forget missing books" beside real ones. It reached
+  a phone. `npm run kb -- "means on the drive"`.
 
 - **`npx expo install --fix` breaks the build here.** It nests
   `expo-modules-core` and `expo-audio` stops resolving it. `npm run kb -- "expo

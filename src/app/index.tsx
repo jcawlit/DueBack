@@ -39,6 +39,7 @@ import {
   type Shelf as ShelfModel,
 } from '@/lib/shelves';
 import { cascade } from '@/lib/library/cascade';
+import { trayGroups } from '@/lib/library/tray';
 import { searchBooks } from '@/lib/library/search';
 import { daysOfListening, relativeTime, relativeTimeShort } from '@/lib/format';
 import { color, font, space } from '@/theme/tokens';
@@ -93,8 +94,7 @@ export default function LibraryScreen() {
   const driveConnected = useLibrary((s) => s.driveConnected);
   const libraryOnDevice = useLibrary((s) => s.libraryOnDevice);
   const driveLastSeenAt = useLibrary((s) => s.driveLastSeenAt);
-  const checkDrive = useLibrary((s) => s.checkDrive);
-  const showSlip = useLibrary((s) => s.showSlip);
+  const lookForDrive = useLibrary((s) => s.lookForDrive);
 
   const checkOut = useLibrary((s) => s.checkOut);
   const cancelCopy = useLibrary((s) => s.cancelCopy);
@@ -122,12 +122,13 @@ export default function LibraryScreen() {
    * of generated shelves would produce a "6 hours or less" shelf containing
    * books you cannot reach.
    *
-   * The tray was global once — what is on the phone is on the phone, whichever
-   * library it came from. That broke down as soon as a second source could put
-   * books on the phone: standing in an Audiobookshelf library and seeing the
-   * drive's checkouts in the tray below answers a question nobody asked. A
-   * library's tray now holds that library's books, and a book downloaded from
-   * a server appears under that server.
+   * **The tray is not scoped, and that is a reversal.** It was global, then
+   * per-source, and per-source turned out worse: a book downloaded from a
+   * server that was later removed belonged to no library you could switch to,
+   * so it appeared nowhere while still holding gigabytes. It is global again,
+   * in labelled groups — see `src/lib/library/tray.ts`. Shelves stay scoped,
+   * because mixing two libraries into one set of generated shelves really
+   * does produce a "6 hours or less" shelf full of books you cannot reach.
    */
   const inSource = useMemo(
     () => books.filter((b) => belongsToSource(b, activeSourceId, USB_SOURCE_ID)),
@@ -136,19 +137,37 @@ export default function LibraryScreen() {
 
   // Derived here rather than in a store selector: a selector that builds a new
   // array every call re-renders without end under zustand v5.
-  const checkedOut = useMemo(() => checkedOutFrom(inSource), [inSource]);
   const onHoldCount = useMemo(() => heldCount(inSource), [inSource]);
 
+  /** The servers signed into, for the tray's groups and their labels. */
+  const absServers = useMemo(
+    () => sources.filter((s) => s.kind === 'abs').map(({ id, label }) => ({ id, label })),
+    [sources],
+  );
+
   /*
-   * The ruler measures this library's share of the budget.
-   *
-   * The budget itself is global, because it is about the phone — so with
-   * downloads in more than one source, no single tray shows everything the
-   * phone is holding. The alternative was a ruler that disagreed with the fan
-   * above it, which is worse: a reader can switch libraries to see the rest.
+   * Every book on the phone, grouped by where it came from — not just the
+   * library being looked at. A book from a removed server lands in its own
+   * group rather than vanishing, which is the whole reason this is not scoped.
    */
-  const used = usedBytes(inSource);
-  const heldBytes = holdBytes(inSource);
+  const trayStacks = useMemo(
+    () => trayGroups(books, { driveSourceId: USB_SOURCE_ID, servers: absServers }),
+    [books, absServers],
+  );
+  // Global too: the hint is about whether anything at all has been taken out.
+  const checkedOut = useMemo(() => checkedOutFrom(books), [books]);
+
+  /*
+   * The ruler measures the whole phone, and now agrees with the fan above it.
+   *
+   * It used to measure the active library's share, because the tray did — and
+   * the note here said the alternative was "a ruler that disagreed with the
+   * fan above it, which is worse". With the tray showing everything, that
+   * objection is gone and the ruler says what the budget was always about:
+   * this phone.
+   */
+  const used = usedBytes(books);
+  const heldBytes = holdBytes(books);
 
   // What the folder takes up, for a library that is already in phone storage.
   const onDeviceBooks = useMemo(() => inSource.filter((b) => !isRemote(b)), [inSource]);
@@ -271,6 +290,16 @@ export default function LibraryScreen() {
    * arrangement underneath.
    */
   const liveBookIds = useMemo(() => new Set(found.map((b) => b.id)), [found]);
+  /*
+   * What the shelves are actually in — and therefore what the picker has to
+   * say. Showing the saved `sort` there while rendering this one made the chip
+   * read "Custom" over shelves in length order.
+   *
+   * The saved preference is deliberately left alone. Custom is where the
+   * listener put themselves, the fallback is temporary cover while the seeding
+   * repairs the arrangement, and overwriting the setting would turn a bad
+   * scan into a lost choice.
+   */
   const shownSort = effectiveSort(sort, liveBookIds, previewRows);
   const shelves = useMemo(
     () => buildShelves(found, shownSort, previewRows),
@@ -306,7 +335,10 @@ export default function LibraryScreen() {
     void loadSources();
   }, [loadSources]);
 
-  const switchable = useMemo(() => switchableSources(sources), [sources]);
+  const switchable = useMemo(
+    () => switchableSources(sources, driveConnected),
+    [sources, driveConnected],
+  );
   const refreshCatalogue = useSources((s) => s.refreshCatalogue);
   const refreshingSource = useSources((s) => s.refreshing);
   /*
@@ -333,34 +365,29 @@ export default function LibraryScreen() {
    * Tapping the status looks for the drive there and then, rather than sending
    * the user to Settings to press a second button.
    */
+  /**
+   * Look at whichever source is showing. The drive for the drive, a catalogue
+   * refresh for a server: both answer "can this actually be reached", which
+   * is the question the light is reporting on.
+   */
+  const recheckSource = (source: { id: string; kind: string }) => {
+    if (source.kind === 'usb') {
+      recheckDrive();
+      return;
+    }
+    void refreshCatalogue(source.id);
+  };
+
   const recheckDrive = () => {
+    // The spinner state is this screen's; the looking and the answer are the
+    // store's, so Settings behaves identically. See `lookForDrive`.
     if (checkingDrive) return;
     setCheckingDrive(true);
     void (async () => {
-      /*
-       * Held on screen for a moment, whatever the answer.
-       *
-       * Looking for the drive is a single directory listing and usually
-       * finishes in a few milliseconds, so the slip saying it is not connected
-       * appeared to arrive before the tap had landed — it read as a button
-       * that did not check anything. Long enough for the arrow to turn once.
-       */
-      const [connected] = await Promise.all([
-        checkDrive(),
-        new Promise((resolve) => setTimeout(resolve, 650)),
-      ]);
-      setCheckingDrive(false);
-      // `checkDrive` already announces anything it picked up off hold.
-      if (!useLibrary.getState().slip) {
-        showSlip(
-          connected
-            ? { kind: 'note', stamp: 'DRIVE CONNECTED', text: 'Drive found. The shelves are live.' }
-            : {
-                kind: 'note',
-                stamp: 'DRIVE NOT CONNECTED',
-                text: "Still can't see the drive. Checked-out books keep playing.",
-              },
-        );
+      try {
+        await lookForDrive();
+      } finally {
+        setCheckingDrive(false);
       }
     })();
   };
@@ -566,7 +593,7 @@ export default function LibraryScreen() {
           sources={switchable}
           activeSourceId={activeSourceId}
           onSelectSource={setActiveSourceId}
-          sort={sort}
+          sort={shownSort}
           onSort={setSort}
           search={search}
           onSearch={setSearch}
@@ -633,7 +660,7 @@ export default function LibraryScreen() {
 
         <View onLayout={(e) => setBottomObstruction(e.nativeEvent.layout.height)}>
           <CheckedOutTray
-            books={checkedOut}
+            groups={trayStacks}
             usedBytes={used}
             holdBytes={heldBytes}
             budgetBytes={budgetBytes}
@@ -683,11 +710,12 @@ export default function LibraryScreen() {
           subtitle={libraryRoot ? 'No books indexed yet' : 'No library folder chosen'}
           connected={driveConnected}
           onCheckDrive={recheckDrive}
-          checking={checkingDrive}
+          checking={checkingDrive || !!refreshingSource[activeSourceId]}
           onOpenSettings={libraryRoot ? () => router.push('/settings') : undefined}
           sources={switchable}
           activeSourceId={activeSourceId}
           onSelectSource={setActiveSourceId}
+          onCheckSource={recheckSource}
         />
         {scanProgress && scanBusy ? <ScanProgressBar progress={scanProgress} /> : null}
         <FirstRun onPick={() => void chooseFolderAndScan()} busy={scanBusy} />
@@ -712,9 +740,10 @@ export default function LibraryScreen() {
         connected={driveConnected}
         lastSeenLabel={relativeTime(driveLastSeenAt)}
         onCheckDrive={recheckDrive}
-        checking={checkingDrive}
+        checking={checkingDrive || !!refreshingSource[activeSourceId]}
         onOpenSettings={() => router.push('/settings')}
-        sort={sort}
+        onCheckSource={recheckSource}
+        sort={shownSort}
         onSort={setSort}
         search={search}
         onSearch={setSearch}
@@ -804,7 +833,7 @@ export default function LibraryScreen() {
         onLayout={(e) => setBottomObstruction(e.nativeEvent.layout.height)}
       >
         <CheckedOutTray
-          books={checkedOut}
+          groups={trayStacks}
           usedBytes={used}
           holdBytes={heldBytes}
           budgetBytes={budgetBytes}

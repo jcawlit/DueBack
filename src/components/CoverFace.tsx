@@ -8,6 +8,7 @@
  * proportionally smaller type than the little shelf covers do.
  */
 
+import { useState } from 'react';
 import { Image, Text, View } from 'react-native';
 import type { Book } from '@/data/types';
 import { color, font } from '@/theme/tokens';
@@ -174,6 +175,26 @@ export function CoverFace({ book, size, scale = 1 }: Props) {
   const ink = book.coverInk ?? color.paper;
   const ground = book.dominantColor ?? color.panel;
 
+  /*
+   * A thumbnail that will not load falls back to the drawn cover.
+   *
+   * Without this the `Image` renders as a blank rectangle in the book's
+   * colour: no title, no author, nothing to identify it, and nothing on
+   * screen to say why. The row names a file, so every other part of the app
+   * believes the book has artwork.
+   *
+   * Reachable several ways, none of them exotic: the covers directory is in
+   * the app's own storage and cleared by "Clear storage", a write can be
+   * interrupted, and a cover the listener picked is deleted when the book it
+   * belonged to is forgotten while the correction naming it survives.
+   */
+  // The failed URI rather than a flag: a thumbnail's name changes with its
+  // artwork, so a flag would outlive the file it was about and hide the next
+  // cover the listener picked.
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+  const art =
+    book.coverThumbPath && book.coverThumbPath !== failedUri ? book.coverThumbPath : undefined;
+
   if (size === 'tray') {
     const trayTitle = z(
       // Thumbnails may go smaller than the other covers: a long single word
@@ -192,9 +213,10 @@ export function CoverFace({ book, size, scale = 1 }: Props) {
           paddingHorizontal: z(6),
         }}
       >
-        {book.coverThumbPath ? (
+        {art ? (
           <Image
-            source={{ uri: book.coverThumbPath }}
+            source={{ uri: art }}
+            onError={() => setFailedUri(art)}
             // Sized explicitly rather than stretched to the edges: the decoder
             // needs a target size to downsample a 400px thumbnail against, and
             // without one it keeps the whole bitmap in memory.
@@ -251,9 +273,10 @@ export function CoverFace({ book, size, scale = 1 }: Props) {
         overflow: 'hidden',
       }}
     >
-      {book.coverThumbPath ? (
+      {art ? (
         <Image
-          source={{ uri: book.coverThumbPath }}
+          source={{ uri: art }}
+          onError={() => setFailedUri(art)}
           style={{ width: z(spec.w), height: z(spec.h) }}
           resizeMode="cover"
         />

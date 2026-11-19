@@ -38,7 +38,7 @@ describe('the sources migration', () => {
 
       assert.deepEqual(
         columns(raw, 'sources').sort(),
-        ['config', 'created_at', 'id', 'kind', 'label', 'last_seen_at'],
+        ['config', 'created_at', 'id', 'kind', 'label', 'last_seen_at', 'removed_at'],
       );
       const book = columns(raw, 'books');
       assert.ok(book.includes('source_id'), 'books.source_id');
@@ -113,27 +113,24 @@ describe('the sources migration', () => {
     }
   });
 
-  it('unhooks a removed source from its books instead of deleting them', async () => {
-    const { raw, db } = sqlite();
-    try {
-      await migrate(db as never);
-      raw.exec(`
-        INSERT INTO sources (id, kind, label, config, created_at)
-          VALUES ('s1','abs','server','{}','2026-10-16T00:00:00.000Z');
-        INSERT INTO books(id, folder_rel_path, raw_folder_name, title, source_id, remote_id, progress_sec)
-          VALUES ('b1','','','Remote Book','s1','abs-123', 90);
-      `);
+  /*
+   * There used to be a test here called "unhooks a removed source from its
+   * books instead of deleting them". It hand-copied `removeSource`'s SQL —
+   *
+   *   UPDATE books SET source_id = NULL, remote_id = NULL WHERE source_id = ?
+   *
+   * — and asserted that `source_id` came out null, as though that were the
+   * contract. It was the bug. `source_id IS NULL` is the definition of a book
+   * on the USB drive, so every kept book became one: it appeared on the
+   * drive's shelf, the next scan stamped it "not on drive", and
+   * `forgetMissingBooks` offered to delete it beside genuinely missing books.
+   *
+   * It passed throughout, because it executed its own copy of the statement
+   * rather than calling the function. A test that reimplements the code it
+   * tests cannot fail when that code is wrong — it can only agree with
+   * itself. Replaced by `tests/sources-removal.test.ts`, which calls the real
+   * `removeSource` and `addSource` against real SQLite, and which fails on
+   * five counts if the old statement is put back.
+   */
 
-      // What removeSource does, in the order it does it.
-      raw.exec("UPDATE books SET source_id = NULL, remote_id = NULL WHERE source_id = 's1'");
-      raw.exec("DELETE FROM sources WHERE id = 's1'");
-
-      const book = raw.prepare('SELECT * FROM books').get()!;
-      assert.equal(book.title, 'Remote Book');
-      assert.equal(book.progress_sec, 90, "progress belongs to the listener and survives");
-      assert.equal(book.source_id, null);
-    } finally {
-      raw.close();
-    }
-  });
 });

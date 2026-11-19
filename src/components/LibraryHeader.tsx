@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import type { SwitchableSource } from '@/store/sources';
 import {
   Animated,
   Easing,
@@ -96,14 +97,87 @@ function SpinningRefresh({ spinning, stroke }: { spinning: boolean; stroke: stri
  * tapping it cycles. Cycling rather than opening a menu because there are
  * two or three of these, and a sheet for that is more furniture than choice.
  */
+/** What the light means, in words, for whoever cannot see it. */
+function readyLabel(source: SwitchableSource): string {
+  if (source.ready === null) return 'not checked yet';
+  if (source.kind === 'usb') return source.ready ? 'drive connected' : 'drive not connected';
+  return source.ready ? 'signed in' : 'needs signing in again';
+}
+
+/**
+ * Whether the thing beside it is good to use: green yes, red no.
+ *
+ * One definition for every source, because two of them disagreeing is how a
+ * listener learns to distrust both. The drive used to show an **amber lamp
+ * when connected and nothing at all when not** — a circular arrow took its
+ * place, on the reasoning that an unlit lamp "read as a verdict rather than
+ * as a button, so nobody knew the thing could be pressed to look again". The
+ * reasoning was sound and the result was not: nothing on screen distinguished
+ * "no drive" from "not checked", and the server beside it had no light at
+ * all.
+ *
+ * A red dot answers the original worry differently. An unlit lamp is absence;
+ * a red one is a state, and a state invites doing something about it. The
+ * dashed border and the label still say the button can be pressed.
+ *
+ * `null` is "not knowable without asking" and shows nothing, which is honest
+ * about the one case it covers: a drive whose state has not been polled yet.
+ *
+ * The palette's own olive and red, not signal colours — beside this paper and
+ * lamp amber a pure #0f0 would look like a different app.
+ */
+export function StatusDot({
+  ready,
+  checking = false,
+}: {
+  ready: boolean | null;
+  /** A look is in flight: hollow, so pressing is visibly doing something. */
+  checking?: boolean;
+}) {
+  if (ready === null && !checking) return null;
+  return (
+    <View
+      style={{
+        width: 7,
+        height: 7,
+        borderRadius: 4,
+        backgroundColor: checking ? 'transparent' : ready ? color.checkout : color.warning,
+        borderWidth: checking ? 1 : 0,
+        borderColor: color.muted,
+        ...(ready && !checking
+          ? {
+              // The lamp glow the drive button always had, kept for the
+              // connected case because it is what "live" looks like here.
+              shadowColor: color.checkout,
+              shadowOpacity: 0.9,
+              shadowRadius: 5,
+              shadowOffset: { width: 0, height: 0 },
+            }
+          : null),
+      }}
+    />
+  );
+}
+
 export function SourceSwitcher({
   sources,
   activeId,
   onSelect,
+  checking,
+  onCheck,
 }: {
-  sources: { id: string; label: string }[];
+  sources: SwitchableSource[];
   activeId: string;
   onSelect: (id: string) => void;
+  /** A look at the active source is in flight. */
+  checking: boolean;
+  /**
+   * Look at the active source again: the drive for the drive, a catalogue
+   * refresh for a server. Both prove the same thing — that the source can
+   * actually be reached — and both hang off the same long-press, so the
+   * gesture means one thing wherever you are.
+   */
+  onCheck: (source: SwitchableSource) => void;
 }) {
   const index = Math.max(0, sources.findIndex((s) => s.id === activeId));
   const active = sources[index] ?? sources[0];
@@ -112,8 +186,20 @@ export function SourceSwitcher({
   return (
     <Pressable
       onPress={() => onSelect(next.id)}
+      /*
+       * Long-press looks for the drive.
+       *
+       * Once a server is configured this button's tap is spent on switching
+       * sources, which left no way to ask "is the drive there?" from the one
+       * place showing whether it is — the only route was Settings. Long-press
+       * is the app's existing idiom for a second action on a thing.
+       */
+      onLongPress={() => onCheck(active)}
+      delayLongPress={350}
       accessibilityRole="button"
-      accessibilityLabel={`Library source: ${active.label}. Tap to switch to ${next.label}.`}
+      accessibilityLabel={`${active.label}: ${readyLabel(active)}. Tap to switch to ${
+        next.label
+      }. Press and hold to look again.`}
       style={({ pressed }) => ({
         flexDirection: 'row',
         alignItems: 'center',
@@ -131,6 +217,7 @@ export function SourceSwitcher({
       <Text numberOfLines={1} style={{ fontFamily: font.mono, fontSize: 11, color: color.paper }}>
         {active.label.toUpperCase()}
       </Text>
+      <StatusDot ready={active.ready} checking={checking} />
       <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.muted }}>
         {sources.length > 1 ? '⇄' : ''}
       </Text>
@@ -186,25 +273,17 @@ export function DriveStatusButton({
         DRIVE
       </Text>
       {/*
-        The lamp when the drive is there, a circular arrow when it is not.
-        An unlit lamp was honest and inert — it read as a verdict rather than
-        as a button, so nobody knew the thing could be pressed to look again.
+        The same light the source pill shows, so the drive does not describe
+        itself one way with a server configured and another way without. See
+        `StatusDot` for what replaced the amber lamp, and why.
+
+        The circular arrow stays while a look is in flight: that is the part
+        of the old design that was doing real work, saying the press landed.
       */}
-      {connected && !checking ? (
-        <View
-          style={{
-            width: 7,
-            height: 7,
-            borderRadius: 4,
-            backgroundColor: color.accent,
-            shadowColor: color.accent,
-            shadowOpacity: 0.9,
-            shadowRadius: 5,
-            shadowOffset: { width: 0, height: 0 },
-          }}
-        />
+      {checking ? (
+        <SpinningRefresh spinning stroke={color.accent} />
       ) : (
-        <SpinningRefresh spinning={!!checking} stroke={checking ? color.accent : color.headerSoft} />
+        <StatusDot ready={connected} />
       )}
     </Pressable>
   );
@@ -349,6 +428,7 @@ export function LibraryHeader({
   sources,
   activeSourceId,
   onSelectSource,
+  onCheckSource,
 }: {
   title: string;
   subtitle: string;
@@ -365,9 +445,14 @@ export function LibraryHeader({
    * Every place a library can come from. One entry means the drive alone,
    * which is the normal state and renders the drive button unchanged.
    */
-  sources?: { id: string; label: string }[];
+  sources?: SwitchableSource[];
   activeSourceId?: string;
   onSelectSource?: (id: string) => void;
+  /**
+   * Look at the active source again, from a long-press on the pill. The drive
+   * for the drive, a catalogue refresh for a server.
+   */
+  onCheckSource?: (source: SwitchableSource) => void;
 }) {
   return (
     <View
@@ -421,6 +506,8 @@ export function LibraryHeader({
             sources={sources}
             activeId={activeSourceId}
             onSelect={onSelectSource}
+            checking={checking ?? false}
+            onCheck={(source) => onCheckSource?.(source)}
           />
         ) : (
           <DriveStatusButton

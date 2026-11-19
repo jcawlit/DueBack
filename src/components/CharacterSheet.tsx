@@ -23,6 +23,7 @@ import {
 } from '@/data/notes';
 import { chapterAt, type Book } from '@/data/types';
 import { timestamp } from '@/lib/format';
+import { markLabel } from '@/lib/library/marks';
 import { bioTextFrom } from './mentionText';
 import { color, font, shadow, space, TOUCH } from '@/theme/tokens';
 import { NoteText, useNoteFont } from './NoteText';
@@ -37,7 +38,8 @@ import { RowAction, TimeChip } from './NotesCard';
  */
 function heardLabel(book: Book, sec: number | null): string {
   if (sec === null) return 'not heard yet';
-  const chapter = book.chapters.length > 0 ? `Ch. ${chapterAt(book, sec).index + 1} · ` : '';
+  const chapter =
+    book.chapters.length > 0 ? `${markLabel(book, chapterAt(book, sec).index)} · ` : '';
   return `first heard ${chapter}${timestamp(sec)}`;
 }
 

@@ -26,6 +26,7 @@ import {
 } from '@/lib/library/grouping';
 import { resolveName } from '@/lib/library/names';
 import { sanitiseChapters } from '@/lib/library/chapters';
+import { unvouchedFolders, wasUnseen } from './coverage';
 import { newUuid, pathKeyFor } from '@/lib/library/ids';
 import { sampleBook } from './sample';
 import {
@@ -61,7 +62,7 @@ import { resolveLibraryId } from '@/lib/sync/libraryIdentity';
  * and the manifest may be from before a book moved.
  */
 async function seedIdentity(rootUri: string, libraryId: string): Promise<Map<string, string>> {
-  const drive = readDrive(rootUri, libraryId);
+  const drive = await readDrive(rootUri, libraryId);
   await seedRestoredIdentities(libraryId, drive.payload?.identity ?? []);
   return loadPathKeyIndex(libraryId);
 }
@@ -512,6 +513,15 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
   }
 
   const errors: string[] = [];
+  /*
+   * The folders whose books threw while being read.
+   *
+   * Kept beside `errors`, which is for showing a person: these are paths, for
+   * `markMissingExcept`. A book that failed to parse never reaches `seenIds`,
+   * and the sweep would otherwise read that absence as the book having gone
+   * from the drive.
+   */
+  const erroredFolders: string[] = [];
   const unreadableFiles: string[] = [];
   const seenIds: string[] = [];
   let updated = 0;
@@ -585,6 +595,7 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
     } catch (err) {
       // A whole book failing is still not a reason to abandon the scan.
       errors.push(`${group.folderName || group.folderRelPath}: ${(err as Error).message}`);
+      erroredFolders.push(group.folderRelPath);
     }
   }
 
@@ -611,11 +622,34 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
    * is missing, and offering to reconnect on that evidence would be inviting
    * someone to merge two books because the cable was loose.
    */
+  /*
+   * What this scan is entitled to conclude.
+   *
+   * `completed` and `rootReadable` say the walk ran to the end over a root it
+   * could read. They do not say it saw everything: a subfolder that would not
+   * list, a subtree past the depth limit, and a book that threw while being
+   * read all leave the scan with a gap — and both of the things below read a
+   * gap as proof that a book is gone. These are the folders it cannot vouch
+   * for, and a book in one of them is left exactly as it was.
+   */
+  const unvouched = unvouchedFolders(listing.unseenFolders, erroredFolders);
+
   let reconnected = 0;
   const reconnectQuestions: ReconnectQuestion[] = [];
   if (completed && rootReadable && freshlyFound.length > 0) {
-    const vanished = await loadVanishedBooks(seenIds);
+    /*
+     * A book whose folder was never read has not vanished, so it is not a
+     * candidate for being reconnected to something else. The comment above
+     * applies at folder granularity too: offering to merge a book with an
+     * unrelated one because its subfolder would not list is the same mistake
+     * as doing it because the cable was loose.
+     */
+    const vanished = (await loadVanishedBooks(seenIds)).filter(
+      (gone) => !wasUnseen(gone.folderRelPath, unvouched),
+    );
     const unclaimed = new Set(freshlyFound.map((b) => b.id));
+    /** Vanished books already reconnected, so the mirror check ignores them. */
+    const claimed = new Set<string>();
 
     for (const gone of vanished) {
       const candidates = freshlyFound
@@ -630,26 +664,66 @@ export async function scanLibrary(options: ScanOptions): Promise<ScanResult> {
         });
 
       const plan = planReconnection(gone, candidates);
+
+      /*
+       * The same question asked the other way round.
+       *
+       * `planReconnection` refuses to guess when one missing book matches
+       * several new folders. It cannot see the mirror image — several missing
+       * books matching *one* new folder — because it is handed one missing
+       * book at a time, and this loop gives the folder to whichever reaches
+       * it first.
+       *
+       * That is the same mistake with the same cost. Two copies of one rip in
+       * two folders is the usual cause: delete the untouched copy, rename the
+       * one you have been listening to, and a scan could move the renamed
+       * folder onto the copy's identity — leaving three hours of progress and
+       * every note on a book now marked missing, silently, with no undo.
+       *
+       * So the rule is applied in both directions, by running it backwards:
+       * the new folder as the thing that went, the still-missing books as its
+       * candidates. More than one match and nobody may be reconnected without
+       * being asked.
+       */
+      let mirrored = plan;
       if (plan.kind === 'reconnect') {
-        await reconnectBook(plan.to.id, gone.id);
-        unclaimed.delete(plan.to.id);
+        const target = candidates.find((c) => c.book.id === plan.to.id);
+        const stillMissing = vanished
+          .filter((other) => other.id !== gone.id && !claimed.has(other.id))
+          .map((other) => ({ book: other, shape: other.shape, sampleHash: other.sampleHash }));
+        const backwards = planReconnection(
+          { shape: target?.shape ?? gone.shape, sampleHash: target?.sampleHash ?? null },
+          [{ book: gone, shape: gone.shape, sampleHash: gone.sampleHash }, ...stillMissing],
+        );
+        if (backwards.kind !== 'reconnect') {
+          // Asked against the folder it could be, which is the one candidate
+          // there is. The other matching book raises its own question, so the
+          // listener is told about every book this folder might be.
+          mirrored = { kind: 'ask', candidates: [plan.to], reason: 'ambiguous' };
+        }
+      }
+
+      if (mirrored.kind === 'reconnect') {
+        claimed.add(gone.id);
+        await reconnectBook(mirrored.to.id, gone.id);
+        unclaimed.delete(mirrored.to.id);
         // The found row is gone; the identity that kept its place is seen.
-        const at = seenIds.indexOf(plan.to.id);
+        const at = seenIds.indexOf(mirrored.to.id);
         if (at >= 0) seenIds[at] = gone.id;
         reconnected += 1;
-      } else if (plan.kind === 'ask') {
+      } else if (mirrored.kind === 'ask') {
         reconnectQuestions.push({
           missingId: gone.id,
           missingTitle: gone.title,
           missingFolder: gone.folderRelPath,
-          candidates: plan.candidates,
-          reason: plan.reason,
+          candidates: mirrored.candidates,
+          reason: mirrored.reason,
         });
       }
     }
   }
 
-  await markMissingExcept(seenIds, { completed, rootReadable });
+  await markMissingExcept(seenIds, { completed, rootReadable, unvouched });
 
   const now = new Date().toISOString();
   // A partial or failed scan is not "last scanned at", either.

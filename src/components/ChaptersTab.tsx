@@ -11,7 +11,13 @@
 import { Pressable, Text, View } from 'react-native';
 import type { Book } from '@/data/types';
 import type { Note } from '@/data/notes';
-import { tidyChapterTitle, timestamp } from '@/lib/format';
+import { timestamp } from '@/lib/format';
+import {
+  markGutterWidth,
+  markLabelCaps,
+  markTitle,
+  markWord,
+} from '@/lib/library/marks';
 import { color, font, radius, space } from '@/theme/tokens';
 import { Aside } from './Aside';
 
@@ -50,7 +56,7 @@ export function ChaptersTab({
         const written = notes.filter(
           (n) => n.positionSec >= startSec && n.positionSec < endSec,
         ).length;
-        const title = tidyChapterTitle(chapter.title?.trim() || `Chapter ${index + 1}`);
+        const title = markTitle(book, chapter, index);
 
         return (
           <Pressable
@@ -58,7 +64,7 @@ export function ChaptersTab({
             onPress={() => onPlayFrom(startSec)}
             accessibilityRole="button"
             accessibilityLabel={
-              `Chapter ${index + 1}, ${title}${here ? ', where you are' : ''}` +
+              `${markWord(book)} ${index + 1}, ${title}${here ? ', where you are' : ''}` +
               `${written > 0 ? `, ${written} notes` : ''}, starts ${timestamp(startSec)}`
             }
             style={({ pressed }) => ({
@@ -76,8 +82,15 @@ export function ChaptersTab({
               opacity: pressed ? 0.6 : 1,
             })}
           >
-            <Text style={{ width: 52, fontFamily: font.mono, fontSize: 11, color: color.faint }}>
-              CH. {index + 1}
+            <Text
+              style={{
+                width: markGutterWidth(book),
+                fontFamily: font.mono,
+                fontSize: 11,
+                color: color.faint,
+              }}
+            >
+              {markLabelCaps(book, index)}
             </Text>
             <Text
               numberOfLines={1}

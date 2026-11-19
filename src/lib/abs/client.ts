@@ -18,10 +18,12 @@
  * not expire and therefore never refreshes.
  */
 
-/** How a request failed, in the only four ways a caller can act on. */
+/** How a request failed, in the only ways a caller can act on. */
 export type AbsErrorKind =
   /** Nothing answered: wrong address, server down, no route, cleartext blocked. */
   | 'unreachable'
+  /** Refused before it was sent: plain http to an address off the local network. */
+  | 'insecure'
   /** 401. The credentials are wrong or have expired past renewing. */
   | 'auth'
   /** 403. Signed in, but not allowed — a user without download permission. */
@@ -200,6 +202,29 @@ async function request(
   url: string,
   init: RequestInit & { headers?: Record<string, string> },
 ): Promise<Response> {
+  /*
+   * Refused here rather than warned about in the form.
+   *
+   * This is the one place every call passes through — signing in, listing a
+   * library, fetching covers, streaming, reporting a position — so a server
+   * saved before this check existed, or reached by a path that never saw the
+   * form, cannot put a password on the open internet in clear either.
+   *
+   * Android's manifest cannot express this. `usesCleartextTraffic` is all or
+   * nothing, and a network security config takes hostnames and IP literals,
+   * not address ranges, so "http only on a private network" is not something
+   * the platform can be told when the address is typed in by the listener.
+   * It has to be enforced here.
+   */
+  if (isCleartextToPublicHost(url)) {
+    throw new AbsError(
+      'insecure',
+      'That is a plain http address outside your own network. The password and ' +
+        'everything after it would travel unencrypted, so the request was not sent. ' +
+        'Use https, or reach the server over your own network.',
+    );
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {

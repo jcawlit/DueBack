@@ -9,8 +9,7 @@
 
 import type { BookIdentityRecord } from '@/lib/sync/records';
 import type { BookShape } from '@/lib/library/identity';
-import { adoptLibraryId, ensureDeviceId, ensureLibraryId, getDb } from './schema';
-import { withLockRetry } from './books';
+import { adoptLibraryId, ensureDeviceId, ensureLibraryId, getDb, withLockRetry } from './schema';
 
 // Re-exported so the rest of the app can ask one module about identity, even
 // though these three are only settings and live where settings live.

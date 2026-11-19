@@ -5,6 +5,8 @@
  * and are **returned** (local copy deleted, progress kept).
  */
 
+import type { OverrideField } from '@/lib/library/overrides';
+
 export type Chapter = {
   title: string;
   startSec: number;
@@ -95,6 +97,14 @@ export type Book = {
   series?: string;
   /** Where in the series, when the tags or the server say. */
   seriesIndex?: number;
+  /**
+   * Fields the listener corrected, where the files were wrong.
+   *
+   * The corrected values are already in `title`, `author` and the rest —
+   * `loadBooks` layers them in, so nothing downstream has to know. This says
+   * *which* ones, so a screen can mark them and offer to put them back.
+   */
+  overridden?: OverrideField[];
   /** When the server last said anything about this book. */
   remoteUpdatedAt?: number;
 };

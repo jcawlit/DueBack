@@ -13,16 +13,17 @@ import type { Book, SortMode } from '@/data/types';
 import { isRemote, occupiesBudget } from '@/data/types';
 import { bytes as formatBytes, gigabytes } from '@/lib/format';
 import {
-  recordCheckoutComplete,
   checkedOutLocalParts,
   clearPartLocalPaths,
-  deleteBook,
-  markBookMissing,
-  importsAwaitingDrive,
-  markImportOnDrive,
   closeCheckout,
+  deleteBook,
+  importsAwaitingDrive,
+  loadBook,
   loadBooks,
   loadParts,
+  markBookMissing,
+  markImportOnDrive,
+  recordCheckoutComplete,
   setLocalState,
   updateProgress,
 } from '@/db/books';
@@ -104,9 +105,28 @@ type LibraryState = {
   hydrate: () => Promise<void>;
   /** Re-reads books from the database after a scan. */
   refresh: () => Promise<void>;
+  /**
+   * Re-reads one book, for an edit that changed only that book.
+   *
+   * `refresh` reloads the whole library — every book, part, chapter, checkout
+   * and correction — which is right after a scan and far too much after
+   * correcting a title. On a real library that is thousands of rows and
+   * thousands of objects rebuilt on the JS thread, which is felt as the
+   * screen going unresponsive for a moment just after you press Save.
+   */
+  refreshBook: (id: string) => Promise<void>;
   setLibraryRoot: (root: LibraryRootInfo | null) => Promise<void>;
   /** Re-checks whether the drive is reachable; called on launch and resume. */
   checkDrive: () => Promise<boolean>;
+  /**
+   * Looks for the drive **because somebody asked**, and says what it found.
+   *
+   * Distinct from `checkDrive`, which is also the silent poller: a person who
+   * presses a button is owed an answer, including "still not there". It was
+   * written twice — once in the Library header and not at all in Settings,
+   * where the button simply did nothing visible — so it lives here instead.
+   */
+  lookForDrive: () => Promise<boolean>;
   /**
    * The cheap check behind the foreground poller. Does nothing at all unless
    * the drive has appeared or disappeared since the last look.
@@ -941,6 +961,46 @@ export const useLibrary = create<LibraryState>((set, get) => {
           }),
         };
       });
+    },
+
+    refreshBook: async (id) => {
+      const fresh = await loadBook(id);
+      if (!fresh) return;
+      /*
+       * `local` is deliberately kept from what is already on screen: a copy in
+       * flight exists only in memory, and the row would throw it back to
+       * whatever the database last said. Same reason `refresh` re-reads it
+       * inside the updater.
+       */
+      patch(id, (b) => ({ ...fresh, local: b.local }));
+    },
+
+    lookForDrive: async () => {
+      /*
+       * Held on screen for a moment, whatever the answer.
+       *
+       * Looking for the drive is a single directory listing and usually
+       * finishes in a few milliseconds, so the slip saying it is not
+       * connected appeared to arrive before the tap had landed — it read as
+       * a button that did not check anything.
+       */
+      const [connected] = await Promise.all([
+        get().checkDrive(),
+        new Promise((resolve) => setTimeout(resolve, 650)),
+      ]);
+      // `checkDrive` already announces anything it picked up off hold.
+      if (!get().slip) {
+        flashSlip(
+          connected
+            ? { kind: 'note', stamp: 'DRIVE CONNECTED', text: 'Drive found. The shelves are live.' }
+            : {
+                kind: 'note',
+                stamp: 'DRIVE NOT CONNECTED',
+                text: "Still can't see the drive. Checked-out books keep playing.",
+              },
+        );
+      }
+      return connected;
     },
 
     setLibraryRoot: async (root) => {

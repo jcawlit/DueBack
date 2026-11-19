@@ -53,6 +53,19 @@ const SETTLE_MS = 600;
  */
 const PITCH_QUALITY = 'high' as const;
 
+/**
+ * How long the ramp back to full volume takes after a seek.
+ *
+ * Long enough to cover the artefact, short enough that nobody experiences it
+ * as a fade. A quarter of a second is about where a rewind stops sounding
+ * like a jump and starts sounding like a cut.
+ */
+const SEEK_FADE_MS = 220;
+/** Steps in that ramp: smooth enough to the ear, cheap enough to schedule. */
+const SEEK_FADE_STEPS = 6;
+/** Where the ramp ends. The app has no volume control; the system has one. */
+const FULL_VOLUME = 1;
+
 export function createExpoAudioEngine(): AudioEngine {
   let player: AudioPlayer | null = null;
   let track: EngineTrack | null = null;
@@ -119,6 +132,65 @@ export function createExpoAudioEngine(): AudioEngine {
     }
   };
 
+  /**
+   * Which fade is current. Incremented per seek so a ramp left over from the
+   * previous one stops writing volume the moment another seek starts.
+   */
+  let fadeToken = 0;
+  /** When the current ramp should have finished, for the check in `onStatus`. */
+  let fadeEndsAt = 0;
+
+  /** Ramps the volume back up, unless a newer seek has taken over. */
+  const rampUp = (token: number, faded: AudioPlayer) => {
+    const per = SEEK_FADE_MS / SEEK_FADE_STEPS;
+    for (let step = 1; step <= SEEK_FADE_STEPS; step += 1) {
+      setTimeout(() => {
+        // Not this fade any more, or not even this player: leave it alone.
+        if (fadeToken !== token || player !== faded) return;
+        try {
+          faded.volume = (step / SEEK_FADE_STEPS) * FULL_VOLUME;
+        } catch {
+          // A released player has no volume to set, and nothing to fix.
+        }
+      }, per * step);
+    }
+  };
+
+  /**
+   * Covers a seek with silence, then ramps back.
+   *
+   * ExoPlayer flushes its audio pipeline on a seek. Above 1× that pipeline
+   * includes Sonic, the time-stretcher that keeps a voice at its own pitch
+   * while the speed changes, and it has to re-prime: the first fraction of a
+   * second after a rewind comes out warped. An MP3 with no seek table can
+   * also land mid-frame and give a scrap of noise instead.
+   *
+   * Two causes, one shape — a short burst of wrong audio at a known instant.
+   * So rather than chase either, this covers the instant: silence going in, a
+   * short ramp coming out, and the warped part plays under a volume too low to
+   * hear. A seek that fails still ramps back, because the alternative is a
+   * book that has gone quiet for good.
+   */
+  const throughFade = async (seek: () => Promise<void>) => {
+    const faded = player;
+    if (!faded) {
+      await seek();
+      return;
+    }
+    const token = ++fadeToken;
+    fadeEndsAt = Date.now() + SEEK_FADE_MS * 2;
+    try {
+      faded.volume = 0;
+    } catch {
+      // No volume control means no artefact to hide; the seek still happens.
+    }
+    try {
+      await seek();
+    } finally {
+      rampUp(token, faded);
+    }
+  };
+
   /** Told when the session behind the player may have moved. */
   const sessionListeners = new Set<(nativePlayer: unknown) => void>();
   const announceSession = () => {
@@ -176,6 +248,24 @@ export function createExpoAudioEngine(): AudioEngine {
   const onStatus = (status: AudioStatus) => {
     const list = parts();
     if (!track || list.length === 0 || switching) return;
+
+    /*
+     * The fade's safety net.
+     *
+     * A ramp is a handful of timers, and timers are not a guarantee — the app
+     * going to the background mid-seek could in principle leave one unfired
+     * and the book silent, which is a far worse failure than the artefact the
+     * fade exists to hide. Status arrives twice a second regardless, so once
+     * the ramp is past its deadline anything still quiet is put right here.
+     */
+    if (player && fadeEndsAt > 0 && Date.now() > fadeEndsAt) {
+      fadeEndsAt = 0;
+      try {
+        if (player.volume < FULL_VOLUME) player.volume = FULL_VOLUME;
+      } catch {
+        // Nothing to heal on a player that has gone.
+      }
+    }
 
     const part = list[partIndex];
     const positionSec = part.startSec + (status.currentTime ?? 0);
@@ -277,15 +367,18 @@ export function createExpoAudioEngine(): AudioEngine {
 
     async seekTo(positionSec) {
       const list = parts();
-      if (!player || list.length === 0) return;
+      const here = player;
+      if (!here || list.length === 0) return;
       const target = locatePart(list, Math.max(0, positionSec));
       finished = false;
-      if (target.index !== partIndex) {
-        // Mid-playback the two agree; at a boundary only the intent is right.
-        await switchToPart(target.index, target.offsetSec, wantsToPlay || player.playing);
-        return;
-      }
-      await player.seekTo(target.offsetSec);
+      await throughFade(async () => {
+        if (target.index !== partIndex) {
+          // Mid-playback the two agree; at a boundary only the intent is right.
+          await switchToPart(target.index, target.offsetSec, wantsToPlay || here.playing);
+          return;
+        }
+        await here.seekTo(target.offsetSec);
+      });
     },
 
     async setRate(next) {

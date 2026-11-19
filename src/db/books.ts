@@ -9,8 +9,11 @@ import type { Book, Chapter, Checkout, LocalState } from '@/data/types';
 import { coverUri } from '@/lib/files/access';
 import { fallbackPalette } from '@/lib/library/palette';
 import { fingerprintKey } from '@/lib/library/grouping';
+import { applyOverride } from '@/lib/library/overrides';
 import { newUuid } from '@/lib/library/ids';
-import { ensureDeviceId, getDb, getSetting, SETTING_KEYS } from './schema';
+import { wasUnseen } from '@/lib/scan/coverage';
+import { loadOverrides } from './overrides';
+import { ensureDeviceId, getDb, getSetting, SETTING_KEYS, withLockRetry } from './schema';
 import { DRIVE_BOOKS, PLACEHOLDER_DRIVE_BOOKS } from './scope';
 
 export type BookRow = {
@@ -297,11 +300,45 @@ export async function upsertBook(book: ScannedBook, options: UpsertOptions = {})
  */
 export async function markMissingExcept(
   seenIds: string[],
-  evidence: { completed: boolean; rootReadable: boolean },
+  evidence: {
+    completed: boolean;
+    rootReadable: boolean;
+    /**
+     * Folders this scan could not vouch for: unreadable, cut off by the depth
+     * limit, or holding a book that threw while being read. A book in one of
+     * them keeps whatever missing state it already had, because the scan never
+     * looked there and silence is not evidence. See `lib/scan/coverage.ts`.
+     */
+    unvouched?: string[];
+  },
 ) {
   if (!evidence.completed || !evidence.rootReadable) return;
   const db = await getDb();
+  const unvouched = evidence.unvouched ?? [];
   await db.withExclusiveTransactionAsync(async (txn) => {
+    /*
+     * The books the sweep below must not touch, and the state to put back.
+     *
+     * Read inside the transaction and before the sweep, so what is restored is
+     * what was actually there. Only books the scan did not find are protected:
+     * one it found is being proved present either way, and leaving it alone
+     * would strand a `missing` flag that is no longer true.
+     */
+    const protected_: { id: string; missing: number }[] = [];
+    if (unvouched.length > 0) {
+      const seen = new Set(seenIds);
+      const rows = await txn.getAllAsync<{
+        id: string;
+        folder_rel_path: string | null;
+        missing: number;
+      }>(`SELECT id, folder_rel_path, missing FROM books WHERE ${DRIVE_BOOKS}`);
+      for (const row of rows) {
+        if (seen.has(row.id)) continue;
+        if (!wasUnseen(row.folder_rel_path, unvouched)) continue;
+        protected_.push({ id: row.id, missing: row.missing });
+      }
+    }
+
     // Books added from the phone that have never been copied across were
     // never on the drive, so a drive scan cannot be evidence that they have
     // gone from it. Sweeping them up marked every fresh import "NOT ON DRIVE"
@@ -319,13 +356,29 @@ export async function markMissingExcept(
     );
     // Chunked so a very large library cannot exceed SQLite's variable limit.
     const CHUNK = 400;
-    for (let i = 0; i < seenIds.length; i += CHUNK) {
-      const chunk = seenIds.slice(i, i + CHUNK);
-      await txn.runAsync(
-        `UPDATE books SET missing = 0 WHERE id IN (${chunk.map(() => '?').join(',')})`,
-        ...chunk,
-      );
-    }
+    const setMissing = async (value: 0 | 1, ids: string[]) => {
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const chunk = ids.slice(i, i + CHUNK);
+        await txn.runAsync(
+          `UPDATE books SET missing = ? WHERE id IN (${chunk.map(() => '?').join(',')})`,
+          value,
+          ...chunk,
+        );
+      }
+    };
+
+    await setMissing(0, seenIds);
+
+    /*
+     * Put the unvouched books back as they were.
+     *
+     * Done after the sweep rather than by excluding them from it: the
+     * exclusion would be a `NOT IN` of unbounded length, and restoring a value
+     * read moments earlier in the same transaction says plainly what the rule
+     * is — a scan that did not look at a folder changes nothing about it.
+     */
+    await setMissing(1, protected_.filter((b) => b.missing === 1).map((b) => b.id));
+    await setMissing(0, protected_.filter((b) => b.missing !== 1).map((b) => b.id));
   });
 }
 
@@ -393,22 +446,65 @@ export async function existingFingerprints(libraryId?: string): Promise<
   );
 }
 
-export async function loadBooks(): Promise<Book[]> {
+/**
+ * One book, assembled exactly as `loadBooks` assembles it.
+ *
+ * For an edit that changed one book. Reloading the library to show a
+ * corrected title means re-reading every row of every table and rebuilding
+ * every object, on the JS thread — which is felt as a stutter right after
+ * pressing Save. Shares `loadBooks` so the two cannot drift: a book loaded
+ * one at a time must be identical to the same book loaded with the rest.
+ */
+export async function loadBook(id: string): Promise<Book | null> {
+  const [book] = await loadBooks(id);
+  return book ?? null;
+}
+
+export async function loadBooks(onlyId?: string): Promise<Book[]> {
   const db = await getDb();
-  const books = await db.getAllAsync<BookRow>('SELECT * FROM books ORDER BY title');
+  // One book or all of them, through one path. The `?` is bound rather than
+  // interpolated even though the id is internal.
+  const where = onlyId ? ' WHERE id = ?' : '';
+  const scope = onlyId ? ' WHERE book_id = ?' : '';
+  const args = onlyId ? [onlyId] : [];
+
+  const books = await db.getAllAsync<BookRow>(
+    `SELECT * FROM books${where} ORDER BY title`,
+    ...args,
+  );
   if (books.length === 0) return [];
 
-  const parts = await db.getAllAsync<PartRow>('SELECT * FROM parts ORDER BY book_id, idx');
+  const parts = await db.getAllAsync<PartRow>(
+    `SELECT * FROM parts${scope} ORDER BY book_id, idx`,
+    ...args,
+  );
   const chapters = await db.getAllAsync<{
     book_id: string;
     title: string;
     start_sec: number;
-  }>('SELECT book_id, title, start_sec FROM chapters ORDER BY book_id, idx');
+  }>(
+    `SELECT book_id, title, start_sec FROM chapters${scope} ORDER BY book_id, idx`,
+    ...args,
+  );
   const checkouts = await db.getAllAsync<{
     book_id: string;
     out_at: string;
     back_at: string | null;
-  }>('SELECT book_id, out_at, back_at FROM checkouts ORDER BY book_id, out_at');
+  }>(
+    `SELECT book_id, out_at, back_at FROM checkouts${scope} ORDER BY book_id, out_at`,
+    ...args,
+  );
+
+  /*
+   * The listener's corrections, layered over the scan.
+   *
+   * Here and nowhere else. Shelves, the letter bands, the series ledges,
+   * search and every sort read `Book.title`, `Book.author` and `Book.series`,
+   * so one layering at the read makes all of them follow a correction —
+   * whereas fixing it in the UI would rename a book on its own screen and
+   * leave it filed under the old name on the shelf.
+   */
+  const overrides = await loadOverrides(onlyId);
 
   const partsBy = new Map<string, PartRow[]>();
   for (const p of parts) {
@@ -432,11 +528,22 @@ export async function loadBooks(): Promise<Book[]> {
   return books.map((row) => {
     const bookParts = partsBy.get(row.id) ?? [];
     const palette = fallbackPalette(row.id);
+    const facts = applyOverride(
+      {
+        title: row.title,
+        author: row.author ?? '',
+        narrator: row.narrator ?? undefined,
+        series: row.series ?? undefined,
+        seriesIndex: row.series_index ?? undefined,
+        coverFile: row.cover_file ?? undefined,
+      },
+      overrides.get(row.id),
+    );
     return {
       id: row.id,
-      title: row.title,
-      author: row.author ?? '',
-      narrator: row.narrator ?? undefined,
+      title: facts.title,
+      author: facts.author,
+      narrator: facts.narrator,
       durationSec: row.duration_sec,
       sizeBytes: row.size_bytes,
       sourceRelPath: row.folder_rel_path,
@@ -444,7 +551,7 @@ export async function loadBooks(): Promise<Book[]> {
       chapters: chaptersBy.get(row.id) ?? [],
       // Stored as a bare file name so the row survives the app's data
       // directory moving; resolved to a URI only when handed to the UI.
-      coverThumbPath: row.cover_file ? coverUri(row.cover_file) : undefined,
+      coverThumbPath: facts.coverFile ? coverUri(facts.coverFile) : undefined,
       local: localStateFrom(row),
       progressSec: row.progress_sec,
       finishedAt: row.finished_at ?? undefined,
@@ -465,11 +572,43 @@ export async function loadBooks(): Promise<Book[]> {
       lastPlayedAt: row.last_played_at ?? undefined,
       sourceId: row.source_id ?? undefined,
       remoteId: row.remote_id ?? undefined,
-      series: row.series ?? undefined,
-      seriesIndex: row.series_index ?? undefined,
+      series: facts.series,
+      seriesIndex: facts.seriesIndex,
       remoteUpdatedAt: row.remote_updated_at ?? undefined,
+      // Empty for almost every book. Present so a screen can say a field was
+      // corrected, and offer to put it back.
+      overridden: facts.overridden.length > 0 ? facts.overridden : undefined,
     } satisfies Book;
   });
+}
+
+/**
+ * What the files say about one book, with no corrections applied.
+ *
+ * The details sheet shows the difference between this and what is on screen,
+ * so it needs the scan's own answer — and `loadBooks` has already layered
+ * the corrections in by the time anything downstream sees a `Book`.
+ */
+export async function loadScannedDetails(bookId: string) {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{
+    title: string;
+    author: string | null;
+    narrator: string | null;
+    series: string | null;
+    series_index: number | null;
+  }>(
+    'SELECT title, author, narrator, series, series_index FROM books WHERE id = ?',
+    bookId,
+  );
+  if (!row) return null;
+  return {
+    title: row.title,
+    author: row.author ?? '',
+    narrator: row.narrator ?? undefined,
+    series: row.series ?? undefined,
+    seriesIndex: row.series_index ?? undefined,
+  };
 }
 
 /** Rows for the dev screen, which wants the scan bookkeeping too. */
@@ -543,34 +682,6 @@ export async function updateProgress(id: string, positionSec: number, finishedAt
 }
 
 /** Records where each part's local copy landed after a successful copy. */
-/**
- * Retries a write that lost a race for the database.
- *
- * `withExclusiveTransactionAsync` runs on a connection of its own — the
- * expo-sqlite docs say outright that while one is open, "the other async write
- * queries will abort with `database is locked`". `PRAGMA busy_timeout` is set
- * per connection, so the one on ours does not cover the transaction's.
- *
- * Everything here is short, so waiting and trying again is the whole answer.
- * Only a lock is retried: a constraint failure would fail the same way for
- * ever.
- */
-const LOCK_BACKOFF_MS = [80, 200, 400, 800, 1600, 3000];
-
-function isLockedError(err: unknown): boolean {
-  return /database is locked|SQLITE_BUSY/i.test((err as Error)?.message ?? '');
-}
-
-export async function withLockRetry<T>(run: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      return await run();
-    } catch (err) {
-      if (!isLockedError(err) || attempt >= LOCK_BACKOFF_MS.length) throw err;
-      await new Promise((resolve) => setTimeout(resolve, LOCK_BACKOFF_MS[attempt]));
-    }
-  }
-}
 
 /**
  * Everything that turns a finished copy into a checked-out book, in one go.

@@ -478,6 +478,104 @@ export const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
       CREATE INDEX IF NOT EXISTS idx_listening_book ON listening(book_id);
     `);
   },
+
+  /*
+   * What the listener says a book is, where the files are wrong.
+   *
+   * A layer, not an edit. `upsertBook` rewrites `books.title` on every scan,
+   * so a correction written into that row lives until the drive is next
+   * plugged in; and overwriting it would throw away the only copy of what the
+   * files said, which is what a revert needs. See
+   * `src/lib/library/overrides.ts` for the rules.
+   *
+   * Every column is nullable and means three things, which is the one piece
+   * of this table worth reading twice: NULL is "not corrected, use the
+   * scan", `''` is "corrected to nothing", and anything else is the
+   * correction. The distinction is load-bearing — the honest fix for an
+   * author tagged "Top 100 scifi books" is no author, and a schema that
+   * could not say so would fail at the one case that prompted it.
+   *
+   * `series_index` is TEXT for the same reason: a REAL column has nowhere to
+   * put "deliberately none", and a sentinel number would be a worse lie than
+   * the metadata being corrected.
+   *
+   * The stamp columns are the ones every synced record carries. A correction
+   * is something a person made and cannot be rebuilt by rescanning, which is
+   * `src/lib/sync/records.ts`'s own test for what belongs on the drive.
+   */
+  async (db) => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS book_overrides (
+        book_id         TEXT PRIMARY KEY NOT NULL,
+        title           TEXT,
+        author          TEXT,
+        narrator        TEXT,
+        series          TEXT,
+        series_index    TEXT,
+        cover_file      TEXT,
+        updated_at      TEXT NOT NULL,
+        writer_device   TEXT NOT NULL,
+        mutation_id     TEXT NOT NULL,
+        deleted_at      TEXT,
+        base_updated_at TEXT
+      );
+    `);
+  },
+
+  /*
+   * A removed server is remembered, not erased — and the books it orphaned
+   * are cleaned up.
+   *
+   * Removing a source used to run:
+   *
+   *   UPDATE books SET source_id = NULL, remote_id = NULL, missing = 1
+   *    WHERE source_id = ?
+   *
+   * to keep books holding a place or a note, on the reasoning that those are
+   * the listener's and outlive the server. The reasoning is right and the
+   * statement is not, because `source_id IS NULL` **is** the definition of a
+   * book on the USB drive (`DRIVE_BOOKS` in `src/db/scope.ts`). So every kept
+   * book became a drive book: it appeared on the drive's shelf, the next scan
+   * marked it "not on drive", and `forgetMissingBooks` — which selects
+   * exactly `missing = 1 AND source_id IS NULL` — offered to delete it beside
+   * genuinely missing books, indistinguishable from them.
+   *
+   * Clearing `remote_id` made it worse: that was the only link back to the
+   * server, so signing in again could not recognise the book and made a fresh
+   * row beside it. One duplicate per book, one of them dead.
+   *
+   * `removed_at` replaces all of that. A removed source is tombstoned, its
+   * books keep their `source_id` and `remote_id`, and signing back into the
+   * same server revives the row so everything comes back attached to it.
+   *
+   * The DELETE below clears up what the old statement already orphaned. The
+   * signature is exact and cannot match a book that came off a drive: a drive
+   * scan never writes `remote_updated_at`, so `source_id IS NULL` together
+   * with a `remote_updated_at` means a book that was once a server's and was
+   * cut loose by the old code.
+   *
+   * Notes and characters are deliberately **not** deleted, exactly as
+   * `forgetMissingBooks` leaves them: they are the only thing here a listener
+   * authored, and an orphaned note costs nothing while a deleted one cannot
+   * come back. Audio left in `books/<id>/` is swept on the next launch by the
+   * reconciliation in `src/store/library.ts`, which already removes any folder
+   * no checked-out book claims.
+   */
+  async (db) => {
+    await db.execAsync('ALTER TABLE sources ADD COLUMN removed_at TEXT');
+    await db.execAsync(`
+      DELETE FROM chapters WHERE book_id IN (
+        SELECT id FROM books WHERE source_id IS NULL AND remote_updated_at IS NOT NULL
+      );
+      DELETE FROM parts WHERE book_id IN (
+        SELECT id FROM books WHERE source_id IS NULL AND remote_updated_at IS NOT NULL
+      );
+      DELETE FROM checkouts WHERE book_id IN (
+        SELECT id FROM books WHERE source_id IS NULL AND remote_updated_at IS NOT NULL
+      );
+      DELETE FROM books WHERE source_id IS NULL AND remote_updated_at IS NOT NULL;
+    `);
+  },
 ];
 
 export async function migrate(db: SQLite.SQLiteDatabase) {

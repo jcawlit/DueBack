@@ -80,27 +80,68 @@ function toSource(row: Row): Source {
   };
 }
 
+/**
+ * The sources the app has. A removed one is tombstoned, not deleted, and must
+ * never appear in the switcher, in Settings, or as something to refresh.
+ */
 export async function listSources(): Promise<Source[]> {
   const db = await getDb();
-  const rows = await db.getAllAsync<Row>('SELECT * FROM sources ORDER BY created_at');
+  const rows = await db.getAllAsync<Row>(
+    'SELECT * FROM sources WHERE removed_at IS NULL ORDER BY created_at',
+  );
   return rows.map(toSource);
 }
 
 export async function getSource(id: string): Promise<Source | null> {
   const db = await getDb();
-  const row = await db.getFirstAsync<Row>('SELECT * FROM sources WHERE id = ?', id);
+  const row = await db.getFirstAsync<Row>(
+    'SELECT * FROM sources WHERE id = ? AND removed_at IS NULL',
+    id,
+  );
   return row ? toSource(row) : null;
 }
 
-/** Adds a source and returns it, id and all. */
+/**
+ * Adds a source and returns it, id and all — or brings back the one that was
+ * removed.
+ *
+ * Signing into a server that was removed earlier **revives its row** rather
+ * than making a new one, matched on the server and the account. That is what
+ * makes removal recoverable: the books kept their `source_id`, so reviving the
+ * row reattaches every one of them with its place, its notes and its card
+ * history, and nothing is duplicated.
+ *
+ * Matched on `(kind, serverUrl, username)` rather than the label, which is
+ * only a name and which the listener may have changed.
+ */
 export async function addSource(
   kind: SourceKind,
   label: string,
   config: AbsConfig,
 ): Promise<Source> {
   const db = await getDb();
-  const id = newUuid();
   const createdAt = new Date().toISOString();
+
+  const removed = await db.getFirstAsync<Row>(
+    `SELECT * FROM sources
+      WHERE removed_at IS NOT NULL AND kind = ?
+        AND json_extract(config, '$.serverUrl') = ?
+        AND json_extract(config, '$.username') = ?
+      ORDER BY removed_at DESC`,
+    kind, config.serverUrl, config.username,
+  );
+
+  if (removed) {
+    // The label and config are whatever was just entered; the id, and so
+    // every book pointing at it, is the one from before.
+    await db.runAsync(
+      'UPDATE sources SET removed_at = NULL, label = ?, config = ?, last_seen_at = NULL WHERE id = ?',
+      label, JSON.stringify(config), removed.id,
+    );
+    return { id: removed.id, kind, label, config, createdAt: removed.created_at, lastSeenAt: null };
+  }
+
+  const id = newUuid();
   await db.runAsync(
     'INSERT INTO sources (id, kind, label, config, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, NULL)',
     id, kind, label, JSON.stringify(config), createdAt,
@@ -135,14 +176,29 @@ export async function touchSource(id: string): Promise<string> {
 }
 
 /**
- * Drops a source and unhooks its books.
+ * Tombstones a source, keeping the books it brought attached to it.
  *
- * A hard delete, unlike notes and characters: a source is this phone's own
- * configuration, not something the listener wrote, so there is no other copy
- * of it that a tombstone would have to stop coming back. The books it
- * brought are left in place with their link cleared rather than deleted,
- * because their progress and notes are the listener's and outlive the server
- * they were read from.
+ * **This used to orphan them**, and it is worth knowing why that was wrong
+ * because the reasoning behind it was right. Books holding a place or a note
+ * were kept, because those are the listener's and outlive the server — but
+ * they were kept with `source_id = NULL, remote_id = NULL, missing = 1`, and
+ * `source_id IS NULL` **is** the definition of a book on the USB drive. So
+ * every kept book turned into a drive book: it appeared on the drive's shelf,
+ * the next scan stamped it "not on drive", and `forgetMissingBooks` — which
+ * selects exactly `missing = 1 AND source_id IS NULL` — offered to delete it
+ * beside genuinely missing books with no way to tell them apart. Clearing
+ * `remote_id` then guaranteed a duplicate, because that was the only link by
+ * which signing in again could have recognised the book.
+ *
+ * So the row is tombstoned instead and the books are left exactly as they
+ * are. They belong to a source that is not currently signed into, which is a
+ * different thing from a book missing off a drive, and `addSource` revives
+ * the row when the same server is signed into again — at which point every
+ * book comes back attached to it, with everything written against it.
+ *
+ * Books that hold nothing of the listener's are still deleted outright: there
+ * is nothing in them to protect, and keeping them would mean a shelf of
+ * unplayable entries for a server nobody is signed into.
  *
  * The caller is responsible for clearing the token — see `forgetToken`.
  */
@@ -170,17 +226,16 @@ export async function removeSource(id: string): Promise<void> {
       id,
     );
     /*
-     * What is left does hold something — a place, a note, a card history —
-     * and that is the listener's, not the server's. It stays, marked
-     * missing, which is what a book with no reachable source is and what
-     * puts it in reach of "Forget missing books" when they are done with
-     * it.
+     * Everything still here holds something of the listener's and keeps its
+     * `source_id` and `remote_id` untouched. That is the whole fix: the books
+     * stay out of the drive's business, and the link that lets them be
+     * recognised on the way back in survives.
      */
     await txn.runAsync(
-      'UPDATE books SET source_id = NULL, remote_id = NULL, missing = 1 WHERE source_id = ?',
+      'UPDATE sources SET removed_at = ? WHERE id = ?',
+      new Date().toISOString(),
       id,
     );
-    await txn.runAsync('DELETE FROM sources WHERE id = ?', id);
   });
 }
 

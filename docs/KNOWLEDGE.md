@@ -253,6 +253,25 @@ someone unplugged the drive is a lie that outlives the moment.
 
 ---
 
+### A folder import descends, and renames what it finds (2026-11-17)
+
+"Add a book folder" listed the picked folder's immediate files only, so a book
+arranged as `Disc 1/` and `Disc 2/` yielded no audio and was refused as if it
+held none — while the scanner had always handled disc folders. The mixed case
+was worse: a stray intro file loose at the top with the rest in subfolders
+imported as a one-part book.
+
+Two rules come with descending. Parts order by **path**, not filename, or two
+discs numbering from one interleave and the book plays 1, 1, 2, 2. And a part
+out of a subfolder is renamed to carry it — `Disc 1 - 01.mp3` — because that
+name is what a later push to the drive calls the file, in one flat folder: two
+`01.mp3` files would mean the second landing on top of the first.
+
+Depth stops at two. Deeper than that and the pick was a library rather than a
+book, which is what the library root is for.
+
+*`src/lib/library/importOrder.ts`, `src/lib/files/import.ts`*
+
 ## Metadata
 
 ### ID3v2.2 uses `PIC`, with a three-character format field
@@ -327,6 +346,35 @@ evidence used, and that happens in the scanner where the tags have been read.
 Disc folders (`CD 1`, `Disc 2`) merge into their parent.
 
 *`src/lib/library/grouping.ts`, `src/lib/scan/scanner.ts` (`partitionByAlbum`)*
+
+### A scan can only be evidence where it looked (2026-11-17)
+
+`markMissingExcept` marks every drive book missing, then un-marks the ones the
+scan found, so absence from `seenIds` is the entire evidence. Three things put
+a book that is physically present outside that set: a subfolder that would not
+list, a subtree past the walk's depth limit, and a group that threw while being
+read. None of them used to be visible to the sweep, and the depth limit was not
+visible to anyone — it returned silently.
+
+Nothing is destroyed on the spot: a wrongly-missing book keeps its progress and
+its library-card history. The cost arrives one step later, when Settings offers
+to "Forget N missing books" — the most destructive write in the app — and the
+offer looks entirely reasonable.
+
+The protection is **per folder**, not per scan. Treating any unreadable folder
+as making the whole scan inconclusive is the obvious move and it is wrong: a
+drive with one permanently unreadable folder — a `System Volume Information`, a
+trashed folder, a broken permission — would then never mark anything missing
+again, and books really deleted would sit on the shelf forever. Narrowing it to
+the subtrees that were not read keeps the answer right everywhere else.
+
+Protection means *unchanged*, not *present*: a book already known missing stays
+missing, or a gap elsewhere would quietly put it back on the shelf. The
+reconnect pass is filtered the same way — offering to merge a book with an
+unrelated one because its subfolder would not list is the same mistake as doing
+it because the cable was loose.
+
+*`src/lib/scan/coverage.ts`, `src/db/books.ts`, `src/lib/files/access.ts`*
 
 ---
 
@@ -471,6 +519,65 @@ engine to actually hold the book, and the load has a 20 s timeout and a token so
 a slow `open` cannot overwrite a newer one.
 
 *`src/store/player.ts`*
+
+### The lock screen's skip buttons were wired to do nothing (2026-11-17)
+
+expo-audio 57 builds them as **custom session commands** —
+`setSessionCommand(SessionCommand(ACTION_SEEK_FORWARD, …))` — and
+`AudioMediaSessionCallback.onCustomCommand` then returns
+`super.onCustomCommand(…)`, which is `RESULT_ERROR_NOT_SUPPORTED`. A controller
+told a command is unsupported may ignore the button, and Android's media
+controls do: the buttons render and nothing happens.
+
+`setPlayerCommand(Player.COMMAND_SEEK_BACK / COMMAND_SEEK_FORWARD)` instead
+hands the work to media3, which seeks by the increments the ExoPlayer was built
+with and needs no cooperation from the session callback.
+
+The jump itself is hardcoded twice and in two places: `SEEK_JUMP_INTERVAL_MS`
+in `AudioPlayer.kt` (what `seekBack()`/`seekForward()` use) and
+`SEEK_INTERVAL_MS` in `AudioControlsService.kt` (what the pre-Android-13
+notification's pending intents use). Both have to move together, and the
+`ICON_SKIP_BACK_10` / `ICON_SKIP_FORWARD_10` icons draw the number, so a
+different interval needs the plain `ICON_SKIP_BACK` / `ICON_SKIP_FORWARD`.
+
+It is a minute here, applied by `plugins/withLockScreenSeek.js` at prebuild
+rather than by patch-package: `android/` is generated and never committed, so
+prebuild runs before every native build and no `postinstall` hook is needed.
+Each rewrite is a literal string that **must** match or the build fails — on an
+expo-audio upgrade, read `SEEK` in its CHANGELOG and either update the plugin
+or delete it, but never loosen the match. A silent miss means the buttons go
+back to doing nothing.
+
+*`plugins/withLockScreenSeek.js`*
+
+### A seek is covered by a fade, because the first moment after it is wrong
+
+`preservesPitch` defaults to true, so above 1x ExoPlayer runs audio through
+Sonic, its time-stretcher. A `seekTo` flushes that pipeline and Sonic has to
+re-prime: roughly the first half-second after a rewind comes out warped. An MP3
+with no seek table can separately land mid-frame and give a scrap of noise.
+
+Two causes, one shape — a short burst of wrong audio at a known instant — so
+the engine covers the instant instead of chasing either: volume to zero, seek,
+then a ~220 ms ramp back. Status arrives twice a second and heals a volume left
+below full, because a book stuck silent is far worse than the artefact.
+
+*`src/lib/audio/expoAudioEngine.ts`*
+
+### `chapters` is two different things, and the UI has to say which
+
+A book's marks are either real chapter marks from the file's metadata, or the
+scan's one-per-file fallback for a book that had none. The second kind is
+numbered by file, so a book cut into equal lengths shows "Ch. 10" while the
+listener is in chapter four.
+
+`chaptersFromParts` is set at scan time and stored, so the answer is already in
+the database for every existing library — reading it is a UI change and needs
+no rescan. `src/lib/library/marks.ts` is the one place that reads it, and the
+word is spelled out: "Section 10", never "Sec. 10", which beside a timestamp
+reads as ten seconds.
+
+*`src/lib/library/marks.ts`*
 
 ---
 
@@ -1320,6 +1427,27 @@ the source is marked "Sign in again" and the next play settles it.
 
 *`src/store/sources.ts`, `src/store/player.ts`*
 
+### Android cannot be told "http, but only on my own network" (2026-11-17)
+
+`usesCleartextTraffic` is all or nothing, and a network security config's
+`<domain>` takes a hostname or an IP literal — there is **no subnet syntax**.
+So the fix this repo had written down for release, "scope cleartext to private
+address ranges", cannot be expressed in the manifest at all when the address is
+one the listener types in at runtime.
+
+It is enforced in the app instead, in `request` in `src/lib/abs/client.ts` —
+the one place every server call passes through, so it covers a source saved
+before the check existed, and covers covers, streams and progress reports, not
+just the connect form. `isCleartextToPublicHost` already classified addresses
+for a warning; the client now refuses on it, before the request is sent, with
+its own `AbsError` kind so the message can say what to do.
+
+The global flag staying on is therefore deliberate rather than deferred. What
+the manifest permits is cleartext in principle; what the app will send is
+narrower, and the app is the only place that distinction can be drawn.
+
+*`src/lib/abs/client.ts`, `plugins/withCleartextTraffic.js`*
+
 ## Google Drive via SAF
 
 A spike, run on `feat/pro` in October 2026, to decide whether a Google
@@ -1546,3 +1674,391 @@ switching back brings the books and the notes with it.
 
 *`src/db/scope.ts`, `src/db/books.ts`, `src/store/scan.ts`,
 `src/app/settings.tsx`, tests in `tests/root-switch.test.ts`*
+
+### A correction has to be a layer, not an edit (2026-11-18)
+
+Metadata comes from the files and the files lie. "Hyperion" arrives filed
+under the author **"Top 100 scifi books"** because that is what its tags say.
+No scanner fixes that: the tag is not malformed, it is wrong.
+
+Writing the fix into `books.title` does not work, and the reason is one line
+of `upsertBook`:
+
+```sql
+title  = excluded.title,
+author = excluded.author,
+```
+
+Unconditional. An edit written there survives exactly until the drive is next
+plugged in — and the failure is silent, delayed by days, and looks like the
+app ignored the edit. Overwriting also throws away the only copy of what the
+files said, so "put it back" becomes impossible.
+
+So corrections live in `book_overrides`, one row per book, and `loadBooks`
+layers them over the scan. **That layering happens in exactly one place.**
+Shelves, the letter bands, the series ledges, search and every sort read
+`Book.title`, `Book.author` and `Book.series`, so one layering at the read
+makes all of them follow a correction. Fixing it in the UI instead would
+rename a book on its own screen and leave it filed under the old name on the
+shelf.
+
+**`null` is not `''`.** `null` means "not corrected, use the scan"; `''` means
+"corrected to nothing". The distinction is load-bearing, because the honest fix
+for that bogus author is *no author at all* rather than another guess — and
+collapsing the two makes the one field people most want to clear the one field
+they cannot. `series_index` is a TEXT column for this reason alone: a REAL has
+nowhere to put "deliberately none", and a sentinel number would be a worse lie
+than the metadata being corrected.
+
+Two rules that are easy to miss and were both bugs waiting to happen:
+
+- **An unchanged save stores nothing.** Open the editor, change nothing, press
+  Save, and no correction is recorded. Recording one would freeze that field
+  against every future rescan with nobody aware it had happened.
+- **A correction is per field.** The cover is saved on its own, so picking a
+  picture cannot quietly revert a title typed a moment earlier.
+
+*`src/lib/library/overrides.ts`, `src/db/overrides.ts`, `src/db/books.ts`,
+tests in `tests/overrides.test.ts` and `tests/overrides-db.test.ts`*
+
+### A picked cover must survive the next scan's sweep (2026-11-18)
+
+`deleteCoversFor` clears a book's thumbnails by prefix — every file starting
+`<bookId>.` — which is how storing new artwork replaces old without knowing
+what the old was called. A cover the listener picked sits in that same
+directory under that same prefix.
+
+So the next scan that found artwork on the drive deleted the picked cover while
+the book's correction went on naming it. Result: a book with no picture, days
+after the edit, no error anywhere, and every other part of the app believing it
+has artwork because the row names a file.
+
+The mark `.user.` in the file name is what survives the sweep;
+`shouldSweep` in `src/lib/files/coverNames.ts` is the one place that decides,
+and it is pure so it can be tested. `includeUser` is passed only when a book is
+being forgotten, which is the one time a picked cover should go.
+
+While fixing it: `CoverFace` had **no `onError`**, so any thumbnail that would
+not load rendered as a blank rectangle in the book's colour rather than falling
+back to the drawn cover. Reachable without picked covers at all — "Clear
+storage" empties that directory. It now falls back, keyed to the failed URI
+rather than a flag, because a thumbnail's name changes with its artwork and a
+flag would outlive the file it was about.
+
+*`src/lib/files/coverNames.ts`, `src/lib/files/access.ts`,
+`src/lib/files/covers.ts`, `src/components/CoverFace.tsx`, tests in
+`tests/cover-names.test.ts`*
+
+### expo-image-picker adds camera and microphone permissions (2026-11-18)
+
+Its config plugin adds `CAMERA` and `RECORD_AUDIO` to the manifest by default,
+plus legacy `READ_`/`WRITE_EXTERNAL_STORAGE`. On an offline audiobook player
+that wants nothing from anyone, a cover picker asking for the camera and the
+microphone is both alarming to read and more to declare on a store listing.
+
+`cameraPermission: false` and `microphonePermission: false` in `app.json` do
+better than omitting them: the plugin puts both into **blocked** permissions,
+so they emerge as `tools:node="remove"` and no other package can add them back.
+Verify in `android/app/src/main/AndroidManifest.xml` after a prebuild.
+
+No runtime permission request is needed. The system photo picker returns one
+chosen file and grants access to that file alone.
+
+*`app.json`, `src/app/book/[id].tsx`*
+
+### Where `copy` and `move` actually land (2026-11-18)
+
+Not in the Expo docs, and not what it looks like. Transcribed from
+`CopyMoveStrategy.prepareAsDestination` in expo-file-system's Android source:
+
+| source | destination | result |
+|---|---|---|
+| dir | dir that **exists** | lands *inside*, as `dest/sourceName` |
+| dir | dir that **does not** exist | the destination path **is** the target (a rename), if its parent exists |
+| dir | file | refused — `CopyOrMoveDirectoryToFileException` |
+| file | dir | dir must exist; lands as `dest/sourceName` |
+| file | file | the destination path is the target; parent must exist |
+
+An existing target is refused with `DestinationAlreadyExistsException` unless
+`overwrite: true`, which then deletes it recursively.
+
+**Why it matters here.** `swapIntoPlace` moves the old copy aside *before*
+moving the new one in, and that order is load-bearing rather than tidy: with
+the destination still present, `staging.move(finalDir)` would land the staged
+book at `books/<id>/<id>/`, one folder too deep, where the player, the part
+paths and `deleteLocalCopy` would all miss it. A checked-out book with
+invisible audio, and no error anywhere.
+
+`move` also **updates the instance's `uri`** to where the file actually went,
+and callers read it afterwards.
+
+*`src/lib/files/copy.ts`, `tests/checkout-copy.test.ts`,
+`tests/fakeDrive.ts`*
+
+### The drive can be read and written inside `node --test` (2026-11-18)
+
+`tests/fakeDrive.ts` stands in for `expo-file-system` through
+`registerHooks` from `node:module`, so `listTree`, `copyBookToDevice`,
+`swapIntoPlace`, `collectAudio` and `copyImportToDrive` all run for real off a
+phone. It also teaches Node the two things the bundler does: the `@/` alias,
+and extension-less relative and directory imports.
+
+Importing it **registers the hooks**, so it must be imported before anything
+it stands in for: a test file imports it statically and everything it
+exercises with `await import(...)`. `tests/audit-regressions.test.ts` has the
+same shape and came first.
+
+**Only the native leaf is replaced.** This is not a second implementation of
+the walk to compare against, which would prove nothing. But it is a model of
+SAF, and most of the expensive bugs in this repository's history are ones a
+model would have got wrong, so the fidelity rules in its header are load-
+bearing, not decoration. The ones that have already caught something:
+
+- **`File` and `Directory` must be unrelated classes.** The real ones extend
+  `FileSystemFile` and `FileSystemDirectory`, so a directory is *not* an
+  `instanceof File`. `listTree` branches on `instanceof Directory` and
+  `localPathsFor` on `instanceof File` — with one extending the other, a
+  `.previous` folder reads as audio.
+- **`copy`/`move` are async; `delete`/`write`/`create`/`list` are not.** A fake
+  that made everything async would have let the bug in
+  `npm run kb -- "asynchronous"` straight through.
+- **`entry.name` can be a SAF document id**, so `nameAs()` exists to make one.
+  A fake that only produced tidy names could not test that `safDisplayName` is
+  still applied.
+
+Deliberately **not** modelled, so nothing is mistaken for covering it: SAF
+renaming a file you asked it to create, descriptors going stale, permission
+revoked between launches, and anything about speed. Those stay device checks.
+
+A test here is worth writing only if it can fail: the manifest check in
+`copyBookToDevice` was verified by breaking it on purpose and watching
+`tests/checkout-copy.test.ts` go red.
+
+*`tests/fakeDrive.ts`, `tests/drive-read.test.ts`,
+`tests/checkout-copy.test.ts`, `tests/import-drive.test.ts`*
+
+### Patching an Expo module's Kotlin does nothing unless it builds from source (2026-11-18)
+
+**This cost a build and a device session.** `plugins/withLockScreenSeek.js`
+rewrote three of expo-audio's Kotlin files at prebuild. Every rewrite applied,
+every assertion passed, `grep` confirmed `60000` and
+`COMMAND_SEEK_BACK` in `node_modules/expo-audio/android/src/main/java/…`, the
+build succeeded — and the lock screen still jumped ten seconds.
+
+expo-audio **ships a prebuilt AAR.** Its `expo-module.config.json` carries:
+
+```json
+"android": { "publication": { "repository": "local-maven-repo", … } }
+```
+
+so autolinking links `node_modules/expo-audio/local-maven-repo/…/*.aar` and
+**never compiles that Kotlin at all**. The patched source sits there looking
+exactly right, which is worse than no patch, because verifying the source
+verifies nothing.
+
+The fix is `buildFromSource`, a list of regexes matched against the gradle
+project name, in `package.json`:
+
+```json
+"expo": { "autolinking": { "android": { "buildFromSource": ["expo-audio"] } } }
+```
+
+`assertBuiltFromSource` in the plugin now refuses to run without it, because
+the failure is silent in both directions.
+
+**How to tell which modules this affects:** a module with a `publication`
+block in its `expo-module.config.json` uses a prebuilt artifact.
+
+```
+npx expo-modules-autolinking resolve -p android --json
+```
+
+prints each project with its `publication`. Local modules under `./modules`
+(`dueback-audio`) have none, which is why patching *those* has always worked.
+
+**How to verify it took:** after a build, `node_modules/<module>/android/build/`
+exists only if the module was compiled from source. Checking the patched
+`.kt` file proves nothing.
+
+*`plugins/withLockScreenSeek.js`, `package.json`*
+
+### The drive backup blocks the JS thread (2026-11-18)
+
+Every filesystem call in `src/lib/sync/` is **synchronous** — `list()`,
+`textSync()` and `write()` all are — so one backup was one unbroken block of
+JavaScript: write N generation files, then read all of them back off the drive
+to validate. Over OTG that is long enough to see.
+
+An authored change — a note, a character, a check-out, a corrected title —
+schedules a backup 1.5 s later (`AUTHORED_DEBOUNCE_MS`). So the symptom is
+the app going unresponsive for a moment *shortly after* you did something,
+which is both intermittent and hard to attribute to the thing that caused it.
+
+`readGeneration`, `readDrive` and `writeGeneration` are now async and yield
+between files, exactly as `listTree` does and for the same reason. **That does
+not make a backup faster** — it turns one long freeze into many short ones,
+which is the difference between janky and unresponsive. Making it actually
+faster would mean not reading the whole generation back, and that read-back is
+the only thing that makes a backup trustworthy.
+
+The other half of the same symptom was `refresh()`: correcting one field
+reloaded every book, part, chapter, checkout and correction and rebuilt every
+object. `loadBook(id)` and the store's `refreshBook` exist for edits that
+touched one book, and share `loadBooks` so the two cannot drift.
+
+*`src/lib/sync/driveSync.ts`, `src/db/books.ts`, `src/store/library.ts`*
+
+### Reconnection has to refuse in both directions (2026-11-18)
+
+`planReconnection` is handed **one** missing book and the folders newly found,
+and it refuses to guess when several folders match it — "a duplicate of the
+same rip in two folders is the usual cause, and which one someone meant is not
+ours to guess".
+
+It could not see the mirror image. Several **missing books** matching **one**
+new folder is the same ambiguity with the same cost, and the scanner's loop
+gave the folder to whichever vanished book it reached first — silently, with
+`reconnected: 1` and no question raised.
+
+The way it bites: two copies of one rip, `Hyperion` with three hours of
+progress and twenty notes and `Hyperion copy` untouched. Delete the copy on a
+computer, rename the one you listen to. Next scan sees two vanished books and
+one new folder, and may move the renamed folder onto the *copy's* identity —
+leaving the progress and every note on a book now marked missing, with no undo
+and nothing on screen to explain it.
+
+Fixed by running the same rule backwards rather than writing a second one: the
+new folder as the thing that went, the still-missing books as its candidates.
+More than one match and nobody is reconnected without being asked. Both
+matching books raise their own question, so the listener is told about every
+book the folder might be.
+
+Found by `tests/scan-end-to-end.test.ts`, which is the first thing to run a
+whole scan. Two identical books plus one new folder is three lines to set up
+and was never once tried by hand.
+
+*`src/lib/scan/scanner.ts`, `src/lib/library/identity.ts`,
+`tests/scan-end-to-end.test.ts`*
+
+### A whole scan runs in `node --test` (2026-11-18)
+
+`tests/scan-end-to-end.test.ts` runs `scanLibrary` from files on a drive to
+rows in a database. Three natives are stood in for and nothing else is:
+`expo-file-system` by the in-memory drive, `expo-sqlite` by **real** SQLite
+through `node:sqlite` (so the production migrations and every production
+statement run for real), and `expo-image-manipulator` by a stub that stores
+without resizing.
+
+The audio is real. `tests/fixtures/` holds small committed files with genuine
+ID3 tags, chapters, cover art and a Xing duration header, and `fixtureBytes()`
+loads them, so the parser, naming, grouping, identity and sweep are all the
+real ones. **This matters:** zero-filled bytes are not audio, and a folder of
+them scans to a book with no parts, no duration and "Nothing in this folder
+could be read as audio" — correct behaviour, but not a library anyone has, and
+an early version of this suite tested that by accident.
+
+Not covered, and written down so it is not mistaken for covered: speed; lock
+contention, because the fake's `withExclusiveTransactionAsync` is an ordinary
+transaction where the real one opens its own connection, which is the whole
+reason `withLockRetry` exists; and the depth limit, which is fixed at eight and
+not a scan option, so arranging a truncated subtree around an already-indexed
+book is not possible through `scanLibrary` — `tests/coverage.test.ts` pins that
+directly instead.
+
+*`tests/scan-end-to-end.test.ts`, `tests/fakeDrive.ts`*
+
+### `source_id IS NULL` means "on the drive", so never clear it (2026-11-18)
+
+**This reached a real phone and scrambled a real library.** Removing an
+Audiobookshelf source and signing back in left server books sitting in the USB
+library stamped "not on drive", beside a second live copy of each.
+
+`removeSource` kept books holding a place or a note — right, those are the
+listener's and outlive the server — but kept them like this:
+
+```sql
+UPDATE books SET source_id = NULL, remote_id = NULL, missing = 1
+ WHERE source_id = ?
+```
+
+`DRIVE_BOOKS` in `src/db/scope.ts` is literally `source_id IS NULL`. So every
+kept book *became a book on the drive*:
+
+- it appeared on the drive's shelf, unplayable;
+- the next scan's sweep stamped it `missing = 1`, "not on drive";
+- `forgetMissingBooks` selects exactly `missing = 1 AND source_id IS NULL`, so
+  one button offered to delete it beside genuinely missing books, with nothing
+  on screen distinguishing them;
+- and clearing `remote_id` destroyed the only link by which signing in again
+  could have recognised the book, guaranteeing a duplicate per book.
+
+Only books holding something survived to become ghosts, so the symptom is
+"some of my server books, a mix of checked-out and not" — precisely the ones
+worth keeping.
+
+**A source is tombstoned now** (`sources.removed_at`), its books keep both
+`source_id` and `remote_id`, and `addSource` revives the row when the same
+server and account are signed into again — matched on
+`(kind, serverUrl, username)`, not the label. Everything comes back attached,
+nothing duplicates, and nothing ever lands in the drive's scope.
+
+**The rule:** a book's `source_id` is its identity, not a link to tidy up.
+Clearing it does not detach a book from a server, it *hands the book to the
+drive*. Removal is expressed on the source row.
+
+**Why it survived so long:** it had a passing test that blessed it.
+`tests/sources-migration.test.ts` hand-copied the statement and asserted
+`source_id` came out null as though that were the contract. It executed its own
+copy rather than calling `removeSource`, so it could not fail when
+`removeSource` was wrong — it only agreed with itself. A test that
+reimplements the code it tests is worse than no test. Replaced by
+`tests/sources-removal.test.ts`, which calls the real functions and fails on
+five counts if the old statement returns.
+
+A book orphaned by the old code is identifiable exactly — a drive scan never
+writes `remote_updated_at`, so `source_id IS NULL AND remote_updated_at IS NOT
+NULL` can only be one — and migration 19 deletes those, their parts and their
+checkouts. Notes are kept, as all housekeeping here keeps them.
+
+*`src/db/sources.ts`, `src/db/scope.ts`, `src/db/migrations.ts`,
+`tests/sources-removal.test.ts`*
+
+### The checked-out tray is global again, in groups (2026-11-18)
+
+It has now been both. Global first — what is on the phone is on the phone —
+which held while the drive was the only thing that could put a book there.
+Then scoped to the active source, because standing in a server's library and
+seeing the drive's checkouts answers a question nobody asked.
+
+**Scoping was worse, and it cost storage.** A book downloaded from a server
+that was later removed belonged to no source you could switch to, so it
+appeared in no tray at all: still on the phone, still holding gigabytes, with
+no screen offering to release it. Found on a real phone after a server was
+removed and signed into again.
+
+So: global, in labelled groups — the drive, then each server signed into, then
+a **"Signed out"** group for anything whose source is gone. `trayGroups` in
+`src/lib/library/tray.ts` is the rule, and it is pure so it is tested. Empty
+groups are dropped, so a library with no server renders exactly one group and
+the tray looks as it always did.
+
+Consequences worth knowing:
+
+- **The ruler is global now too**, and finally agrees with the fan above it.
+  The old note said a per-library ruler was the lesser evil because "a ruler
+  that disagreed with the fan above it" was worse; with the tray showing
+  everything, that objection is gone and the ruler says what the budget was
+  always about: this phone.
+- **Shelves are still scoped**, and must stay so. Mixing two libraries into
+  one set of generated shelves really does produce a "6 hours or less" shelf
+  full of books that cannot be reached.
+- **Releasing a signed-out book already works.** `returnBook` is entirely
+  local — patch the status, stop the audio, delete the copy — and never asks
+  the source anything. It also does not warn about being the only copy, which
+  is right: the server still has it.
+- **Nothing offers to put a server book on the drive**, and nothing had to be
+  added to prevent it: `importsAwaitingDrive` requires
+  `source_kind = 'imported'`, and a downloaded book's kind is `'library'`.
+
+*`src/lib/library/tray.ts`, `src/components/CheckedOutTray.tsx`,
+`src/app/index.tsx`, `tests/tray-scope.test.ts`*

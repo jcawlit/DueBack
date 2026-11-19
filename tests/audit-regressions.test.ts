@@ -200,9 +200,9 @@ describe('production sync and restore', () => {
     assert.equal(JSON.stringify([...entries]), before);
   });
 
-  it('recovers library identity from a complete generation despite a corrupt marker', () => {
+  it('recovers library identity from a complete generation despite a corrupt marker', async () => {
     new FakeDirectory('root/.dueback').createFile('library.json').write('{');
-    assert.equal(drive.recoverDriveLibraryId('root'), 'lib');
+    assert.equal(await drive.recoverDriveLibraryId('root'), 'lib');
   });
 
   it('gives an unrelated new root its own library id and reuses that id on rescan', async () => {
@@ -212,10 +212,10 @@ describe('production sync and restore', () => {
     const second = await resolveLibraryId('other-root');
     assert.notEqual(second, first);
     assert.equal(await resolveLibraryId('other-root'), second);
-    assert.equal(drive.recoverDriveLibraryId('other-root'), second);
+    assert.equal(await drive.recoverDriveLibraryId('other-root'), second);
     new FakeDirectory('other-root/.dueback').createDirectory('gen-2')
       .createFile('manifest.json').write('{"schemaVersion":1,"libraryId":"damaged"}');
-    assert.equal(drive.recoverDriveLibraryId('other-root'), second, 'a malformed newest manifest must fall back');
+    assert.equal(await drive.recoverDriveLibraryId('other-root'), second, 'a malformed newest manifest must fall back');
   });
 
   it('does not mark notes agreed when the drive write fails', async () => {

@@ -15,7 +15,7 @@ import { emptyPayload } from './records';
  */
 export async function resolveLibraryId(rootUri: string): Promise<string> {
   const key = `library.rootIdentity.${rootUri}`;
-  const recovered = recoverDriveLibraryId(rootUri);
+  const recovered = await recoverDriveLibraryId(rootUri);
   const onDrive = recovered ?? readDriveLibrary(rootUri)?.libraryId;
   const mine = onDrive ?? await getSetting(key) ?? newUuid();
   await setSetting(key, mine);
