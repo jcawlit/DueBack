@@ -39,6 +39,30 @@ one's budget check blind to the other four.
   what is on the phone plus what is on hold. Going over produces the "WON'T FIT"
   slip with the exact shortfall, and nothing is copied.
 
+## Who commits land as
+
+Set per repository, and deliberately different from the machine default:
+
+```
+user.name   jcawlit
+user.email  331010707+jcawlit@users.noreply.github.com
+```
+
+Two GitHub accounts are involved on this machine. `jcawlit` owns this
+repository; `jacawl` is a separate account and is what the global
+`~/.gitconfig` still says, which is correct for everything else here. GitHub
+decides which account a commit belongs to from its **email alone** and ignores
+the name, so a commit authored with the global identity is credited to the
+wrong account — not to nobody, which would at least be visible.
+
+The address is GitHub’s own noreply form for the account. It attributes
+properly, with the avatar and the contribution graph, and keeps a real address
+out of a public history that anyone can read and anything can scrape.
+
+**Commits made before 19 November 2026 are authored by `jacawl` and are staying
+that way.** Re-authoring them means rewriting every commit SHA and force-pushing
+over `main`, which would also strand every sha-stamped APK on the file server
+(`dueback-<sha>.apk` would name commits that no longer exist). Not worth it.
 ## Running it
 
 ```sh
