@@ -1,31 +1,55 @@
 /**
  * Puts next- and previous-chapter buttons on the lock screen.
  *
- * expo-audio 57 removes track navigation from the media session outright —
- * `AudioMediaSessionCallback.onConnect` strips `COMMAND_SEEK_TO_NEXT`,
+ * expo-audio 57 strips track navigation from the media session outright —
+ * `AudioMediaSessionCallback.onConnect` removes `COMMAND_SEEK_TO_NEXT`,
  * `COMMAND_SEEK_TO_PREVIOUS` and both `*_MEDIA_ITEM` variants — and it is
  * right to, because for expo-audio there is nothing to navigate to. The module
  * has no concept of a chapter.
  *
+ * ## These are the standard skip controls, not custom buttons
+ *
+ * The first version of this plugin added two `CommandButton`s carrying custom
+ * session commands, in `SLOT_BACK_SECONDARY` and `SLOT_FORWARD_SECONDARY`.
+ * Everything about it worked and **nothing appeared on the lock screen.**
+ * Android's media control draws the back, central and forward slots and drops
+ * the rest, and those three were already taken by seek-back, play and
+ * seek-forward. A custom button has to win a slot to exist, and there were no
+ * slots left to win.
+ *
+ * Skip-to-previous and skip-to-next are not in that competition. They are
+ * transport controls with reserved space — media3 even sets
+ * `ALWAYS_RESERVE_SPACE_FOR.ACTION_SKIP_TO_PREVIOUS` on the platform session
+ * to hold it open — so they appear alongside the seek buttons rather than
+ * instead of them. They also come for free on anything else that speaks to a
+ * media session: a car, a headset's next-track button, a watch.
+ *
+ * `MediaSessionLegacyStub.onSkipToNext` checks
+ * `isCommandAvailable(COMMAND_SEEK_TO_NEXT)` and, if it is, calls
+ * `player.seekToNext()` on the **session's** player. That is the hook. The
+ * session player is already a `ForwardingPlayer` chain
+ * (`MetadataInjectingPlayer` over `resolveSessionPlayer`), so one more layer
+ * overrides `seekToNext` and `seekToPrevious` without the real ExoPlayer ever
+ * seeing them.
+ *
  * ## Why the press is forwarded instead of handled
  *
- * The obvious implementation is to make these player commands and let media3
- * do the work. It cannot, for two reasons that are both about this app rather
- * than about media3:
+ * That override does not seek. It broadcasts, and the app seeks, for two
+ * reasons that are about this app rather than about media3:
  *
  * 1. **A chapter is not a media item.** The engine plays a book as *one*
  *    `AudioPlayer` holding one file at a time (`src/lib/audio/engine.ts` says
  *    why: `setActiveForLockScreen` exists only on `AudioPlayer`, and without
  *    it Android stops background audio after about three minutes). So the
- *    ExoPlayer timeline is a single item and `seekToNext()` has nowhere to go.
+ *    ExoPlayer timeline is a single item and a real `seekToNext()` has
+ *    nowhere to go.
  * 2. **A chapter boundary can be in a different file.** Chapters live on the
  *    whole-book timeline and parts are switched with `replace()` + `seekTo()`
  *    from JavaScript. Carrying out a cross-part jump in Kotlin would mean
  *    reimplementing part switching there, in a second place, against the same
  *    files.
  *
- * So these are custom session commands, and pressing one **broadcasts to the
- * app**, which owns the timeline and seeks. That is the same division
+ * So the press becomes an in-app broadcast. That is the same division
  * `modules/dueback-audio` already makes for the headphone-unplug receiver:
  * "the receiver only tells JavaScript; pausing is the player's business".
  *
@@ -33,24 +57,19 @@
  * relationship with expo-audio and must not grow one. A broadcast is how two
  * modules that do not know about each other talk; `assertAppHalfPresent`
  * below fails the build if the action strings have drifted apart, because the
- * symptom otherwise is a button that does nothing, which is exactly the fault
- * `withLockScreenSeek` was written to fix.
+ * symptom otherwise is a button that does nothing.
  *
  * ## Whether the buttons appear
  *
  * Only when the book has chapters. A single-file book with no embedded
- * chapters has none at all, and a dead button is worse than no button. That
- * travels as a new field on `AudioLockScreenOptions`, which the app sets once
- * per book when it claims the lock screen — so the gate is decided exactly
- * where the session is built, with no extra state to keep in step.
+ * chapters has none, and a dead button is worse than no button. That travels
+ * as a new field on `AudioLockScreenOptions`, set once per book when the app
+ * claims the lock screen — and the gate is the forwarding player's
+ * `getAvailableCommands`, because that is what Android reads when it decides
+ * whether to draw a skip button at all.
  *
- * ## What this does not do
- *
- * Both halves of the layout are patched: the media3 session buttons used from
- * Android 13, and the explicit notification actions used on Android 12 and
- * below. The chapter buttons are deliberately kept out of the **compact**
- * notification view in the older path, which holds three at most and should
- * keep the ones somebody uses while walking.
+ * On Android 12 and below the notification carries explicit actions instead,
+ * so those are patched too, and kept out of the three-button compact view.
  *
  * See `plugins/withLockScreenSeek.js` for why this is a prebuild plugin rather
  * than patch-package, and for what `buildFromSource` has to do with any of it.
@@ -124,6 +143,10 @@ const REWRITES = [
      * whole-book timeline and may sit in a different file from the one
      * playing, and switching files belongs to the app. The press is passed on
      * and the app seeks; see modules/dueback-audio.
+     *
+     * The two ACTION_ strings are for the Android 12 and below notification,
+     * whose buttons are pending intents to this service. From Android 13 the
+     * presses arrive as seekToNext/seekToPrevious on the session player.
      */
     const val ACTION_PREVIOUS_CHAPTER = "expo.modules.audio.action.PREVIOUS_CHAPTER"
     const val ACTION_NEXT_CHAPTER = "expo.modules.audio.action.NEXT_CHAPTER"
@@ -157,42 +180,80 @@ const REWRITES = [
         ACTION_NEXT_CHAPTER -> broadcastChapterSkip(this@AudioControlsService, 1)
         ACTION_SEEK_FORWARD -> currentPlayerRef.seekTo(currentPlayerRef.currentPosition + SEEK_INTERVAL_MS)`,
       ],
-      // Previous chapter, first in the session layout.
+      /*
+       * The hook. `onSkipToNext` on the platform session calls `seekToNext()`
+       * on this player, so one forwarding layer turns a skip into a chapter
+       * jump without the real ExoPlayer — which holds a single file and has
+       * no next item — ever being asked.
+       *
+       * `getAvailableCommands` is the gate as well as the hook: Android
+       * decides whether to draw a skip button from the commands the player
+       * reports, so a book with no chapters reports none and gets none.
+       */
       [
-        `    val mediaButtons = mutableListOf<CommandButton>()`,
-        `    val mediaButtons = mutableListOf<CommandButton>()
-
-    /*
-     * Previous chapter. A *secondary* slot, so the minute-seek buttons keep
-     * the places they already have — those were hard enough to get working —
-     * and this appears beside them wherever the controller has room.
-     */
-    if (currentOptions?.showChapterButtons == true) {
-      mediaButtons.add(
-        CommandButton.Builder(CommandButton.ICON_PREVIOUS)
-          .setDisplayName("Previous Chapter")
-          .setEnabled(true)
-          .setSessionCommand(SessionCommand(ACTION_PREVIOUS_CHAPTER, Bundle.EMPTY))
-          .setSlots(CommandButton.SLOT_BACK_SECONDARY)
-          .build()
-      )
-    }`,
-      ],
-      // Next chapter, added last so it falls after the forward seek.
-      [
-        `    session.setCustomLayout(mediaButtons)`,
-        `    if (currentOptions?.showChapterButtons == true) {
-      mediaButtons.add(
-        CommandButton.Builder(CommandButton.ICON_NEXT)
-          .setDisplayName("Next Chapter")
-          .setEnabled(true)
-          .setSessionCommand(SessionCommand(ACTION_NEXT_CHAPTER, Bundle.EMPTY))
-          .setSlots(CommandButton.SLOT_FORWARD_SECONDARY)
-          .build()
-      )
+        `  private fun resolveSessionPlayer(player: AudioPlayer, options: AudioLockScreenOptions?): Player {
+    val isLive = options?.isLiveStream ?: player.isLive
+    if (!isLive) {
+      return player.ref
     }
 
-    session.setCustomLayout(mediaButtons)`,
+    return object : ForwardingPlayer(player.ref) {
+      override fun getAvailableCommands(): Player.Commands {
+        return super.getAvailableCommands().buildUpon()
+          .remove(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+          .build()
+      }
+    }
+  }`,
+        `  private fun resolveSessionPlayer(player: AudioPlayer, options: AudioLockScreenOptions?): Player {
+    val isLive = options?.isLiveStream ?: player.isLive
+    val chapters = options?.showChapterButtons == true
+    if (!isLive && !chapters) {
+      return player.ref
+    }
+
+    val service = this
+    return object : ForwardingPlayer(player.ref) {
+      override fun getAvailableCommands(): Player.Commands {
+        val commands = super.getAvailableCommands().buildUpon()
+        if (isLive) {
+          commands.remove(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+        }
+        if (chapters) {
+          // What makes the buttons exist. Android reads these to decide which
+          // transport controls to draw, and skip has reserved space where a
+          // custom button has to win a slot off something else.
+          commands.add(Player.COMMAND_SEEK_TO_PREVIOUS)
+          commands.add(Player.COMMAND_SEEK_TO_NEXT)
+        }
+        return commands.build()
+      }
+
+      /*
+       * Forwarded to the app rather than seeked here, and not passed to
+       * super: the real player holds one file and would either do nothing or
+       * restart it. See plugins/withLockScreenChapters.js.
+       */
+      override fun seekToPrevious() {
+        if (chapters) broadcastChapterSkip(service, -1) else super.seekToPrevious()
+      }
+
+      override fun seekToNext() {
+        if (chapters) broadcastChapterSkip(service, 1) else super.seekToNext()
+      }
+
+      // The fallbacks a controller reaches for when the commands above are
+      // not offered. Same destination, so a controller that picks either one
+      // behaves the same way.
+      override fun seekToPreviousMediaItem() {
+        if (chapters) broadcastChapterSkip(service, -1) else super.seekToPreviousMediaItem()
+      }
+
+      override fun seekToNextMediaItem() {
+        if (chapters) broadcastChapterSkip(service, 1) else super.seekToNextMediaItem()
+      }
+    }
+  }`,
       ],
       /*
        * The older notification's actions. Previous chapter goes first and
@@ -244,70 +305,31 @@ const REWRITES = [
 
       style.setShowActionsInCompactView(*compactViewIndices.toIntArray())`,
       ],
-      // The callback needs a Context to broadcast from, and the service is
-      // one. Both construction sites, inside coroutine lambdas where a bare
-      // `this` is the scope.
-      [
-        `          .setCallback(AudioMediaSessionCallback())`,
-        `          .setCallback(AudioMediaSessionCallback(this@AudioControlsService))`,
-        2,
-      ],
     ],
   ],
   [
     path.join(AUDIO_ROOT, 'service', 'AudioMediaSessionCallback.kt'),
     [
-      ['import android.os.Bundle', 'import android.content.Context\nimport android.os.Bundle'],
-      [
-        'class AudioMediaSessionCallback : MediaSession.Callback {',
-        'class AudioMediaSessionCallback(private val context: Context) : MediaSession.Callback {',
-      ],
       /*
-       * `onConnect` strips every track-navigation command and then the
-       * session advertises only the two seek actions. The chapter actions are
-       * added here; without this a controller is told they are unsupported
-       * and is entitled to ignore the buttons, which is the precise fault
-       * `withLockScreenSeek` exists to fix. Do not remove one without the
-       * other.
+       * The only change here, and it is the other half of the gate. These two
+       * are stripped so that a media3 controller is told track navigation is
+       * unavailable; a controller told that is entitled to draw no button.
+       *
+       * The `*_MEDIA_ITEM` removals stay. Those really are about a playlist,
+       * which this app does not have — the forwarding player redirects them
+       * if anything asks anyway.
        */
       [
-        `            .add(SessionCommand(AudioControlsService.ACTION_SEEK_FORWARD, Bundle.EMPTY))
-            .build()`,
-        `            .add(SessionCommand(AudioControlsService.ACTION_SEEK_FORWARD, Bundle.EMPTY))
-            .add(SessionCommand(AudioControlsService.ACTION_PREVIOUS_CHAPTER, Bundle.EMPTY))
-            .add(SessionCommand(AudioControlsService.ACTION_NEXT_CHAPTER, Bundle.EMPTY))
-            .build()`,
-      ],
-      [
-        `    when (command.customAction) {`,
-        `    when (command.customAction) {
-      /*
-       * Forwarded, not carried out — see plugins/withLockScreenChapters.js.
-       * Reporting RESULT_SUCCESS matters: a controller told a command failed
-       * is entitled to stop drawing the button that sends it.
-       */
-      AudioControlsService.ACTION_PREVIOUS_CHAPTER -> {
-        AudioControlsService.broadcastChapterSkip(context, -1)
-        return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-      }
-      AudioControlsService.ACTION_NEXT_CHAPTER -> {
-        AudioControlsService.broadcastChapterSkip(context, 1)
-        return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-      }`,
+        `            .remove(Player.COMMAND_SEEK_TO_PREVIOUS)
+            .remove(Player.COMMAND_SEEK_TO_NEXT)`,
+        `            // plugins/withLockScreenChapters.js: offered here, and
+            // granted or withheld per book by the session player's own
+            // getAvailableCommands, which is what Android actually reads.
+            .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+            .add(Player.COMMAND_SEEK_TO_NEXT)`,
       ],
     ],
   ],
-];
-
-/**
- * `Futures` is imported by `withLockScreenSeek` as well, and whichever plugin
- * runs first should add it. Written as its own step so neither depends on the
- * other having run.
- */
-const ENSURE_IMPORT = [
-  path.join(AUDIO_ROOT, 'service', 'AudioMediaSessionCallback.kt'),
-  'import com.google.common.util.concurrent.Futures',
-  'import com.google.common.util.concurrent.ListenableFuture',
 ];
 
 /**
@@ -315,8 +337,8 @@ const ENSURE_IMPORT = [
  *
  * The two sides share no code — that is the point of using a broadcast — so
  * nothing but a check like this would notice the strings drifting apart. The
- * failure it prevents is silent: a button that is drawn, is pressed, reports
- * success, and does nothing.
+ * failure it prevents is silent: a button that is drawn, is pressed, and does
+ * nothing.
  */
 function assertAppHalfPresent(root) {
   const file = path.join(root, APP_MODULE);
@@ -338,8 +360,8 @@ function assertAppHalfPresent(root) {
         `[withLockScreenChapters] ${APP_MODULE} does not mention "${needed}". ` +
           'The patched lock-screen buttons broadcast it and that module is ' +
           'what listens; if the two strings have drifted apart, the buttons ' +
-          'are drawn, report success and do nothing. Make them match rather ' +
-          'than deleting this check.',
+          'are drawn and do nothing. Make them match rather than deleting ' +
+          'this check.',
       );
     }
   }
@@ -378,10 +400,7 @@ const withLockScreenChapters = (config) =>
       assertBuiltFromSource(root);
       assertAppHalfPresent(root);
 
-      const [importFile, importLine, importAnchor] = ENSURE_IMPORT;
-      const steps = [...REWRITES, [importFile, [[importAnchor, `${importLine}\n${importAnchor}`]]]];
-
-      for (const [relative, pairs] of steps) {
+      for (const [relative, pairs] of REWRITES) {
         const file = path.join(root, relative);
         if (!fs.existsSync(file)) {
           throw new Error(

@@ -43,6 +43,20 @@ type UiState = {
   setTrayCollapsed: (value: boolean) => void;
 
   /**
+   * Whether the docked player is shut down to its play button.
+   *
+   * The same kind of preference as the tray above, for the same reason: the
+   * bar is a strip across the foot of every screen, and somebody who pushed
+   * it aside to see the end of a shelf meant it to stay aside.
+   *
+   * It replaced a long press that **closed** playback outright, which was the
+   * only gesture the bar had and a surprising amount of destruction to hang
+   * on a slip of the thumb.
+   */
+  miniPlayerCollapsed: boolean;
+  setMiniPlayerCollapsed: (value: boolean) => void;
+
+  /**
    * Which source the Library is showing.
    *
    * `USB_SOURCE_ID` is the default and what every existing install starts
@@ -74,6 +88,12 @@ export const useUi = create<UiState>((set) => ({
     void setSetting(SETTING_KEYS.trayCollapsed, value ? '1' : '0').catch(() => {});
   },
 
+  miniPlayerCollapsed: false,
+  setMiniPlayerCollapsed: (value) => {
+    set({ miniPlayerCollapsed: value });
+    void setSetting(SETTING_KEYS.miniPlayerCollapsed, value ? '1' : '0').catch(() => {});
+  },
+
   activeSourceId: USB_SOURCE_ID,
   setActiveSourceId: (id) => {
     set({ activeSourceId: id });
@@ -98,6 +118,13 @@ export const useUi = create<UiState>((set) => ({
       if (tray !== null) set({ trayCollapsed: tray === '1' });
     } catch {
       // Open is the default, and an open tray is never the wrong guess.
+    }
+    try {
+      const mini = await getSetting(SETTING_KEYS.miniPlayerCollapsed);
+      if (mini !== null) set({ miniPlayerCollapsed: mini === '1' });
+    } catch {
+      // Open is the default. The full bar says what is playing, which is the
+      // safer thing to be wrong about.
     }
   },
 }));

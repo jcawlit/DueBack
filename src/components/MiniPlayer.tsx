@@ -17,9 +17,9 @@ import { useUi } from '@/store/ui';
 import { chapterAt } from '@/data/types';
 import { hoursClock } from '@/lib/format';
 import { markLabel } from '@/lib/library/marks';
-import { color, font, shadow, space } from '@/theme/tokens';
+import { color, font, radius, shadow, space } from '@/theme/tokens';
 import { CoverFace } from './CoverFace';
-import { PauseIcon, PlayIcon } from './icons';
+import { ChevronLeft, PauseIcon, PlayIcon } from './icons';
 
 /**
  * The bar's own height, above the home inset. Exported so anything that
@@ -27,6 +27,24 @@ import { PauseIcon, PlayIcon } from './icons';
  * have to measure it.
  */
 export const MINI_PLAYER_HEIGHT = 72;
+
+/** The play button, which is the same size shut as it is open. */
+const BUTTON_SIZE = 48;
+
+/**
+ * How much room the shut form occupies, for anything that has to float above
+ * it. It reserves none of the screen — see `useMiniPlayerInset` — but it is
+ * still drawn there, and a slip that came up underneath it would be covered.
+ */
+export const MINI_PLAYER_COLLAPSED_HEIGHT = BUTTON_SIZE + space.sm;
+
+/**
+ * The tab that says the shut player can be opened again.
+ *
+ * Narrow on purpose: shut, this whole thing has to sit in the gap at the end
+ * of a shelf of three books without looking like a fourth.
+ */
+const TAB_WIDTH = 18;
 
 /**
  * How much room a scrolling screen must leave at its foot.
@@ -39,7 +57,14 @@ export function useMiniPlayerInset(): number {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const bookId = usePlayer((s) => s.bookId);
+  const collapsed = useUi((s) => s.miniPlayerCollapsed);
   if (!bookId || pathname.startsWith('/player')) return 0;
+  /*
+   * Shut, it reserves nothing. That is the whole point of shutting it: the
+   * button floats in the gap at the end of a shelf rather than owning a strip
+   * across the screen, and a list can run underneath it.
+   */
+  if (collapsed) return 0;
   return MINI_PLAYER_HEIGHT + (pathname === '/' ? 0 : insets.bottom);
 }
 
@@ -56,6 +81,8 @@ export function MiniPlayer() {
 
   const book = useLibrary(selectBook(bookId ?? undefined));
   const bottomObstruction = useUi((s) => s.bottomObstruction);
+  const collapsed = useUi((s) => s.miniPlayerCollapsed);
+  const setCollapsed = useUi((s) => s.setMiniPlayerCollapsed);
 
   // Nothing loaded, or we are already looking at the full player.
   if (!bookId || !book || pathname.startsWith('/player')) return null;
@@ -83,6 +110,90 @@ export function MiniPlayer() {
     .filter(Boolean)
     .join(' · ');
 
+  /*
+   * The same button in both shapes, in the same place.
+   *
+   * Shutting the bar must not move the thing you were about to press. The bar
+   * puts this at its right-hand end with `space.md` of padding, so the shut
+   * form sits at the same offset from the same edge and the button does not
+   * budge by a pixel.
+   */
+  const playPause = (
+    <Pressable
+      onPress={togglePlay}
+      accessibilityRole="button"
+      accessibilityLabel={playing ? 'Pause' : 'Play'}
+      hitSlop={8}
+      style={({ pressed }) => ({
+        width: BUTTON_SIZE,
+        height: BUTTON_SIZE,
+        borderRadius: 12,
+        backgroundColor: color.accent,
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: pressed ? 0.8 : 1,
+      })}
+    >
+      {playing ? <PauseIcon size={18} /> : <PlayIcon size={18} />}
+    </Pressable>
+  );
+
+  if (collapsed) {
+    /*
+     * Shut: the button, and a tab saying there is more.
+     *
+     * Nothing is reserved for it — `useMiniPlayerInset` returns zero — so the
+     * shelves run underneath and the button sits in the gap that is always
+     * left at the end of a row of three books. The title and the place are
+     * gone, which is the trade: the Player screen is one tap away and the
+     * lock screen says what is playing anyway.
+     */
+    return (
+      <View
+        style={{
+          position: 'absolute',
+          right: space.md,
+          bottom: bottom + (onLibrary ? 0 : insets.bottom) + space.sm,
+          zIndex: 40,
+          flexDirection: 'row',
+          alignItems: 'center',
+          ...shadow(10, 0.4),
+        }}
+      >
+        <Pressable
+          onPress={() => setCollapsed(false)}
+          // Still the way to stop altogether, which the whole bar used to be.
+          // Moved onto the smallest target on screen on purpose: it releases
+          // the audio engine, and it was far too easy to do by accident on a
+          // bar that filled the width of the phone.
+          onLongPress={() => void closePlayer()}
+          delayLongPress={600}
+          accessibilityRole="button"
+          accessibilityLabel={`Now playing ${book.title}. Open the player bar.`}
+          accessibilityHint="Long press to stop playing"
+          hitSlop={{ top: 10, bottom: 10, left: 10 }}
+          style={({ pressed }) => ({
+            width: TAB_WIDTH,
+            height: BUTTON_SIZE - 12,
+            borderTopLeftRadius: radius.button,
+            borderBottomLeftRadius: radius.button,
+            marginRight: -2,
+            backgroundColor: color.panel,
+            borderWidth: 1,
+            borderRightWidth: 0,
+            borderColor: color.borderSoft,
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: pressed ? 0.8 : 1,
+          })}
+        >
+          <ChevronLeft size={12} stroke={color.muted} />
+        </Pressable>
+        {playPause}
+      </View>
+    );
+  }
+
   return (
     <View
       style={{
@@ -107,12 +218,20 @@ export function MiniPlayer() {
 
       <Pressable
         onPress={() => router.push(`/player/${book.id}`)}
-        // The only way to stop entirely and release the audio engine.
-        onLongPress={() => void closePlayer()}
+        /*
+         * Shuts the bar down to its play button. It used to **close**
+         * playback outright — release the engine, forget the book — which is
+         * a great deal of destruction to hang on the only gesture a
+         * full-width bar has, and easy to do by accident.
+         *
+         * Stopping moved to a long press on the tab of the shut form: a
+         * deliberate small target, reached by first putting the bar away.
+         */
+        onLongPress={() => setCollapsed(true)}
         delayLongPress={450}
         accessibilityRole="button"
         accessibilityLabel={`Now playing ${book.title}. Open the player.`}
-        accessibilityHint="Long press to stop playing"
+        accessibilityHint="Long press to shut this bar down to its play button"
         style={({ pressed }) => ({
           height: MINI_PLAYER_HEIGHT - 2,
           flexDirection: 'row',
@@ -139,23 +258,7 @@ export function MiniPlayer() {
           </Text>
         </View>
 
-        <Pressable
-          onPress={togglePlay}
-          accessibilityRole="button"
-          accessibilityLabel={playing ? 'Pause' : 'Play'}
-          hitSlop={8}
-          style={({ pressed }) => ({
-            width: 48,
-            height: 48,
-            borderRadius: 12,
-            backgroundColor: color.accent,
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity: pressed ? 0.8 : 1,
-          })}
-        >
-          {playing ? <PauseIcon size={18} /> : <PlayIcon size={18} />}
-        </Pressable>
+        {playPause}
       </Pressable>
     </View>
   );

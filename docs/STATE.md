@@ -143,16 +143,23 @@ hardware — all of it is layout, which no test on this machine can judge:
 
 Added on the same day, in a later build (`f6bf87f`):
 
-- **The lock screen's chapter buttons.** Whether they appear at all, whether
-  they move the book a chapter, and whether they work across a part boundary —
-  the case that decided the whole design, since the jump has to happen in
-  JavaScript for exactly that reason. Also whether they are **absent** on a
-  single-file book with no embedded chapters, which is the gate working.
-- **Both halves of the layout.** On Android 13 and up these are media3 session
-  buttons; on 12 and below they are notification actions, and that path has
-  never been exercised by anything. The Pixel only tests the first.
-- **A Bluetooth or car "next track" button**, which may or may not map to
-  these. Nothing was done to make it, and nothing to stop it.
+- **The lock screen's chapter buttons.** The first attempt reached a phone and
+  showed nothing: custom buttons have to win one of three slots and all three
+  were taken. They are the standard skip controls now, which have reserved
+  space. So: do they appear, do they move the book a chapter, and do they work
+  **across a part boundary** — the case the whole design is shaped by, since
+  that is why the jump happens in JavaScript. Also whether they are **absent**
+  on a single-file book with no chapter marks, which is the gate working.
+- **A Bluetooth or car "next track" button.** These are real transport controls
+  now, so a headset's skip button should reach the same code. Not aimed for,
+  not prevented, and worth one press to find out.
+- **Android 12 and below** uses explicit notification actions instead, patched
+  separately and never exercised by anything. The Pixel does not test it.
+- **The docked player shutting down to its play button.** Long press used to
+  close playback outright; it now shuts the bar, the button stays exactly where
+  it was, and the shelves reclaim the strip. Stopping moved to a long press on
+  the small tab beside the shut button — deliberately harder to hit by
+  accident, and the thing most likely to be in the wrong place.
 ### Still never verified on real hardware
 
 Treat these as open questions, not as working features:

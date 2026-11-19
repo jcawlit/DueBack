@@ -115,6 +115,13 @@ export const SETTING_KEYS = {
   themeId: 'ui.themeId',
   /** Whether the "hold a book to check it out" hint has been put away. */
   checkoutHintDone: 'library.checkoutHintDone',
+  /**
+   * Whether the docked player is shut down to its play button.
+   *
+   * A preference, not screen state: somebody who pushed the bar out of the
+   * way to see a shelf did not mean "until I next open the app".
+   */
+  miniPlayerCollapsed: 'player.miniCollapsed',
   /** Whether the Library's checked-out tray is shut down to its header. */
   trayCollapsed: 'library.trayCollapsed',
   /** This library's identity, which outlives the path it is reached through. */

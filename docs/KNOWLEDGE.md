@@ -582,55 +582,70 @@ reads as ten seconds.
 ---
 
 
-### A lock-screen chapter button cannot do the seeking (2026-11-19)
+### A custom lock-screen button has to win a slot, and there are none (2026-11-19)
 
-expo-audio strips `COMMAND_SEEK_TO_NEXT`, `COMMAND_SEEK_TO_PREVIOUS` and both
-`*_MEDIA_ITEM` variants in `AudioMediaSessionCallback.onConnect`, and it is
-right to — for expo-audio there is nothing to navigate to. Adding them back as
-**player** commands and letting media3 do the work does not work here, for two
-reasons that are about this app rather than about media3:
+**This reached a phone and showed nothing.** Two `CommandButton`s carrying
+custom session commands, in `SLOT_BACK_SECONDARY` and `SLOT_FORWARD_SECONDARY`,
+advertised in `onConnect`, handled with `RESULT_SUCCESS`, verified in compiled
+bytecode. The lock screen drew the same three controls it always had.
+
+Android’s media control draws **back, central and forward** and drops the rest.
+Those three were already seek-back, play and seek-forward. A custom button has
+to take a slot off something else to exist, and the secondary slots are not
+shown. Nothing reports this: the buttons are built, accepted and ignored.
+
+**Skip-to-previous and skip-to-next are not in that competition.** They are
+transport controls with reserved space — media3 sets
+`ALWAYS_RESERVE_SPACE_FOR.ACTION_SKIP_TO_PREVIOUS` on the platform session to
+hold it open — so they appear *alongside* the seek buttons. They also come for
+free on anything else that speaks to a media session: a car, a headset’s
+next-track button, a watch.
+
+The hook is exact, and worth knowing because it is not documented anywhere
+obvious. `MediaSessionLegacyStub.onSkipToNext` does:
+
+```
+if (playerWrapper.isCommandAvailable(COMMAND_SEEK_TO_NEXT))  // 9
+  -> player.seekToNext()
+else if (COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)                    // 8
+  -> player.seekToNextMediaItem()
+```
+
+on the **session’s** player, which in expo-audio is already a
+`ForwardingPlayer` chain. So one more layer overrides `seekToNext` and
+`seekToPrevious`, and the real ExoPlayer — which holds one file and has no next
+item — is never asked. `getAvailableCommands` on that layer is both the hook
+and the gate: Android decides whether to draw a skip button from what the
+player reports, so a book with no chapters reports neither command and gets
+neither button.
+
+**The press is forwarded to the app, not carried out.** Two reasons, both about
+this app rather than about media3:
 
 - **A chapter is not a media item.** The engine plays a book as one
   `AudioPlayer` holding one file at a time, because `setActiveForLockScreen`
   exists only on `AudioPlayer` and without it Android stops background audio
-  after about three minutes. So the ExoPlayer timeline is a single item and
-  `seekToNext()` has nowhere to go.
+  after about three minutes.
 - **The target chapter may be in a different file.** Chapters are on the
   whole-book timeline; parts are switched with `replace()` + `seekTo()` from
-  JavaScript. Carrying a cross-part jump out in Kotlin means a second
-  implementation of part switching, in another language, against the same
-  files — and two implementations of that will drift.
+  JavaScript. A cross-part jump in Kotlin means a second implementation of part
+  switching, in another language, against the same files.
 
-So the buttons are **custom session commands that forward the press**: the
-patched service broadcasts `dueback.audio.action.CHAPTER_SKIP` inside the app,
+So the override broadcasts `dueback.audio.action.CHAPTER_SKIP` inside the app,
 `DuebackAudioModule` receives it and sends an `onChapterSkip` event, and the
 store calls the same `skipChapter` the Player screen’s arrows call. The same
-division the headphone-unplug receiver already makes.
+division the headphone-unplug receiver already makes. A broadcast rather than a
+direct call because `modules/dueback-audio` has no compile-time relationship
+with expo-audio and must not grow one; registered `RECEIVER_NOT_EXPORTED`,
+which Android 13 made compulsory for app-defined broadcasts.
 
-**Three things this depends on, each of which fails silently if broken:**
+The action strings are duplicated in the plugin and the module because they
+share no code. `assertAppHalfPresent` fails the build if they drift; without it
+the symptom is a button that is drawn and does nothing.
 
-- `onCustomCommand` must return `RESULT_SUCCESS`. A controller told a command
-  failed is entitled to stop drawing the button that sends it — which is the
-  original lock-screen seek bug, in a new place.
-- The commands must be added in `onConnect` as well as drawn in
-  `updateSessionCustomLayout`. Drawn but unadvertised is a dead button.
-- The broadcast action string is duplicated in the plugin and in the module,
-  because they share no code. `assertAppHalfPresent` fails the build if they
-  drift; without it the symptom is a button that is drawn, reports success,
-  and does nothing.
-
-**The buttons are gated on the book having chapter marks**, carried as a
-`showChapterButtons` field patched onto `AudioLockScreenOptions`. It has to be
-decided when the session is built — `setActiveForLockScreen` fixes the layout —
-which is once per book, which is also the only moment the app knows. A single
-file with no embedded chapters has none: `chapterAt` reports one spanning the
-whole book so the screens have something to draw, but there is nowhere to skip.
-
-A broadcast rather than a direct call because `modules/dueback-audio` has no
-compile-time relationship with expo-audio and must not grow one. Registered
-with `RECEIVER_NOT_EXPORTED`: Android 13 made the flag compulsory for
-app-defined broadcasts, and a playback control should not be reachable by every
-app on the phone.
+**Android 12 and below** does not use any of this: that notification carries
+explicit actions, patched separately, delivered as service intents to
+`onStartCommand`. It has never been exercised.
 
 *`plugins/withLockScreenChapters.js`, `modules/dueback-audio/`,
 `src/lib/library/chapters.ts`, `tests/chapter-skip.test.ts`*
