@@ -1,6 +1,6 @@
 # Where this project actually is
 
-For anyone — person or agent — arriving with only the repository, and
+For anyone arriving with only the repository, and
 especially for anyone auditing it or deciding what to do next.
 
 Read this before filing findings. Most of what follows is here to stop good
@@ -404,7 +404,6 @@ Things that have already cost a day each.
 | Platform quirks and invariants | `npm run kb`, then `docs/KNOWLEDGE.md` |
 | What changed and why, chronologically | `CHANGES.md` |
 | The sound feature, and iOS notes | `docs/SOUND.md` |
-| Prompt shapes for delegated work | `docs/AGENT-WORKFLOW.md` |
 
 `CHANGES.md` is 1,800 lines and chronological. Its older "Known, not fixed"
 sections have been overtaken by later work — three of the six items listed

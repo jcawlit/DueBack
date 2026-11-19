@@ -939,7 +939,7 @@ npm run kb saf cover      # read the entries matching those words
 `scripts/kb.ts` parses the headings and ranks a heading match above a body
 match, so a half-remembered word finds the entry.
 
-The rule that keeps it alive is in `AGENTS.md`, where it is read every session:
+The rule that keeps it alive is written down where it is read every session:
 check it before debugging, update it in the same change that teaches something,
 and **comments state the rule while the knowledge base keeps the story**.
 
@@ -1966,7 +1966,7 @@ split on `\n`, `core.autocrlf` is on, and `/^## (.+)$/` cannot match a line
 ending in a carriage return: `.` stops before it and `$` finds a character
 still to come. Every heading failed, so the knowledge base parsed to zero
 entries and every query came back "Nothing for <term>" — indistinguishable
-from a knowledge base with nothing to say, while `AGENTS.md` tells everyone to
+from a knowledge base with nothing to say, while the standing rules say to
 search it before debugging. It splits on either ending now, and finds its 105
 entries.
 

@@ -12,7 +12,7 @@
  *
  * **`JAVA_HOME` and `ANDROID_HOME` are set, but not where a tool can see
  * them.** They are persisted in the Windows registry — user and machine
- * environment — and a shell started by an editor or an agent does not always
+ * environment — and a shell started by an editor or another tool does not
  * inherit either. Gradle then reports "JAVA_HOME is not set", which is false
  * and sends you looking in the wrong place. So this reads the registry when
  * the environment is silent.

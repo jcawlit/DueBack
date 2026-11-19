@@ -41,10 +41,8 @@ one's budget check blind to the other four.
 
 ## Before you change anything
 
-These were in an `AGENTS.md` at the root, which was for the coding agents that
-do most of the work here. The rules are not agent rules, though — they are
-what this codebase costs you if you ignore them, so they belong where a person
-will read them too.
+Short list, and every item on it is here because ignoring it has already cost
+somebody a day.
 
 - **Read `docs/STATE.md` first.** It says what is verified, what has never run
   on hardware, what is deliberately not fixed, and which traps have already
@@ -110,8 +108,7 @@ broken. `npm run kb expo install` explains why.
 Expo SDK 57, React Native 0.86, TypeScript, Expo Router (routes in `src/app/`),
 SQLite via `expo-sqlite`.
 
-Optional
-[task prompt templates](AGENT-WORKFLOW.md) keep individual jobs focused.
+
 
 ## Development build
 
@@ -142,7 +139,7 @@ exists to walk past all three. `scripts/build-apk.ts` explains each one at
 length; briefly:
 
 - **`JAVA_HOME` and `ANDROID_HOME` are set but invisible.** They live in the
-  Windows registry, and a shell started by an editor or an agent does not
+  Windows registry, and a shell started by an editor or another tool does not
   always inherit them. Gradle then says `JAVA_HOME is not set`, which is false
   and sends you hunting. The script reads the registry when the environment is
   silent.

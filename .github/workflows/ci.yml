@@ -1,6 +1,6 @@
 # The three checks this repo requires before every commit, run again here
-# because "it passed locally" stops being true the moment more than one agent
-# is working on the repo.
+# because "it passed locally" stops being true the moment the repo is worked
+# on from more than one machine.
 #
 # Deliberately not building the app. A release APK takes four minutes of
 # Gradle and needs the Android SDK; nothing it would catch is missed by

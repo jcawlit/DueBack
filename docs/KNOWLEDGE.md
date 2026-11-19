@@ -1300,7 +1300,7 @@ advice is to use it; this is here for when it stops working.
 
 **`JAVA_HOME is not set` is a lie.** It is set — persisted in the Windows
 registry, user and machine environment — but a shell started by an editor or
-an agent does not always inherit it, and neither does `ANDROID_HOME`. Gradle
+another tool does not always inherit it, nor does `ANDROID_HOME`. Gradle
 reports absence where the truth is non-inheritance, which sends you off to
 install a JDK that is already there. The persisted values are readable:
 
