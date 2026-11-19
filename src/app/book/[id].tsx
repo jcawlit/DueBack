@@ -35,7 +35,8 @@ import { NoteSheet } from '@/components/NoteSheet';
 import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { useNotes } from '@/store/notes';
 import { exportNotes } from '@/lib/notes/export';
-import { isPro } from '@/lib/pro';
+import { canUseCharacters, exportIsComplete } from '@/lib/pro';
+import { useGate } from '@/store/pro';
 import { markLabel, markLabelCaps, markWordPlural } from '@/lib/library/marks';
 import { useBackup } from '@/store/backup';
 import type { Character, Note } from '@/data/notes';
@@ -197,6 +198,13 @@ export default function BookScreen() {
   /** Somebody is being invented: the editor is open with nothing written. */
   const [makingCharacter, setMakingCharacter] = useState(false);
   const miniPlayerInset = useMiniPlayerInset();
+  /*
+   * Two gates, and they are deliberately not the same question. Making a
+   * character is the paid part; having one in your own export is not, and
+   * never will be — see the promises in `lib/pro.ts`.
+   */
+  const canAddCharacters = useGate(canUseCharacters);
+  const exportComplete = useGate(exportIsComplete);
   const [editing, setEditing] = useState<string | null>(null);
   const [openCharacter, setOpenCharacter] = useState<Character | null>(null);
   /** The details sheet, and what it needs to show a difference. */
@@ -426,7 +434,13 @@ export default function BookScreen() {
       chapters: book.chapters,
       notes: useNotes.getState().notes,
       characters,
-      includeCharacters: isPro(),
+      /*
+       * Always. This read `isPro()`, which quietly stripped a listener's own
+       * characters out of their own export — the exact hostage-taking the
+       * rules disclaim. Nobody saw it, because `isPro()` had returned true
+       * for everyone since the day it was written.
+       */
+      includeCharacters: exportComplete,
     });
     try {
       await Share.share({ message: page, title: `${book.title} — notes` });
@@ -1003,7 +1017,12 @@ export default function BookScreen() {
           <NotesTab
             book={book}
             notes={mine}
-            characters={isPro() ? characters : []}
+            /*
+              Always the real list. This passed `[]` without Pro, hiding
+              characters somebody had already made — from their own notes.
+              Pro gates making them, never seeing them.
+            */
+            characters={characters}
             selected={whose}
             onSelect={setWhose}
             onPlayFrom={playFrom}
@@ -1018,7 +1037,8 @@ export default function BookScreen() {
             characters={characters}
             notes={mine}
             onOpen={setOpenCharacter}
-            onAdd={isPro() ? () => setMakingCharacter(true) : undefined}
+            // The gate that was right all along: making a new one is paid.
+            onAdd={canAddCharacters ? () => setMakingCharacter(true) : undefined}
           />
         ) : null}
 
@@ -1120,7 +1140,7 @@ export default function BookScreen() {
         }
         characters={characters}
         atSec={editingNote?.positionSec ?? 0}
-        canTag={isPro()}
+        canTag={canAddCharacters}
         onSave={(text) => {
           if (editingNote) {
             setNoteText(editingNote.id, text.trim());

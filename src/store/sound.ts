@@ -11,7 +11,8 @@
 
 import { create } from 'zustand';
 import { getDb } from '@/db/schema';
-import { isPro } from '@/lib/pro';
+import { canCustomiseSound } from '@/lib/pro';
+import { gate } from '@/store/pro';
 import {
   DEFAULT_SETTINGS,
   resolveSettings,
@@ -105,7 +106,8 @@ export const useSound = create<SoundState>((set, get) => {
   const push = async () => {
     const { possible, capabilities, effective } = get();
     if (possible && capabilities.attached) {
-      set({ capabilities: await applySettings(isPro() ? effective : DEFAULT_SETTINGS, capabilities) });
+      const tuned = gate(canCustomiseSound) ? effective : DEFAULT_SETTINGS;
+      set({ capabilities: await applySettings(tuned, capabilities) });
     }
   };
   const native = (work: () => Promise<void>) => {
@@ -155,11 +157,13 @@ export const useSound = create<SoundState>((set, get) => {
       });
     },
     setPreset: async (preset) => {
-      if (preset !== 'off' && !isPro()) return;
+      // `off` is free: the app sounds like the recording, which is normal
+      // rather than broken. Pro is what tunes it.
+      if (preset !== 'off' && !gate(canCustomiseSound)) return;
       await change(settingsForPreset(preset));
     },
     setSlider: async (which, value) => {
-      if (!isPro()) return;
+      if (!gate(canCustomiseSound)) return;
       await change(withSlider(get().effective, which, value));
     },
     useDefaultForBook: async () => {
@@ -174,7 +178,7 @@ export const useSound = create<SoundState>((set, get) => {
       });
     },
     makeDefault: async () => {
-      if (!isPro()) return;
+      if (!gate(canCustomiseSound)) return;
       const settings = get().effective;
       revision += 1;
       set({ allBooks: settings });

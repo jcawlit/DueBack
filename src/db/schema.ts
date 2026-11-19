@@ -111,6 +111,14 @@ export const SETTING_KEYS = {
   budgetBytes: 'bag.budgetBytes',
   /** The book to reopen on launch, so the app comes back where it was left. */
   lastBookId: 'player.lastBookId',
+  /**
+   * What this phone is entitled to: `pro`, `granted`, `free`, or absent.
+   *
+   * Cached so that being offline cannot take a purchase away — see
+   * `src/store/pro.ts`. Absent means nobody has asked a store yet, which is
+   * every install until billing is wired.
+   */
+  entitlement: 'pro.entitlement',
   /** The chosen colour scheme. */
   themeId: 'ui.themeId',
   /** Whether the "hold a book to check it out" hint has been put away. */

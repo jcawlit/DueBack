@@ -33,6 +33,7 @@ import { discardEmptySessions } from '@/db/listening';
 import { startAbsProgressSync } from '@/store/absProgress';
 import { useTheme } from '@/store/theme';
 import { useUi } from '@/store/ui';
+import { usePro } from '@/store/pro';
 
 /**
  * How often the drive is looked for while the app is in the foreground.
@@ -66,7 +67,10 @@ function LibraryBootstrap() {
 
   useEffect(() => {
     void hydrate();
-    void useUi.getState().loadPreferences();
+    void useUi.getState().loadPreferences();
+    // Before the screens draw. A Pro listener should not watch their own
+    // features appear a frame late; see `src/store/pro.ts`.
+    void usePro.getState().load();
     void useTheme.getState().load();
     void useBackup.getState().load();
     // Rows left open by a kill are cleared here rather than left to skew

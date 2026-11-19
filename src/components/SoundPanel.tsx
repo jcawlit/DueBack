@@ -13,7 +13,8 @@ import { Modal, PanResponder, Pressable, ScrollView, Text, View } from 'react-na
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PRESETS, type PresetName, type SoundSettings } from '@/lib/audio/sound';
 import type { SoundCapabilities } from '../../modules/dueback-audio';
-import { isPro } from '@/lib/pro';
+import { canCustomiseSound } from '@/lib/pro';
+import { useGate } from '@/store/pro';
 import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
 
 const TRACK_HEIGHT = 8;
@@ -50,7 +51,7 @@ export function SoundPanel({
   onClose,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const pro = isPro();
+  const pro = useGate(canCustomiseSound);
 
   const loudness = possible && capabilities.loudness.available;
   const equalizer = possible && capabilities.equalizer.available;

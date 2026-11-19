@@ -11,7 +11,8 @@ import { chapterAt, fractionAt } from '@/data/types';
 import { selectBook, useLibrary } from '@/store/library';
 import { useNotes } from '@/store/notes';
 import { isBookmark } from '@/data/notes';
-import { isPro } from '@/lib/pro';
+import { canUseCharacters } from '@/lib/pro';
+import { useGate } from '@/store/pro';
 import { markLabelCaps, markTitle, markWord } from '@/lib/library/marks';
 import { SLEEP_OPTIONS, SPEEDS, realSecondsLeft, usePlayer } from '@/store/player';
 import { clock, hoursLeft } from '@/lib/format';
@@ -51,6 +52,7 @@ export default function PlayerScreen() {
    */
   useTheme((s) => s.version);
   const insets = useSafeAreaInsets();
+  const canTagCharacters = useGate(canUseCharacters);
   const { height: windowHeight } = useWindowDimensions();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [contentsOpen, setContentsOpen] = useState(false);
@@ -612,7 +614,7 @@ export default function PlayerScreen() {
         characters={characters}
         atSec={editing?.atSec ?? position}
         chapterLabel={book.chapters.length > 0 ? markLabelCaps(book, index) : null}
-        canTag={isPro()}
+        canTag={canTagCharacters}
         onSave={(text) => {
           void saveNote(text);
           closeSheet();

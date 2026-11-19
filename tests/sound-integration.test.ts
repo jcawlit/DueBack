@@ -46,7 +46,10 @@ Object.assign(globalThis, {
 });
 const mock = (code: string) => ({ url: `data:text/javascript,${encodeURIComponent(code)}`, shortCircuit: true });
 const hooks = registerHooks({ resolve(specifier, context, next) {
-  if (specifier === '@/db/schema') return mock('export async function getDb() { return globalThis.soundTestDb; }');
+  if (specifier === '@/db/schema') return mock(`export async function getDb() { return globalThis.soundTestDb; }
+    export const SETTING_KEYS = { entitlement: 'pro.entitlement' };
+    export async function getSetting() { return null; }
+    export async function setSetting() {}`);
   if (specifier === 'react-native') return mock("export const Platform = { OS: 'android' };");
   if (specifier === 'expo') return mock('export const requireOptionalNativeModule = () => globalThis.soundTestNative;');
   if (specifier === 'expo-audio') return mock(`export const createAudioPlayer = () => globalThis.soundTestPlayer;
@@ -66,6 +69,14 @@ const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 test('sound persistence, defaults, session changes and optional effects use production code', async () => {
   const { useSound } = await import('../src/store/sound.ts');
+  /*
+   * The sound panel is behind the Pro gate, so the store refuses presets and
+   * sliders without one. Granted explicitly rather than relied on by default:
+   * this test is about what the effects do, and it should say out loud that
+   * it is exercising the paid path.
+   */
+  const { usePro } = await import('../src/store/pro.ts');
+  await usePro.getState().set({ pro: true, source: 'granted' });
   const { createExpoAudioEngine } = await import('../src/lib/audio/expoAudioEngine.ts');
   const engine = createExpoAudioEngine();
   engine.onSessionChange((p) => useSound.getState().useSession(p));
