@@ -400,7 +400,7 @@ Things that have already cost a day each.
 
 | For | Read |
 |---|---|
-| Standing rules for agents | `AGENTS.md` |
+| Standing rules before changing anything | `docs/DEVELOPMENT.md` |
 | Platform quirks and invariants | `npm run kb`, then `docs/KNOWLEDGE.md` |
 | What changed and why, chronologically | `CHANGES.md` |
 | The sound feature, and iOS notes | `docs/SOUND.md` |

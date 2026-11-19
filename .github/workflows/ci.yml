@@ -1,4 +1,4 @@
-# The three checks `AGENTS.md` requires before every commit, run again here
+# The three checks this repo requires before every commit, run again here
 # because "it passed locally" stops being true the moment more than one agent
 # is working on the repo.
 #
@@ -12,7 +12,7 @@ name: checks
 
 on:
   push:
-    # Every branch, not just `main`. It was `[main]`, and `AGENTS.md` claimed
+    # Every branch, not just `main`. It was `[main]` while the docs claimed
     # these ran on every push — so eleven commits went up on a branch under
     # the impression they had been checked, and nothing had run at all. A
     # check you believe in and do not have is worse than no check.

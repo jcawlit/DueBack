@@ -3,7 +3,8 @@
 Use one job per prompt. Keep detailed requirements and acceptance tests in a
 task-specific spec file, then reference its path and section. Keep data-safety
 rules and edge cases explicit; remove repeated background and standing rules
-already in `AGENTS.md`. These templates are optional, not startup instructions.
+already in `DEVELOPMENT.md`. These templates are optional, not startup
+instructions.
 
 ## Implement
 

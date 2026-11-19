@@ -72,3 +72,8 @@ findings.txt
 # a running server's state, and .env holds its logins.
 tools/abs-test/data/
 tools/abs-test/.env
+
+# Screenshots dropped in the repo root for a bug report. One was committed by
+# accident — a phone lock screen, 1.7 MB, in a repo about to go public.
+/Screenshot*.png
+/*.png
