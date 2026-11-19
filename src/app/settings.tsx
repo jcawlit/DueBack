@@ -19,8 +19,8 @@ import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 import { useTheme } from '@/store/theme';
 import { THEMES } from '@/theme/palettes';
 import { ProTag } from '@/components/ProTag';
-import { canUseTheme } from '@/lib/pro';
-import { usePro } from '@/store/pro';
+import { canUseTheme, FREE } from '@/lib/pro';
+import { BILLING_WIRED, usePro } from '@/store/pro';
 import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { ChevronLeft } from '@/components/icons';
 import { ScanProgressBar } from '@/components/FirstRun';
@@ -98,6 +98,7 @@ export default function SettingsScreen() {
   const entitlement = usePro((s) => s.entitlement);
   const pro = entitlement.pro;
   const openProSheet = usePro((s) => s.openSheet);
+  const setEntitlement = usePro((s) => s.set);
   const setTheme = useTheme((s) => s.setTheme);
   const insets = useSafeAreaInsets();
   const miniPlayerInset = useMiniPlayerInset();
@@ -318,6 +319,30 @@ export default function SettingsScreen() {
 
         <View style={{ gap: space.sm }}>
           <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}>
+            DUE BACK PRO
+          </Text>
+          {/*
+            A way in that is not a locked control. Somebody who has already
+            decided to pay should not have to go and find something they
+            cannot do in order to pay for it — and somebody who has paid
+            deserves a line saying so rather than silence.
+          */}
+          <Row
+            label={pro ? 'Pro is on' : 'What Pro adds'}
+            detail={
+              pro
+                ? entitlement.source === 'granted'
+                  ? 'Unlocked without a purchase'
+                  : 'Thank you'
+                : 'Characters, sound, storage, statistics, themes'
+            }
+            onPress={pro ? undefined : () => openProSheet('settings')}
+            tone={pro ? 'normal' : 'accent'}
+          />
+        </View>
+
+        <View style={{ gap: space.sm }}>
+          <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}>
             THE DRIVE
           </Text>
           <Row
@@ -426,29 +451,6 @@ export default function SettingsScreen() {
           ) : null}
         </View>
 
-        <View style={{ gap: space.sm }}>
-          <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}>
-            DUE BACK PRO
-          </Text>
-          {/*
-            A way in that is not a locked control. Somebody who has already
-            decided to pay should not have to go and find something they
-            cannot do in order to pay for it — and somebody who has paid
-            deserves a line saying so rather than silence.
-          */}
-          <Row
-            label={pro ? 'Pro is on' : 'What Pro adds'}
-            detail={
-              pro
-                ? entitlement.source === 'granted'
-                  ? 'Unlocked without a purchase'
-                  : 'Thank you'
-                : 'Characters, sound, storage, statistics, themes'
-            }
-            onPress={pro ? undefined : () => openProSheet('settings')}
-            tone={pro ? 'normal' : 'accent'}
-          />
-        </View>
 
         <View style={{ gap: space.sm }}>
           <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}>
@@ -616,6 +618,29 @@ export default function SettingsScreen() {
             detail="Every book, its parts, timings and warnings"
             onPress={() => router.push('/dev/metadata')}
           />
+          {/*
+            Gone the moment there is anything to buy — see `BILLING_WIRED`.
+            Not gated on `__DEV__`, which would hide it from the release APKs
+            this app is actually tested with, and which is the one place it
+            needs to be. Until a store exists everybody has everything anyway,
+            so a switch that takes it away changes nothing that matters; after
+            that, it does not exist.
+          */}
+          {!BILLING_WIRED ? (
+            <Row
+              label={pro ? "Dev: drop to the free app" : "Dev: turn Pro on"}
+              detail={
+                `Entitlement is "${entitlement.source}". ` +
+                'Only in a development build, so the locked states can be seen.'
+              }
+              tone="accent"
+              onPress={() =>
+                void setEntitlement(
+                  pro ? FREE : { pro: true, source: 'granted' },
+                )
+              }
+            />
+          ) : null}
         </View>
       </ScrollView>
 

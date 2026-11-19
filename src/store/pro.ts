@@ -96,6 +96,22 @@ export const PRO_PRICE_FALLBACK = '$6.99';
 
 const NO_STORE_YET = 'Not on the Play Store yet — this build has everything unlocked.';
 
+/**
+ * Whether there is a store to buy from yet.
+ *
+ * Flip this to `true` in the same change that wires `expo-iap`, and three
+ * things follow at once: the buy button stops explaining itself, the
+ * pre-launch grant in `load()` becomes `FREE`, and the entitlement switch in
+ * Settings disappears from every build including release ones.
+ *
+ * That last part is why this is a constant and not `__DEV__`. The switch has
+ * to be visible in the release APKs this app is actually tested with — a
+ * `__DEV__` gate would hide it from exactly the builds that go on the phone —
+ * and it must become unreachable the moment it could matter. One flag does
+ * both, and it is greppable.
+ */
+export const BILLING_WIRED = false;
+
 export const usePro = create<ProState>((set) => ({
   /*
    * Free until proven otherwise. Not `PRE_LAUNCH`: a first frame that shows
