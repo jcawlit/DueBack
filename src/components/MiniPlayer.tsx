@@ -8,6 +8,7 @@
  * It hides itself on the Player screen, where it would be redundant.
  */
 
+import { useRef } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { router, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -83,6 +84,17 @@ export function MiniPlayer() {
   const bottomObstruction = useUi((s) => s.bottomObstruction);
   const collapsed = useUi((s) => s.miniPlayerCollapsed);
   const setCollapsed = useUi((s) => s.setMiniPlayerCollapsed);
+  /*
+   * Set when the long press fires, applied when the finger comes up.
+   *
+   * Shutting the bar the instant the press is recognised swaps the tree out
+   * from under a finger that is still down, and the release then lands on
+   * whatever has appeared in that spot — which is the play button, because
+   * the whole point is that it stays where it was. So the gesture is decided
+   * at `onLongPress` and carried out at `onPressOut`, by which time there is
+   * no touch left to misdeliver.
+   */
+  const shutOnRelease = useRef(false);
 
   // Nothing loaded, or we are already looking at the full player.
   if (!bookId || !book || pathname.startsWith('/player')) return null;
@@ -123,7 +135,13 @@ export function MiniPlayer() {
       onPress={togglePlay}
       accessibilityRole="button"
       accessibilityLabel={playing ? 'Pause' : 'Play'}
-      hitSlop={8}
+      /*
+       * No slop on the left. It used to be `8` on every side, which reached
+       * back across the gap and over the tab beside it — and being the later
+       * sibling, it won. Tapping the tab to open the bar toggled playback
+       * instead.
+       */
+      hitSlop={{ top: 8, bottom: 8, right: 8 }}
       style={({ pressed }) => ({
         width: BUTTON_SIZE,
         height: BUTTON_SIZE,
@@ -171,13 +189,15 @@ export function MiniPlayer() {
           accessibilityRole="button"
           accessibilityLabel={`Now playing ${book.title}. Open the player bar.`}
           accessibilityHint="Long press to stop playing"
-          hitSlop={{ top: 10, bottom: 10, left: 10 }}
+          // Generous everywhere except towards the play button.
+          hitSlop={{ top: 12, bottom: 12, left: 12 }}
           style={({ pressed }) => ({
             width: TAB_WIDTH,
             height: BUTTON_SIZE - 12,
-            borderTopLeftRadius: radius.button,
-            borderBottomLeftRadius: radius.button,
-            marginRight: -2,
+            borderRadius: radius.button,
+            // A real gap, not an overlap. These are two separate controls and
+            // their touch areas must not meet.
+            marginRight: space.xs,
             backgroundColor: color.panel,
             borderWidth: 1,
             borderRightWidth: 0,
@@ -227,7 +247,14 @@ export function MiniPlayer() {
          * Stopping moved to a long press on the tab of the shut form: a
          * deliberate small target, reached by first putting the bar away.
          */
-        onLongPress={() => setCollapsed(true)}
+        onLongPress={() => {
+          shutOnRelease.current = true;
+        }}
+        onPressOut={() => {
+          if (!shutOnRelease.current) return;
+          shutOnRelease.current = false;
+          setCollapsed(true);
+        }}
         delayLongPress={450}
         accessibilityRole="button"
         accessibilityLabel={`Now playing ${book.title}. Open the player.`}

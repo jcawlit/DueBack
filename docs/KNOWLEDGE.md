@@ -594,12 +594,19 @@ Those three were already seek-back, play and seek-forward. A custom button has
 to take a slot off something else to exist, and the secondary slots are not
 shown. Nothing reports this: the buttons are built, accepted and ignored.
 
-**Skip-to-previous and skip-to-next are not in that competition.** They are
-transport controls with reserved space — media3 sets
-`ALWAYS_RESERVE_SPACE_FOR.ACTION_SKIP_TO_PREVIOUS` on the platform session to
-hold it open — so they appear *alongside* the seek buttons. They also come for
-free on anything else that speaks to a media session: a car, a headset’s
-next-track button, a watch.
+**And the lock screen is one pair or the other.** The same method sets
+`ALWAYS_RESERVE_SPACE_FOR.ACTION_SKIP_TO_PREVIOUS` to
+`!containsButtonForSlot(layout, SLOT_BACK)` — so while a custom button sits in
+that slot, Android is told explicitly *not* to keep room for a skip-to-previous
+control. Seek and skip cannot both have those two positions. The minute-seek
+buttons keep them, by choice, and the chapter buttons went to **`SLOT_OVERFLOW`**
+instead, which Android draws where it has room and omits where it does not.
+
+They carry a **player** command rather than a custom session command, so a press
+arrives as `seekToPrevious`/`seekToNext` on the session player — the same path a
+car or a headset's skip button takes whether or not any button is drawn. One
+mechanism for all of it, and the per-book gate comes free, because media3
+disables a button whose command the player does not offer.
 
 The hook is exact, and worth knowing because it is not documented anywhere
 obvious. `MediaSessionLegacyStub.onSkipToNext` does:

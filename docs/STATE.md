@@ -143,16 +143,17 @@ hardware — all of it is layout, which no test on this machine can judge:
 
 Added on the same day, in a later build (`f6bf87f`):
 
-- **The lock screen's chapter buttons.** The first attempt reached a phone and
-  showed nothing: custom buttons have to win one of three slots and all three
-  were taken. They are the standard skip controls now, which have reserved
-  space. So: do they appear, do they move the book a chapter, and do they work
-  **across a part boundary** — the case the whole design is shaped by, since
-  that is why the jump happens in JavaScript. Also whether they are **absent**
-  on a single-file book with no chapter marks, which is the gate working.
-- **A Bluetooth or car "next track" button.** These are real transport controls
-  now, so a headset's skip button should reach the same code. Not aimed for,
-  not prevented, and worth one press to find out.
+- **The lock screen's chapter buttons, which have now failed to appear once.**
+  Two attempts: secondary slots, which Android never places at all, and now the
+  overflow. The overflow is drawn where there is room and omitted where there
+  is not, so **this may still show nothing** — what is certain is that the
+  minute-seek buttons are untouched, which was the point of choosing it. Try
+  the expanded notification in the shade as well as the lock screen itself.
+- **A Bluetooth or car "next track" button.** This is the part that does not
+  depend on a button being drawn: the press arrives as a real skip command
+  either way. If the lock screen shows nothing, a headset's skip button is
+  still worth one press — it may be the whole feature working with no visible
+  button attached to it.
 - **Android 12 and below** uses explicit notification actions instead, patched
   separately and never exercised by anything. The Pixel does not test it.
 - **The docked player shutting down to its play button.** Long press used to

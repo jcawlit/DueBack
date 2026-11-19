@@ -7,22 +7,34 @@
  * right to, because for expo-audio there is nothing to navigate to. The module
  * has no concept of a chapter.
  *
- * ## These are the standard skip controls, not custom buttons
+ * ## Which slot, and why it took two attempts
  *
- * The first version of this plugin added two `CommandButton`s carrying custom
- * session commands, in `SLOT_BACK_SECONDARY` and `SLOT_FORWARD_SECONDARY`.
- * Everything about it worked and **nothing appeared on the lock screen.**
- * Android's media control draws the back, central and forward slots and drops
- * the rest, and those three were already taken by seek-back, play and
- * seek-forward. A custom button has to win a slot to exist, and there were no
- * slots left to win.
+ * The first version put two `CommandButton`s in `SLOT_BACK_SECONDARY` and
+ * `SLOT_FORWARD_SECONDARY`. Everything about it worked — built, advertised,
+ * answered with `RESULT_SUCCESS`, verified in compiled bytecode — and
+ * **nothing appeared on the lock screen.**
  *
- * Skip-to-previous and skip-to-next are not in that competition. They are
- * transport controls with reserved space — media3 even sets
- * `ALWAYS_RESERVE_SPACE_FOR.ACTION_SKIP_TO_PREVIOUS` on the platform session
- * to hold it open — so they appear alongside the seek buttons rather than
- * instead of them. They also come for free on anything else that speaks to a
- * media session: a car, a headset's next-track button, a watch.
+ * `CommandButton.getCustomLayoutFromMediaButtonPreferences` builds the
+ * platform session's custom actions from exactly three things: the first
+ * button whose slots include `SLOT_BACK`, the first whose slots include
+ * `SLOT_FORWARD`, and everything in `SLOT_OVERFLOW`. **Slots 4 and 5 are
+ * never placed.** Those buttons did not reach the platform session at all,
+ * and nothing anywhere says so.
+ *
+ * Back and forward are taken, by the minute-seek buttons, which work and are
+ * wanted. The same method also sets
+ * `ALWAYS_RESERVE_SPACE_FOR.ACTION_SKIP_TO_PREVIOUS` to
+ * `!containsButtonForSlot(layout, SLOT_BACK)` — so while a custom button sits
+ * in that slot, Android is told explicitly *not* to keep room for a
+ * skip-to-previous control. There is no arrangement that shows seek and skip
+ * in those two positions at once; it is one pair or the other.
+ *
+ * So the chapter buttons go in the **overflow**, which Android draws when the
+ * surface has room and omits when it does not. They carry a *player* command
+ * rather than a custom session command, which means a press arrives as
+ * `seekToPrevious`/`seekToNext` on the session player — the same path a car
+ * or a headset's skip button takes, and the same path that works whether or
+ * not any button is drawn. One mechanism for all of it.
  *
  * `MediaSessionLegacyStub.onSkipToNext` checks
  * `isCommandAvailable(COMMAND_SEEK_TO_NEXT)` and, if it is, calls
@@ -254,6 +266,46 @@ const REWRITES = [
       }
     }
   }`,
+      ],
+      /*
+       * The buttons themselves, in the overflow.
+       *
+       * **Not** in `SLOT_BACK` or `SLOT_FORWARD`: those two hold the minute
+       * seek buttons, which work and are wanted, and there is exactly one of
+       * each. Not in `SLOT_BACK_SECONDARY`/`SLOT_FORWARD_SECONDARY` either —
+       * that was the first attempt and it drew nothing, because
+       * `CommandButton.getCustomLayoutFromMediaButtonPreferences` places one
+       * back button, one forward button and the overflow, and **never looks
+       * at slots 4 and 5 at all**.
+       *
+       * These carry a *player* command rather than a custom session command,
+       * so a press lands on `seekToPrevious`/`seekToNext` of the forwarding
+       * player below — the same path a car or a headset's skip button takes.
+       * One mechanism, and the per-book gate comes free: media3 disables a
+       * button whose command the player does not offer.
+       */
+      [
+        `    session.setCustomLayout(mediaButtons)`,
+        `    if (currentOptions?.showChapterButtons == true) {
+      mediaButtons.add(
+        CommandButton.Builder(CommandButton.ICON_PREVIOUS)
+          .setDisplayName("Previous Chapter")
+          .setEnabled(true)
+          .setPlayerCommand(Player.COMMAND_SEEK_TO_PREVIOUS)
+          .setSlots(CommandButton.SLOT_OVERFLOW)
+          .build()
+      )
+      mediaButtons.add(
+        CommandButton.Builder(CommandButton.ICON_NEXT)
+          .setDisplayName("Next Chapter")
+          .setEnabled(true)
+          .setPlayerCommand(Player.COMMAND_SEEK_TO_NEXT)
+          .setSlots(CommandButton.SLOT_OVERFLOW)
+          .build()
+      )
+    }
+
+    session.setCustomLayout(mediaButtons)`,
       ],
       /*
        * The older notification's actions. Previous chapter goes first and
