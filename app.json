@@ -49,6 +49,7 @@
       "./plugins/withCleartextTraffic",
       "./plugins/withLockScreenSeek",
       "./plugins/withLockScreenChapters",
+      "./plugins/withAudioFocus",
       [
         "expo-image-picker",
         {

@@ -657,6 +657,59 @@ explicit actions, patched separately, delivered as service intents to
 *`plugins/withLockScreenChapters.js`, `modules/dueback-audio/`,
 `src/lib/library/chapters.ts`, `tests/chapter-skip.test.ts`*
 
+
+### Playing without audio focus, from the media keys only (2026-11-19)
+
+**Found by tracing the focus stack on a phone, not by anything going wrong.**
+Pause and then resume *from the media keys* and the session reported playing
+while the focus stack was empty — and it stayed that way through backgrounding
+and a relaunch. Resuming with the app’s own Play button reacquired focus
+correctly. Android reports nothing when an app plays without focus, so there
+is no log line to find and no symptom until two apps talk over each other.
+
+Two facts in expo-audio, which only bite together:
+
+- `AudioPlayer.kt` builds the ExoPlayer with focus handling **off** —
+  `.setAudioAttributes(AudioAttributes.DEFAULT, false)`.
+- `AudioModule.kt` does it by hand instead, and **only inside the
+  JavaScript-callable `play()`** — the path the app’s own button takes.
+
+A media key, lock-screen button, headset or car goes
+`MediaSessionLegacyStub.onPlay` → the session’s player → `ExoPlayer.play()`,
+straight past the one line that asks.
+
+**The fix is not `handleAudioFocus = true`.** That was the obvious answer and
+it is wrong here: expo-audio’s own handling is better than the stock one for
+this app. It honours `interruptionMode` (do-not-mix, duck-others,
+mix-with-others), ducks to half volume rather than pausing when that is what
+was asked for, restores the previous volume on regaining focus, and resumes
+only the players it actually paused. Handing focus to media3’s
+`AudioFocusManager` throws all of that away to repair a path that was simply
+never wired.
+
+**The hook was already there.** Every player reports play-state changes to the
+module — `BaseAudioPlayer.installPlayerListeners` invokes
+`onPlaybackStateChange` from `Player.Listener.onIsPlayingChanged`, so it fires
+when playback *actually starts*, whatever caused it — and the module used that
+to **release** focus and never to take it. `plugins/withAudioFocus.js` adds the
+symmetric half:
+
+```kotlin
+player.onPlaybackStateChange = { isPlaying ->
+  if (isPlaying) {
+    if (!focusAcquired) { requestAudioFocus() }
+  } else if (shouldReleaseFocus()) {
+    releaseAudioFocus()
+  }
+}
+```
+
+Catching it at "the player started" rather than at each entry point is the
+point: it covers the media keys, the lock screen, Bluetooth, a car and any
+route that does not exist yet, without the patch knowing about any of them.
+
+*`plugins/withAudioFocus.js`*
+
 ## Identity
 
 ### A path locates a book; it does not identify one

@@ -161,6 +161,21 @@ Added on the same day, in a later build (`f6bf87f`):
   it was, and the shelves reclaim the strip. Stopping moved to a long press on
   the small tab beside the shut button — deliberately harder to hit by
   accident, and the thing most likely to be in the wrong place.
+### Waiting on a phone, as of 19 November 2026 (continued)
+
+- **Audio focus on a media-key resume.** Pause and resume from the media keys,
+  the lock screen or a headset, then check the focus stack: playback used to
+  continue with it empty, because expo-audio asked for focus only in the
+  JavaScript `play()`. `plugins/withAudioFocus.js` now asks whenever the player
+  actually starts. Worth re-running the trace that found it, and worth trying
+  the things focus is *for*: a navigation prompt should duck the book, another
+  media app should pause it, and a call should still behave.
+  `npm run kb -- "audio focus"`.
+- **The Pro locked states.** Settings now has a switch at the bottom —
+  "Dev: drop to the free app" — which exists only until billing is wired. Every
+  locked control should stay on screen, dimmed, with a tag, and open the same
+  sheet. Nothing written should ever disappear: characters stay visible and
+  stay in exports with Pro off.
 ### Still never verified on real hardware
 
 Treat these as open questions, not as working features:
