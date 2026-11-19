@@ -3,6 +3,24 @@
 Build instructions, architecture, and the honest state of each feature. The
 [README](../README.md) is the overview; this is the working document.
 
+## The vocabulary
+
+Plain library language, and the code uses the same words. Worth knowing before
+reading any of it: a function called `checkOut` is not a metaphor.
+
+| Term | Meaning |
+|---|---|
+| **Library** | the main screen |
+| **On the shelf** | a book that exists only on the USB drive |
+| **Checked out** | a book copied onto the phone |
+| **Check out** | copy a book from the drive to the phone |
+| **Return** | delete the local copy, keeping progress and history |
+| **On hold** | queued to copy as soon as the drive is connected |
+| **The drawer** | the USB connection — plugged in means the drawer is open |
+| **Library card** | a book’s history of checkouts and returns |
+
+It was renamed once already: "The Stacks", "The Bag", "pack" and "put back"
+became the above. `CHANGES.md` has the reasoning.
 ## Interactions
 
 On a cover in the Library:
