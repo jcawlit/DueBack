@@ -593,6 +593,9 @@ export default function LibraryScreen() {
           sources={switchable}
           activeSourceId={activeSourceId}
           onSelectSource={setActiveSourceId}
+          // The long-press on the pill. Without it this view had the gesture
+          // and no handler for it, so pressing and holding did nothing.
+          onCheckSource={recheckSource}
           sort={shownSort}
           onSort={setSort}
           search={search}

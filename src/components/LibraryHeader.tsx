@@ -38,7 +38,7 @@ const SORTS: SortMode[] = [
  * repeat, low-stakes controls in a row of their own with generous gaps, and the
  * header is the thing standing between the user and their shelves.
  */
-const CHIP_HEIGHT = 28;
+const CHIP_HEIGHT = 26;
 
 /**
  * The circular arrow, turning while the drive is being looked for.
@@ -457,10 +457,16 @@ export function LibraryHeader({
   return (
     <View
       style={{
-        paddingTop: 14,
+        /*
+         * About a tenth off every vertical measurement in here — the title,
+         * the padding, the gaps, the chips. The header is the thing standing
+         * between somebody and their shelves, and at full size it was taking
+         * more of a phone than it earns.
+         */
+        paddingTop: 12,
         paddingHorizontal: space.xl,
-        paddingBottom: 10,
-        gap: 10,
+        paddingBottom: 9,
+        gap: 9,
         borderBottomWidth: 1,
         borderBottomColor: color.line,
       }}
@@ -479,11 +485,17 @@ export function LibraryHeader({
           alone sizes the column to its text, which tells the text nothing.
         */}
         <View style={{ gap: space.xs, flex: 1, minWidth: 0 }}>
+          {/*
+            Both of these reserve the full size's line height however far the
+            text shrinks, which is what keeps this column — and so the divider
+            and the chips below it — at one height whichever source is showing.
+            See `fittedText`.
+          */}
           <FitText
             accessibilityRole="header"
-            size={26}
-            // Below about 18 a 26pt title stops reading as the title.
-            minSize={18}
+            size={23}
+            // Below about 16 a title at this size stops reading as the title.
+            minSize={16}
             face="serif"
             lineHeightRatio={1.08}
             style={{ fontFamily: font.serif, color: color.paper }}
@@ -491,7 +503,7 @@ export function LibraryHeader({
             {title}
           </FitText>
           <FitText
-            size={11}
+            size={10}
             // Mono at 9 is still legible; past that the ellipsis is kinder.
             minSize={9}
             face="mono"

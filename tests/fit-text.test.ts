@@ -9,7 +9,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { fittedFontSize, GLYPH_WIDTH } from '../src/lib/fitText.ts';
+import { fittedFontSize, fittedText, GLYPH_WIDTH } from '../src/lib/fitText.ts';
 
 describe('fitting a line to its width', () => {
   it('leaves text that already fits at full size', () => {
@@ -54,5 +54,51 @@ describe('fitting a line to its width', () => {
     // rather than truncating.
     assert.equal(fittedFontSize(subtitle, 400, 11, 9, 'mono'), 11);
     assert.equal(fittedFontSize(subtitle, 150, 11, 9, 'mono'), 9);
+  });
+});
+
+describe('the room kept for a line that shrinks', () => {
+  /*
+   * The Library header changed height when the source was switched, which
+   * moved the divider under it and the row of sort chips below that. The
+   * cause was here: the line height shrank along with the font, so "Library"
+   * at full size and a server's library name shrunk to fit were two
+   * different heights, and the whole header followed.
+   *
+   * The font still shrinks. The box no longer does.
+   */
+  const TITLE = { width: 190, size: 23, min: 16, ratio: 1.08 } as const;
+  const title = (text: string) =>
+    fittedText(text, TITLE.width, TITLE.size, TITLE.min, 'serif', TITLE.ratio);
+
+  it('keeps one height for two titles that need two sizes', () => {
+    const short = title('Library');
+    const long = title('Dad’s Audiobooks And Radio Plays');
+
+    // The thing that caused the bug: these genuinely differ.
+    assert.ok(
+      long.fontSize < short.fontSize,
+      `expected the longer title to shrink, got ${long.fontSize} vs ${short.fontSize}`,
+    );
+    // The thing that fixes it.
+    assert.equal(long.lineHeight, short.lineHeight);
+  });
+
+  it('keeps that height even for a title squeezed to the floor', () => {
+    const floored = title('A Really Very Long Library Name That Goes On');
+    assert.equal(floored.fontSize, TITLE.min);
+    assert.equal(floored.lineHeight, title('Library').lineHeight);
+  });
+
+  it('reserves the full size’s line, not the fitted size’s', () => {
+    // 23 × 1.08, rounded — never 16 × 1.08.
+    assert.equal(title('Library').lineHeight, Math.round(TITLE.size * TITLE.ratio));
+  });
+
+  it('still reserves it before layout has measured anything', () => {
+    // Width 0 is the first render. The size is full, and so is the line.
+    const unmeasured = fittedText('Library', 0, 23, 16, 'serif', 1.08);
+    assert.equal(unmeasured.fontSize, 23);
+    assert.equal(unmeasured.lineHeight, Math.round(23 * 1.08));
   });
 });

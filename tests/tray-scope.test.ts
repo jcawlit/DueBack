@@ -23,7 +23,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { belongsToSource, isCheckedOut, occupiesBudget, type Book } from '../src/data/types.ts';
-import { trayBreakdown, trayGroups } from '../src/lib/library/tray.ts';
+import { showsGroupLabels, trayGroups } from '../src/lib/library/tray.ts';
 
 const DRIVE = 'usb';
 
@@ -133,17 +133,28 @@ describe('what the checked-out tray shows', () => {
 
   it('leaves the tray looking exactly as it always did with no server', () => {
     /*
-     * One group, so no dividers and no breakdown line. A listener who never
-     * opens Audiobookshelf must not be shown scaffolding for it.
+     * One group, so no dividers and nothing named. A listener who never opens
+     * Audiobookshelf must not be shown scaffolding for it — and the heading
+     * and the size already say everything one group could be told.
      */
     const out = groups([driveCheckout, imported, onDriveShelf], []);
     assert.equal(out.length, 1);
     assert.equal(out[0].label, 'Drive');
-    assert.equal(trayBreakdown(out), null);
+    assert.equal(showsGroupLabels(out), false);
   });
 
-  it('names the counts once there is more than one group', () => {
-    assert.equal(trayBreakdown(groups(all)), '2 Drive · 1 Home');
+  it('names the groups once there is more than one', () => {
+    /*
+     * The names used to be gathered into one line beside the heading, along
+     * with the book count and the total — which ran off the right of a phone.
+     * They go over their own stacks now, so this is the whole rule left: are
+     * there enough groups to be worth naming.
+     */
+    assert.equal(showsGroupLabels(groups(all)), true);
+    assert.deepEqual(
+      groups(all).map((g) => g.label),
+      ['Drive', 'Home'],
+    );
   });
 
   it('drops a group with nothing in it', () => {
@@ -177,5 +188,46 @@ describe('what the checked-out tray shows', () => {
 
   it('counts a copy in flight, so the ruler moves while it lands', () => {
     assert.equal(occupiesBudget(book({ local: { status: 'copying', progress: 0.5 } })), true);
+  });
+
+  it('treats the same book on the drive and on a server as two books', () => {
+    /*
+     * The same title in both libraries, both checked out, is allowed and is
+     * not an error. They are two books: identity is a uuid
+     * (`src/lib/library/identity.ts`), never a title — titles change when
+     * tags are edited and two books can share one — so the rows are separate,
+     * the audio is copied to `books/<id>` under two different ids, and
+     * releasing one leaves the other alone.
+     *
+     * The only honest consequence is that it costs the room twice, which the
+     * ruler has to show. Hence both counting against the budget.
+     */
+    const onDrive = book({
+      id: 'same-book-drive',
+      title: 'Piranesi',
+      author: 'Susanna Clarke',
+      local: { status: 'checked-out', localPath: 'books/same-book-drive' },
+    });
+    const onServer = book({
+      id: 'same-book-server',
+      title: 'Piranesi',
+      author: 'Susanna Clarke',
+      sourceId: 'abs-1',
+      local: { status: 'checked-out', localPath: 'books/same-book-server' },
+    });
+
+    // Each under where it came from, and neither hiding the other.
+    assert.deepEqual(shape([onDrive, onServer]), [
+      ['Drive', ['same-book-drive']],
+      ['Home', ['same-book-server']],
+    ]);
+    // And the room is charged twice, because it is taken twice.
+    assert.equal(occupiesBudget(onDrive), true);
+    assert.equal(occupiesBudget(onServer), true);
+    // Two ids, so `books/<id>` is two folders and neither copy can overwrite
+    // the other. Asserting on the fixtures' own paths would only have been
+    // this file agreeing with itself; the id is where the separation comes
+    // from, and `store/library.ts` builds the path from it.
+    assert.notEqual(onDrive.id, onServer.id);
   });
 });

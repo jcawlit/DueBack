@@ -103,13 +103,17 @@ export function trayBooks(groups: TrayGroup[]): Book[] {
 }
 
 /**
- * "3 on Drive · 2 from Home".
+ * Whether the groups should be named on screen.
  *
- * Only when there is more than one group: with a single group the count and
- * the size already say everything, and naming the drive it came from would be
+ * Only when there is more than one. With a single group the heading and the
+ * size already say everything, and naming the drive it came from would be
  * telling somebody where their only library is.
+ *
+ * The names used to be collected into one line beside the heading — "4 books
+ * · 12.1 of 32 GB · 3 Drive · 1 Home" — which did not fit across a phone and
+ * lost its end. They sit over their own covers instead, where the count is the
+ * stack underneath them and does not need saying twice.
  */
-export function trayBreakdown(groups: TrayGroup[]): string | null {
-  if (groups.length < 2) return null;
-  return groups.map((group) => `${group.books.length} ${group.label}`).join(' · ');
+export function showsGroupLabels(groups: TrayGroup[]): boolean {
+  return groups.length > 1;
 }

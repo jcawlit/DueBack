@@ -8,9 +8,17 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Animated, Easing, PanResponder, Pressable, Text, View } from 'react-native';
+import {
+  Animated,
+  Easing,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
 import type { Book } from '@/data/types';
-import { trayBooks, trayBreakdown, type TrayGroup } from '@/lib/library/tray';
+import { showsGroupLabels, trayBooks, type TrayGroup } from '@/lib/library/tray';
 import { color, font, shadow, space } from '@/theme/tokens';
 import { GB, gigabytes } from '@/lib/format';
 import { BookCover } from './BookCover';
@@ -76,6 +84,16 @@ const FAN_HEIGHT = 92;
  */
 const RULER_HEIGHT = 40;
 
+/**
+ * The strip holding "Drive" and a server's name over their own covers.
+ *
+ * A constant for the same reason `RULER_HEIGHT` is one: the collapse animates
+ * height, so the reveal needs a number before the first frame rather than
+ * after a layout pass. Only counted when there is more than one group, so a
+ * tray with no server is the exact height it always was.
+ */
+const GROUP_LABEL_HEIGHT = 13;
+
 const COLLAPSE_MS = 220;
 
 /** How far a drag has to travel before it counts as a deliberate shove. */
@@ -102,9 +120,12 @@ export function CheckedOutTray({
    * it at all. Only the rendering cares where a book came from.
    */
   const books = useMemo(() => trayBooks(groups), [groups]);
-  const breakdown = trayBreakdown(groups);
+  const labelled = showsGroupLabels(groups);
 
-  const revealHeight = FAN_HEIGHT + (showRuler ? space.md + RULER_HEIGHT : 0);
+  // The covers plus their names. The room for a cover never changes, so the
+  // fan does not get shorter when a server appears.
+  const fanHeight = FAN_HEIGHT + (labelled ? GROUP_LABEL_HEIGHT + space.xs : 0);
+  const revealHeight = fanHeight + (showRuler ? space.md + RULER_HEIGHT : 0);
 
   // `useState` rather than `useRef`, as `Slip` does: an Animated value is
   // read during render, which is exactly what a ref must not be.
@@ -211,18 +232,26 @@ export function CheckedOutTray({
   const overlap = Math.round(8 - fill * 30);
   const count = books.length;
 
-  const summary =
-    count === 0
-      ? `0 of ${Math.round(budgetBytes / GB)} GB`
-      : `${count} ${count === 1 ? 'book' : 'books'} · ${gigabytes(usedBytes)} of ${Math.round(budgetBytes / GB)} GB`;
+  /*
+   * The size against the budget, and nothing else.
+   *
+   * It carried the book count and the per-group counts too — "4 books · 12.1
+   * of 32 GB · 3 Drive · 1 Home" — and on a phone the right-hand end of that
+   * ran off the screen. Everything it said is said better somewhere else: the
+   * count is the covers, and the groups are now named over their own stacks.
+   * What is left is the one fact the fan cannot show.
+   */
+  const summary = `${(usedBytes / GB).toFixed(1)} of ${Math.round(budgetBytes / GB)} GB`;
 
   /*
-   * "2 Drive · 1 Home", in the same order the fan is laid out, so the line
-   * reads left to right across the covers. Only when there is more than one
-   * group: with one, the count and the size already say everything, and
-   * naming the drive would be telling somebody where their only library is.
+   * The whole thing in words, for a screen reader, which has no covers to
+   * count and no room it can run out of.
    */
-  const grouped = breakdown ? `${summary} · ${breakdown}` : summary;
+  const spoken = [
+    `${count} ${count === 1 ? 'book' : 'books'}`,
+    summary,
+    ...(labelled ? groups.map((g) => `${g.books.length} ${g.label}`) : []),
+  ].join(', ');
 
   return (
     <View style={[{ backgroundColor: color.panel }, shadow(14, 0.45)]}>
@@ -240,7 +269,7 @@ export function CheckedOutTray({
           disabled={!onToggleCollapsed}
           accessibilityRole="button"
           accessibilityState={{ expanded: !collapsed }}
-          accessibilityLabel={`Checked out, ${grouped}`}
+          accessibilityLabel={`Checked out, ${spoken}`}
           accessibilityHint={
             collapsed ? 'Opens the checked-out tray' : 'Shuts the checked-out tray'
           }
@@ -262,7 +291,7 @@ export function CheckedOutTray({
           </Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
             <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.muted }}>
-              {grouped}
+              {summary}
             </Text>
             {onToggleCollapsed ? (
               <Animated.View
@@ -297,86 +326,122 @@ export function CheckedOutTray({
           // Nothing in a shut tray should take a tap it cannot show the result of.
           pointerEvents={collapsed ? 'none' : 'auto'}
         >
-          <View
-            style={{
-              height: FAN_HEIGHT,
-              flexDirection: 'row',
-              alignItems: 'flex-end',
-              paddingLeft: space.xs,
-            }}
-          >
           {count === 0 ? (
-            <Text
-              style={{
-                fontFamily: font.serif,
-                fontSize: 16,
-                color: color.muted,
-                alignSelf: 'center',
-              }}
-            >
-              Nothing checked out. Bit of a light trip, huh?
-            </Text>
+            <View style={{ height: FAN_HEIGHT, justifyContent: 'center', paddingLeft: space.xs }}>
+              <Text style={{ fontFamily: font.serif, fontSize: 16, color: color.muted }}>
+                Nothing checked out. Bit of a light trip, huh?
+              </Text>
+            </View>
           ) : (
             /*
-             * The groups laid out left to right, with a rule between them.
-             * The fan's own counter runs across all of them so the lean and
-             * the stacking stay continuous — it should read as one fanned
-             * stack with divisions, not as several little stacks.
+             * Scrolls sideways, because the fan runs out of phone.
              *
-             * With one group there is no rule and nothing else changes, which
-             * is every library without a server.
+             * The covers tighten as the budget fills — that is the whole
+             * gesture of the thing, a bag getting fuller — but tightening is
+             * bounded and a 32 GB budget is not: ten books reached the right
+             * edge and the tenth was simply cut in half, with nothing to say
+             * it was there. Found on a phone with ten books out.
+             *
+             * Tightening further to fit would have been the other answer, and
+             * it is worse: past a certain overlap the covers stop being
+             * recognisable, and the overlap is carrying a meaning of its own.
              */
-            groups.map((group, g) => {
-              const before = groups.slice(0, g).reduce((n, x) => n + x.books.length, 0);
-              return (
-                <View
-                  key={group.id}
-                  style={{ flexDirection: 'row', alignItems: 'flex-end' }}
-                  accessibilityLabel={`${group.books.length} from ${group.label}`}
-                >
-                  {g > 0 ? (
-                    <View
-                      style={{
-                        width: 1,
-                        height: FAN_HEIGHT * 0.62,
-                        marginLeft: space.md,
-                        marginRight: space.sm,
-                        backgroundColor: color.border,
-                      }}
-                    />
-                  ) : null}
-                  {group.books.map((book, j) => {
-                    const i = before + j;
-                    return (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={{ height: fanHeight }}
+              contentContainerStyle={{
+                flexDirection: 'row',
+                alignItems: 'flex-end',
+                paddingLeft: space.xs,
+                // Room past the last cover, so the end of the fan does not sit
+                // flush against the edge and read as another cut-off.
+                paddingRight: space.xl,
+              }}
+            >
+              {/*
+                The groups laid out left to right, each under its own name,
+                with a rule between them. The fan's own counter runs across all
+                of them so the lean and the stacking stay continuous — it should
+                read as one fanned stack with divisions, not as several little
+                stacks.
+
+                With one group there is no name and no rule and nothing else
+                changes, which is every library without a server.
+              */}
+              {groups.map((group, g) => {
+                const before = groups.slice(0, g).reduce((n, x) => n + x.books.length, 0);
+                return (
+                  <View
+                    key={group.id}
+                    style={{ flexDirection: 'row', alignItems: 'flex-end' }}
+                    accessibilityLabel={`${group.books.length} from ${group.label}`}
+                  >
+                    {g > 0 ? (
                       <View
-                        key={book.id}
                         style={{
-                          marginLeft: j === 0 ? 0 : overlap,
-                          zIndex: i + 1,
-                          opacity: book.local.status === 'on-hold' ? 0.55 : 1,
+                          width: 1,
+                          height: FAN_HEIGHT * 0.62,
+                          marginLeft: space.md,
+                          marginRight: space.sm,
+                          backgroundColor: color.border,
                         }}
-                      >
-                        <BookCover
-                          book={book}
-                          size="tray"
-                          lean={LEANS[i % LEANS.length]}
-                          showEdge={false}
-                          showRibbon={false}
-                          // Everything in the tray is checked out, so an "OUT"
-                          // tag on each one says nothing. "DONE" does.
-                          showTag={book.local.status !== 'checked-out' || !!book.finishedAt}
-                          showSpineProgress
-                          onPress={() => onPressBook(book)}
-                          onLongPress={() => onLongPressBook(book)}
-                        />
+                      />
+                    ) : null}
+                    <View style={{ alignItems: 'flex-start' }}>
+                      {labelled ? (
+                        <Text
+                          numberOfLines={1}
+                          style={{
+                            fontFamily: font.mono,
+                            fontSize: 10,
+                            lineHeight: GROUP_LABEL_HEIGHT,
+                            marginBottom: space.xs,
+                            color: color.faint,
+                            // The name belongs to the stack under it, so it
+                            // starts where the stack does rather than centring
+                            // over a width that changes with every checkout.
+                            paddingLeft: 2,
+                          }}
+                        >
+                          {group.label}
+                        </Text>
+                      ) : null}
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
+                        {group.books.map((book, j) => {
+                          const i = before + j;
+                          return (
+                            <View
+                              key={book.id}
+                              style={{
+                                marginLeft: j === 0 ? 0 : overlap,
+                                zIndex: i + 1,
+                                opacity: book.local.status === 'on-hold' ? 0.55 : 1,
+                              }}
+                            >
+                              <BookCover
+                                book={book}
+                                size="tray"
+                                lean={LEANS[i % LEANS.length]}
+                                showEdge={false}
+                                showRibbon={false}
+                                // Everything in the tray is checked out, so an
+                                // "OUT" tag on each one says nothing. "DONE" does.
+                                showTag={book.local.status !== 'checked-out' || !!book.finishedAt}
+                                showSpineProgress
+                                onPress={() => onPressBook(book)}
+                                onLongPress={() => onLongPressBook(book)}
+                              />
+                            </View>
+                          );
+                        })}
                       </View>
-                    );
-                  })}
-                </View>
-              );
-            })
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
           )}
-          </View>
 
           {showRuler ? (
             <Ruler usedBytes={usedBytes} holdBytes={holdBytes} budgetBytes={budgetBytes} />

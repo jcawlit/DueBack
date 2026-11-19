@@ -13,7 +13,7 @@
 
 import { useState } from 'react';
 import { Text, View, type StyleProp, type TextStyle } from 'react-native';
-import { fittedFontSize, type GlyphWidth } from '@/lib/fitText';
+import { fittedText, type GlyphWidth } from '@/lib/fitText';
 
 export function FitText({
   children,
@@ -35,7 +35,11 @@ export function FitText({
   accessibilityRole?: 'header';
 }) {
   const [available, setAvailable] = useState(0);
-  const fitted = fittedFontSize(children, available, size, minSize, face);
+  /*
+   * The size shrinks; the line height stays at the full size's, so the box
+   * does not change height with the string in it. See `fittedText`.
+   */
+  const fitted = fittedText(children, available, size, minSize, face, lineHeightRatio);
 
   return (
     // The wrapper is what has the width; the Text inside is sized to it.
@@ -49,7 +53,7 @@ export function FitText({
          * so if it is wrong, it is wrong by an ellipsis rather than by a
          * second line reflowing the header.
          */
-        style={[style, { fontSize: fitted, lineHeight: Math.round(fitted * lineHeightRatio) }]}
+        style={[style, fitted]}
       >
         {children}
       </Text>

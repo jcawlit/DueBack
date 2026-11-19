@@ -48,3 +48,30 @@ export function fittedFontSize(
   const fits = Math.floor(availableWidth / needed);
   return Math.max(minSize, Math.min(maxSize, fits));
 }
+
+/**
+ * The size the text wears, and the room kept for it.
+ *
+ * These two come apart deliberately. The font size shrinks to fit; the line
+ * height **does not follow it down** — it is always the full size's, so the
+ * box is the same height whatever string is in it.
+ *
+ * Letting the line height shrink too is what made the Library header change
+ * height when the source was switched: "Library" sat at full size, a server's
+ * library name shrank to fit, and the nine pixels between them moved the
+ * divider and the sort chips every time. Reserving the full line means the
+ * text gets smaller inside a box that stays put.
+ */
+export function fittedText(
+  text: string,
+  availableWidth: number,
+  maxSize: number,
+  minSize: number,
+  face: GlyphWidth,
+  lineHeightRatio: number,
+): { fontSize: number; lineHeight: number } {
+  return {
+    fontSize: fittedFontSize(text, availableWidth, maxSize, minSize, face),
+    lineHeight: Math.round(maxSize * lineHeightRatio),
+  };
+}
