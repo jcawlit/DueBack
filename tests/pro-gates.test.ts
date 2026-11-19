@@ -23,7 +23,10 @@ import {
   canSeeStats,
   canUseCharacters,
   canUseTheme,
+  allowedSort,
+  canUseSort,
   canWriteNotes,
+  FREE_SORT,
   exportIsComplete,
   effectiveBudgetGB,
   FREE,
@@ -170,5 +173,36 @@ describe('the entitlement itself', () => {
     // away is worse than showing the free app and adding them.
     assert.equal(FREE.pro, false);
     assert.equal(canUseCharacters(FREE), false);
+  });
+});
+
+describe('the sorts', () => {
+  it('gives everyone the one that answers "what can I finish"', () => {
+    for (const e of EVERY) assert.equal(canUseSort(e, FREE_SORT), true);
+    assert.equal(FREE_SORT, 'length');
+  });
+
+  it('gates the six that arrange a library rather than read it', () => {
+    for (const mode of ['author', 'series', 'narrator', 'dust', 'unfinished', 'custom']) {
+      assert.equal(canUseSort(FREE, mode), false, `${mode} should be paid for`);
+      assert.equal(canUseSort(PAID, mode), true);
+    }
+  });
+
+  it('falls back rather than going on arranging for somebody without Pro', () => {
+    /*
+     * A sort chosen while Pro was granted is still stored afterwards — which
+     * is every listener today, since they are all on the pre-launch grant.
+     * Without this the shelves would keep obeying a setting the app no longer
+     * offers.
+     */
+    assert.equal(allowedSort(FREE, 'series'), 'length');
+    assert.equal(allowedSort(PAID, 'series'), 'series');
+  });
+
+  it('clamps rather than rewrites, so the choice comes back', () => {
+    const stored = 'dust';
+    assert.equal(allowedSort(FREE, stored), 'length');
+    assert.equal(allowedSort(PAID, stored), stored);
   });
 });

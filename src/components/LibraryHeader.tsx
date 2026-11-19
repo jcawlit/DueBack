@@ -18,6 +18,9 @@ import { SORT_LABELS, type SortMode } from '@/data/types';
 import { FitText } from './FitText';
 import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
 import { ChevronDown, DriveIcon, RefreshIcon, SearchIcon } from './icons';
+import { ProTag } from './ProTag';
+import { canUseSort } from '@/lib/pro';
+import { usePro } from '@/store/pro';
 
 /*
  * The order the chips sit in: the two that arrange the whole library, the
@@ -306,8 +309,22 @@ export function SortPicker({
   onChange: (next: SortMode) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const entitlement = usePro((s) => s.entitlement);
+  const openProSheet = usePro((s) => s.openSheet);
 
   const pick = (next: SortMode) => {
+    /*
+     * A locked arrangement keeps its row and says what it costs. Hiding the
+     * six would leave a menu with one item in it, which is not a menu — and
+     * the names are half the argument for paying: somebody has to see that
+     * "gathering dust" and "series in story order" exist before they can want
+     * them.
+     */
+    if (!canUseSort(entitlement, next)) {
+      setOpen(false);
+      openProSheet(`sort:${next}`);
+      return;
+    }
     setOpen(false);
     if (next !== sort) onChange(next);
   };
@@ -372,13 +389,18 @@ export function SortPicker({
             </Text>
             {SORTS.map((mode) => {
               const active = mode === sort;
+              const locked = !canUseSort(entitlement, mode);
               return (
                 <Pressable
                   key={mode}
                   onPress={() => pick(mode)}
                   accessibilityRole="button"
                   accessibilityState={{ selected: active }}
-                  accessibilityLabel={SORT_LABELS[mode]}
+                  accessibilityLabel={
+                    locked
+                      ? `${SORT_LABELS[mode]}. Part of Due Back Pro.`
+                      : SORT_LABELS[mode]
+                  }
                   style={({ pressed }) => ({
                     minHeight: TOUCH,
                     flexDirection: 'row',
@@ -394,11 +416,14 @@ export function SortPicker({
                       fontFamily: font.serif,
                       fontSize: 17,
                       color: active ? color.accent : color.paper,
+                      opacity: locked ? 0.55 : 1,
                     }}
                   >
                     {SORT_LABELS[mode]}
                   </Text>
-                  {active ? (
+                  {locked ? (
+                    <ProTag />
+                  ) : active ? (
                     <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>
                       on
                     </Text>

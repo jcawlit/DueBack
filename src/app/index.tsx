@@ -30,6 +30,8 @@ import { useUi } from '@/store/ui';
 import { switchableSources, useSources } from '@/store/sources';
 import { USB_SOURCE_ID } from '@/db/sources';
 import { useMiniPlayerInset } from '@/components/MiniPlayer';
+import { allowedSort } from '@/lib/pro';
+import { useGate } from '@/store/pro';
 import { safFolderPath } from '@/lib/files/safNames';
 import {
   buildShelves,
@@ -87,7 +89,14 @@ export default function LibraryScreen() {
   const ready = useLibrary((s) => s.ready);
   const startupError = useLibrary((s) => s.startupError);
   const books = useLibrary((s) => s.books);
-  const sort = useLibrary((s) => s.sort);
+  /*
+   * Clamped to what this phone may use. A sort chosen while Pro was granted
+   * is still stored afterwards, and would otherwise go on arranging the
+   * shelves for somebody who no longer has it. It falls back rather than
+   * being rewritten, so the choice returns the moment Pro does.
+   */
+  const storedSort = useLibrary((s) => s.sort);
+  const sort = useGate((e) => allowedSort(e, storedSort));
   const setSort = useLibrary((s) => s.setSort);
   const budgetBytes = useLibrary((s) => s.budgetBytes);
   const libraryRoot = useLibrary((s) => s.libraryRoot);

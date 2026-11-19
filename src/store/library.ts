@@ -65,10 +65,9 @@ import { usePro } from '@/store/pro';
 /**
  * The budget actually in force on this phone, in bytes.
  *
- * A stored budget is not always an allowed one. The drive backup carries the
- * setting between phones, so a 32 GB budget written on a phone with Pro will
- * arrive on one without it — and without this, restoring a backup would hand
- * out unlimited storage for nothing.
+ * A stored budget is not always an allowed one, and it is not hypothetical:
+ * every listener today is on the pre-launch grant, so the day billing ships
+ * they are all holding budgets set while the dial had no ceiling.
  *
  * It clamps rather than rewrites: the stored number stays 32, it is simply
  * not in force, and buying Pro brings it straight back with nothing to
@@ -78,7 +77,7 @@ import { usePro } from '@/store/pro';
  * `lib/library/budget.ts` imports nothing on purpose — that is what lets
  * `node --test` load it — and this needs the entitlement store.
  */
-function effectiveBudgetBytes(storedBytes: number): number {
+export function effectiveBudgetBytes(storedBytes: number): number {
   return gbToBytes(effectiveBudgetGB(usePro.getState().entitlement, bytesToGB(storedBytes)));
 }
 
@@ -797,7 +796,10 @@ export const useLibrary = create<LibraryState>((set, get) => {
       .sort((a, b) => since(a).localeCompare(since(b)));
     for (const book of held) {
       const others = books.filter((b) => b.id !== book.id);
-      const free = get().budgetBytes - committedBytes(others);
+      // The same budget the check-out gate uses. These disagreed: the gate
+      // was clamped to the entitlement and this was not, so the queue would
+      // start a copy the gate had already refused.
+      const free = effectiveBudgetBytes(get().budgetBytes) - committedBytes(others);
       if (book.sizeBytes <= free) return book;
     }
     return null;
@@ -836,6 +838,12 @@ export const useLibrary = create<LibraryState>((set, get) => {
         // and one of them lost. Let the scan finish; the books are not going
         // anywhere.
         await waitForScanToFinish();
+        /*
+         * Drive books found to be unreachable this time round. Skipped rather
+         * than retried, so the loop cannot spin on one, and forgotten when the
+         * drain ends so the next plug-in tries again.
+         */
+        const unreachable = new Set<string>();
         for (;;) {
           /*
            * A book from a server needs no drive, so an unplugged drive must
@@ -843,9 +851,21 @@ export const useLibrary = create<LibraryState>((set, get) => {
            * which is why the drive's availability is a filter on what can
            * run rather than a condition on the loop.
            */
-          const book = nextQueued((b) => isRemote(b) || get().driveConnected);
+          const book = nextQueued(
+            (b) => (isRemote(b) || get().driveConnected) && !unreachable.has(b.id),
+          );
           if (!book) break;
-          if (!isRemote(book) && !(await proveDriveReachable())) break;
+          /*
+           * `continue`, not `break`. This used to abandon the whole drain the
+           * moment a drive book could not be reached — including every server
+           * book queued behind it, which needs no drive at all. The drive
+           * reporting itself connected while not answering is exactly the
+           * state that produced a tray full of holds with nothing copying.
+           */
+          if (!isRemote(book) && !(await proveDriveReachable())) {
+            unreachable.add(book.id);
+            continue;
+          }
           const onCheckedOut = playWhenCopied.get(book.id);
           playWhenCopied.delete(book.id);
           await startCopy(book, onCheckedOut);
@@ -870,7 +890,8 @@ export const useLibrary = create<LibraryState>((set, get) => {
       // queued just above, so the budget cannot be overspent by a batch.
       const others = get().books.filter((b) => b.id !== book.id);
       const alreadyQueued = queued.reduce((n, b) => n + b.sizeBytes, 0);
-      const free = get().budgetBytes - committedBytes(others) - alreadyQueued;
+      const free =
+        effectiveBudgetBytes(get().budgetBytes) - committedBytes(others) - alreadyQueued;
       if (book.sizeBytes <= free) queued.push(book);
       else refused += 1;
     });

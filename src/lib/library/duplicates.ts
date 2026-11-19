@@ -41,14 +41,26 @@ export function duplicatesOf(books: Book[], book: Book): Book[] {
 }
 
 /**
- * Where a book lives, as something a person could go and look for. The full
- * relative path rather than just the folder name, because "Disc 1" on its own
- * names nothing.
+ * Where a book lives, as something a person could go and look for.
+ *
+ * The folder it is in, with whatever it is nested under kept as context —
+ * "Disc 1" on its own names nothing, so the parent cannot simply be dropped.
+ * But the parent must not come **first**, which is what the full path did:
+ * a second copy of The Hobbit sitting inside a folder called
+ * `Hyperion - Dan Simmons - 1989` was labelled with Hyperion’s name, and read
+ * as though the app were pointing at the wrong book entirely. It was not —
+ * the link went to the right one — but a label nobody can read is a label
+ * that is wrong.
  */
 export function folderLabel(book: Book): string {
   const path = book.sourceRelPath?.replace(/^\/+|\/+$/g, '') ?? '';
   if (!path) return 'the library folder';
-  return path;
+  const parts = path.split('/').filter(Boolean);
+  const here = parts[parts.length - 1];
+  if (parts.length < 2) return here;
+  // "The Hobbit, in Hyperion - Dan Simmons - 1989" rather than the path,
+  // which put the wrong name where the eye lands first.
+  return `${here}, in ${parts.slice(0, -1).join('/')}`;
 }
 
 /**

@@ -82,3 +82,43 @@ export const gbToBytes = (gb: number) => clampBudgetGB(gb) * GB;
 
 /** Rounded, because a stored byte count need not land on a whole gigabyte. */
 export const bytesToGB = (value: number) => clampBudgetGB(value / GB);
+
+/**
+ * Why a book sitting on hold is not copying.
+ *
+ * Pulled out of the screen because the screen was guessing, and guessing
+ * wrongly in the one case that matters. "It will start when the one ahead
+ * finishes" is true only while something *is* finishing — and a set of holds
+ * whose total exceeds the budget will never start any of them, because each
+ * one counts every other as already spent. The queue deadlocks, and the old
+ * message described it as progress.
+ *
+ * - `drive` — the book is on the drive and the drive is not there.
+ * - `turn` — something else is copying, or will; this one is next in line.
+ * - `wont-fit` — the holds together are bigger than the budget, so none of
+ *   them can ever start. The listener has to return or cancel something, and
+ *   nothing but this message will tell them so.
+ */
+export type HoldReason = 'drive' | 'turn' | 'wont-fit';
+
+export function holdReason(options: {
+  /** Does this book need the drive, and is the drive there? */
+  needsDrive: boolean;
+  driveConnected: boolean;
+  /**
+   * Every byte already committed — on the phone, copying, or on hold.
+   *
+   * This book's own size is deliberately not a parameter. It is on hold, a
+   * hold is a commitment, so it is already inside this total; asking whether
+   * it fits in what is left would be asking whether it fits beside itself,
+   * which is always false and was never the question.
+   */
+  committedBytes: number;
+  budgetBytes: number;
+}): HoldReason {
+  const { needsDrive, driveConnected, committedBytes, budgetBytes } = options;
+  if (needsDrive && !driveConnected) return 'drive';
+  // Does everything promised fit at once? If not, nothing can ever start.
+  if (committedBytes > budgetBytes) return 'wont-fit';
+  return 'turn';
+}

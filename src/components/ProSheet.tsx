@@ -89,7 +89,14 @@ export function ProSheet({
         style={{
           flex: 1,
           backgroundColor: color.scrim,
-          justifyContent: 'flex-end',
+          /*
+           * Centred, unlike the confirmation sheet, which sits at the foot
+           * because it is answering a question about something you just
+           * pressed down there. This is not an interruption — it is the
+           * thing you came to read — and at the bottom of a tall phone it
+           * sat low enough to look like it had failed to finish opening.
+           */
+          justifyContent: 'center',
           padding: space.lg,
         }}
       >

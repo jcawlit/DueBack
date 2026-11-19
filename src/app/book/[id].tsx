@@ -8,7 +8,13 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useMemo, useState } from 'react';
 import { chapterAt, fractionAt, isCheckedOut, isRemote } from '@/data/types';
-import { selectBook, useLibrary } from '@/store/library';
+import {
+  committedBytes,
+  effectiveBudgetBytes,
+  selectBook,
+  useLibrary,
+} from '@/store/library';
+import { holdReason } from '@/lib/library/budget';
 import { useSources } from '@/store/sources';
 import { fetchDetail } from '@/lib/abs/catalogue';
 import { usePlayer } from '@/store/player';
@@ -171,6 +177,7 @@ export default function BookScreen() {
   const book = useLibrary(selectBook(id));
   const books = useLibrary((s) => s.books);
   const driveConnected = useLibrary((s) => s.driveConnected);
+  const budgetBytes = useLibrary((s) => s.budgetBytes);
   const libraryOnDevice = useLibrary((s) => s.libraryOnDevice);
   const checkOut = useLibrary((s) => s.checkOut);
   const returnBook = useLibrary((s) => s.returnBook);
@@ -342,6 +349,13 @@ export default function BookScreen() {
     sources.find((source) => source.id === book.sourceId)?.label ?? 'the server';
   const copying = book.local.status === 'copying';
   const onHold = book.local.status === 'on-hold';
+  // Why it is not copying, rather than the screen's own guess at it.
+  const heldBecause = holdReason({
+    needsDrive: !remote,
+    driveConnected,
+    committedBytes: committedBytes(books),
+    budgetBytes: effectiveBudgetBytes(budgetBytes),
+  });
   const position = livePosition ?? book.progressSec;
   const fraction = fractionAt(book, position);
   const started = position > 60;
@@ -550,16 +564,22 @@ export default function BookScreen() {
               }
             : onHold
               ? {
-                  // On hold means two different things depending on what is
-                  // missing: the drive, or a turn in the queue behind another
-                  // copy. Saying "waiting for the drive" with the drive plugged
-                  // in reads as a bug.
-                  label: remote || driveConnected ? 'In the queue' : 'Waiting for the drive',
-                  sentence: remote || driveConnected ? 'In the queue' : 'Waiting for the drive',
+                  /*
+                   * On hold means three different things, and the screen used
+                   * to know about two. "It will start when the one ahead
+                   * finishes" was said whenever the drive was present — but a
+                   * set of holds bigger than the budget never starts any of
+                   * them, and describing that as a queue is how a listener
+                   * sits watching nothing happen. See `holdReason`.
+                   */
+                  label: heldBecause === 'drive' ? 'Waiting for the drive' : 'In the queue',
+                  sentence: heldBecause === 'drive' ? 'Waiting for the drive' : 'In the queue',
                   context:
-                    remote || driveConnected
-                      ? 'It will start when the one ahead finishes'
-                      : 'It will copy as soon as the drive is connected',
+                    heldBecause === 'drive'
+                      ? 'It will copy as soon as the drive is connected'
+                      : heldBecause === 'wont-fit'
+                        ? "There isn't room for everything on hold. Return or cancel something and this one will start."
+                        : 'It will start when the one ahead finishes',
                   onPress: undefined,
                 }
               : remote

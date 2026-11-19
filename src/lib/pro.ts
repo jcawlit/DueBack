@@ -151,6 +151,34 @@ export function canUseTheme(e: Entitlement, themeId: string): boolean {
   return e.pro || themeId === FREE_THEME_ID;
 }
 
+/**
+ * The one sort that costs nothing.
+ *
+ * By length is the useful default for an audiobook library — it answers "what
+ * can I finish this week" — and it is what the app opens on. The other six
+ * arrange a library rather than read it.
+ */
+export const FREE_SORT = 'length';
+
+export function canUseSort(e: Entitlement, sort: string): boolean {
+  return e.pro || sort === FREE_SORT;
+}
+
+/**
+ * The sort actually in force, which is not always the one that was chosen.
+ *
+ * Not called `effectiveSort`: `src/lib/shelves.ts` already has one of
+ * those, and it answers a different question (which arrangement the shelves
+ * are actually built in, given a drag in progress).
+ *
+ * Same shape as `effectiveBudgetGB` and for the same reason: a sort chosen
+ * while Pro was granted is still stored afterwards. It falls back rather than
+ * being rewritten, so the choice comes straight back on buying.
+ */
+export function allowedSort<T extends string>(e: Entitlement, stored: T): T | typeof FREE_SORT {
+  return canUseSort(e, stored) ? stored : FREE_SORT;
+}
+
 /** How big the storage budget may be set, in gigabytes. */
 export const FREE_BUDGET_CEILING_GB = 2;
 
@@ -166,10 +194,15 @@ export function budgetCeilingGB(e: Entitlement, maxGB: number): number {
 /**
  * The budget actually in force, which is not always the one that was set.
  *
- * A stored budget can exceed what this phone is allowed: a drive backup
- * carries the setting between phones, so a 32 GB budget written on a Pro
- * phone will arrive on a free one. Clamping here rather than only on the
- * dial means restoring a backup cannot quietly hand out unlimited storage.
+ * A stored budget can exceed what this phone is allowed, and it is not a
+ * hypothetical: **every listener today is on the pre-launch grant**, so the
+ * day billing ships they are all holding budgets set while the dial had no
+ * ceiling. The dev switch does the same thing in one tap.
+ *
+ * (An earlier version of this comment blamed the drive backup for carrying
+ * the setting between phones. It does not — `SyncPayload` is identity, notes,
+ * characters, tags, progress, history, shelves, listening and overrides, and
+ * no settings at all.)
  *
  * It clamps rather than resets, so the number comes straight back when the
  * app is paid for. Nothing is lost, it is only not in force.

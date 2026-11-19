@@ -438,10 +438,23 @@ describe('spotting the same book twice', () => {
     assert.deepEqual(duplicatesOf(blank, blank[0]), []);
   });
 
-  it('names the folder as a path, so "Disc 1" is never shown on its own', () => {
-    assert.equal(folderLabel(shelf[1]), 'Boxed Set/Dup B');
-    assert.equal(folderLabel(copy('r', 'T', 'A', '') as never), 'the library folder');
+  it('names the folder first and what it sits in second', () => {
+    /*
+     * The folder cannot be shown on its own — "Disc 1" names nothing — but
+     * it used to be the full path, and that put the wrong word where the eye
+     * lands. A second copy of The Hobbit inside a folder called
+     * `Hyperion - Dan Simmons - 1989` was labelled with Hyperion's name, and
+     * read as though the app were linking to the wrong book. It was not. The
+     * label was simply unreadable.
+     */
+    assert.equal(folderLabel(shelf[1]), 'Dup B, in Boxed Set');
+    assert.equal(
+      folderLabel(copy('h', 'T', 'A', 'Hyperion - Dan Simmons - 1989/The Hobbit') as never),
+      'The Hobbit, in Hyperion - Dan Simmons - 1989',
+    );
+    // A book at the top of the library has nothing to sit in, and says so.
     assert.equal(folderLabel(copy('s', 'T', 'A', '/Trimmed/') as never), 'Trimmed');
+    assert.equal(folderLabel(copy('r', 'T', 'A', '') as never), 'the library folder');
   });
 
   it('groups the whole library into sets of more than one', () => {
