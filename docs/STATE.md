@@ -120,6 +120,26 @@ number climbed several between two looks at the same folder. That was a real
 bug — see "A position tick must never reach the drive" below, fixed in
 `b0ffc11`.
 
+### Waiting on a phone, as of 19 November 2026
+
+The APK at commit `4641b48`. Two commits of screen work that has never run on
+hardware — all of it is layout, which no test on this machine can judge:
+
+- **The checked-out fan scrolling sideways.** It cut the tenth cover in half
+  before. Ten books out is the case to reproduce.
+- **The tray's group labels**, with a server connected: "Drive" and the
+  server's name in 10pt over their own stacks, a rule between them, and the
+  summary reduced to `12.1 of 32 GB`. Whether two stacks in one fan read as
+  crowded is the open question — the fix would be per-group scrolling, which
+  was deliberately not done without seeing it.
+- **The Library header holding one height** across a source switch. It moved
+  the divider and the sort chips before, because `FitText` shrank the line
+  height along with the font. The arithmetic is pinned by tests and
+  mutation-checked; what is unverified is that the header now *looks* right a
+  tenth shorter, and that a long server library name still reads as a title at
+  16pt.
+- **Long-press on the source pill from a server's library.** The gesture was
+  there with no handler behind it, so this has never worked at all.
 ### Still never verified on real hardware
 
 Treat these as open questions, not as working features:
