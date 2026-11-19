@@ -12,7 +12,11 @@ name: checks
 
 on:
   push:
-    branches: [main]
+    # Every branch, not just `main`. It was `[main]`, and `AGENTS.md` claimed
+    # these ran on every push — so eleven commits went up on a branch under
+    # the impression they had been checked, and nothing had run at all. A
+    # check you believe in and do not have is worse than no check.
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 
@@ -35,6 +39,8 @@ jobs:
       # dependency tree was allowed to move on its own.
       - run: npm ci
 
+      # src/, tests/ and scripts/ — the last of those was in no tsconfig at
+      # all, and a rename in src/ had quietly broken `npm run report:books`.
       - run: npm run typecheck
 
       - run: npm run lint

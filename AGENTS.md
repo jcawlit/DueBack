@@ -10,10 +10,13 @@ and cross-platform behaviour.
   before auditing anything or proposing a direction; it is the current list,
   where `CHANGES.md` is history.
 - A fresh clone has no `android/` and no APK. Both are generated —
-  `docs/STATE.md` says how.
-- `npm test`, `npm run lint` and `npm run typecheck` run in CI on every push
-  (`.github/workflows/ci.yml`). That is the whole automated suite: everything
-  else is tested by hand on a Pixel with a real drive.
+  `docs/STATE.md` says how. Build with `npm run apk`, never Gradle by hand:
+  three things about this machine's JDK and SDK are traps and that script
+  walks past all of them. `npm run kb -- "jvm.cfg"` for what they are.
+- `npm test`, `npm run lint` and `npm run typecheck` run in CI on every push,
+  on any branch (`.github/workflows/ci.yml`). Typecheck covers `src/`, `tests/`
+  and `scripts/`. That is the whole automated suite: everything else is tested
+  by hand on a Pixel with a real drive.
 
 ## Read only what the task needs
 

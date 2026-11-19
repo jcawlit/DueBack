@@ -1216,6 +1216,48 @@ never advance that base. Conflict copies keep their deterministic ids.
 
 *`src/lib/sync/records.ts`, `tests/audit-regressions.test.ts`*
 
+### Three traps between this machine and an APK (2026-11-19)
+
+Each of these cost a build attempt, and each presents as something other
+than what it is. `npm run apk` now walks past all three, so the practical
+advice is to use it; this is here for when it stops working.
+
+**`JAVA_HOME is not set` is a lie.** It is set — persisted in the Windows
+registry, user and machine environment — but a shell started by an editor or
+an agent does not always inherit it, and neither does `ANDROID_HOME`. Gradle
+reports absence where the truth is non-inheritance, which sends you off to
+install a JDK that is already there. The persisted values are readable:
+
+```sh
+reg query "HKCU\Environment" /v ANDROID_HOME
+reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v JAVA_HOME
+```
+
+**`Android Studio/jbr` is not a usable JDK on this machine.** It has
+`bin/java.exe`, so every "does a JDK live here?" check passes, and its `lib/`
+holds only `modules` — no `jvm.cfg` — so `java` dies with `could not open
+jvm.cfg`. Pointing `JAVA_HOME` at it is strictly worse than leaving it unset,
+because the error stops being about Java at all. The working JDK is the
+Microsoft one, which is what the machine `JAVA_HOME` already says.
+**`bin/java` existing is not evidence; check for `lib/jvm.cfg`.**
+
+**There are two Android SDKs**, `C:\Android` and `%LOCALAPPDATA%\Android\Sdk`,
+with different NDK and build-tools inside them. Either one builds. Choosing
+the other one silently changes toolchain between builds, which is the kind of
+difference that gets blamed on the code. `ANDROID_HOME` says `C:\Android`,
+and that is the one that counts — `docs/DEVELOPMENT.md` used to document the
+other.
+
+A fourth, unrelated to this machine: **`gradlew.bat` cannot be spawned from
+Node without a shell.** Since the 2024 argument-injection fix, `execFileSync`
+on a `.bat` throws `EINVAL` before the process starts — so it fails with
+`status: null` and no output, and a `catch` that assumes "Gradle already
+printed the reason" reports success while having built nothing. That happened
+in the first draft of `scripts/build-apk.ts`. Pass `shell: true`, and only
+stay quiet about a failure that actually has an exit status.
+
+*`scripts/build-apk.ts`, `docs/DEVELOPMENT.md`*
+
 ## Testing against an Audiobookshelf server
 
 ### Git Bash path conversion is wanted everywhere except container paths

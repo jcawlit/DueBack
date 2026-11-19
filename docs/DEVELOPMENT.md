@@ -77,27 +77,46 @@ and open the installed **Due Back** app rather than Expo Go.
 Or build locally, which needs **JDK 17** and the Android SDK:
 
 ```sh
-export JAVA_HOME=/path/to/jdk-17
-export ANDROID_HOME=$LOCALAPPDATA/Android/Sdk
-npx expo prebuild --platform android      # regenerate android/
-cd android
-./gradlew :app:assembleDebug -PreactNativeArchitectures=arm64-v8a
-# app/build/outputs/apk/debug/app-debug.apk
+npx expo prebuild --platform android      # once, if there is no android/
+npm run apk                               # build arm64 release, then publish
 ```
 
-**Always pass `-PreactNativeArchitectures`.** The default builds all four CPU
-architectures, compiling the native modules from source four times over: 22
-minutes and a 282 MB APK, versus a few minutes and a much smaller one. Modern
-phones — any recent Pixel — are `arm64-v8a`. Use `x86_64` for an emulator.
+`npm run apk` is the whole thing: it finds the JDK and the SDK, builds, and
+publishes. Use it rather than calling Gradle by hand — not for convenience,
+but because three things about a Windows machine are traps and the script
+exists to walk past all three. `scripts/build-apk.ts` explains each one at
+length; briefly:
 
-A release build — the kind that goes on the phone for real testing — is
-`:app:assembleRelease` instead, and then:
+- **`JAVA_HOME` and `ANDROID_HOME` are set but invisible.** They live in the
+  Windows registry, and a shell started by an editor or an agent does not
+  always inherit them. Gradle then says `JAVA_HOME is not set`, which is false
+  and sends you hunting. The script reads the registry when the environment is
+  silent.
+- **Not every JDK on the machine works.** Android Studio ships one at
+  `Android Studio/jbr`, and on this machine its `lib/` is missing `jvm.cfg`, so
+  `java` dies with `could not open jvm.cfg`. Having `bin/java.exe` proves
+  nothing; the script checks properly and names what it rejected.
+- **Two Android SDKs exist**, `C:\Android` and `%LOCALAPPDATA%\Android\Sdk`,
+  holding different NDK and build-tools versions. The persisted `ANDROID_HOME`
+  wins, so a build does not quietly change toolchain.
+
+Its flags: `--debug` for a debug build, `--all-abis`, `--no-publish`.
+
+By hand, if you must — and then **always pass `-PreactNativeArchitectures`**:
 
 ```sh
-npm run apk:publish
+export JAVA_HOME=/path/to/jdk-17                 # must contain lib/jvm.cfg
+export ANDROID_HOME=/path/to/android-sdk
+cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a
 ```
 
-That copies it to `dueback.apk` at the repository root, and to the file
+The default builds all four CPU architectures, compiling the native modules
+from source four times over: 22 minutes and a 282 MB APK, versus a few minutes
+and a much smaller one. Modern phones — any recent Pixel — are `arm64-v8a`.
+Use `x86_64` for an emulator. `:app:assembleDebug` is the debug equivalent.
+
+`npm run apk:publish` is the publishing half on its own, for an APK already
+built. It copies it to `dueback.apk` at the repository root, and to the file
 server as both `dueback-<sha>.apk` and `dueback.apk`. The sha-stamped name
 is what makes "was this broken before that change?" answerable later; the
 plain one is always the newest, so the phone's bookmark never moves. Set

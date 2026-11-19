@@ -5,7 +5,7 @@ import { REAL_DIR, nodeReader, walk } from '../tests/helpers.ts';
 import { readMetadata } from '../src/lib/metadata/index.ts';
 import { groupIntoBooks, orderParts, findCoverFile, type ScannedFile } from '../src/lib/library/grouping.ts';
 import { resolveName } from '../src/lib/library/names.ts';
-import { bookIdFor } from '../src/lib/library/ids.ts';
+import { pathKeyFor } from '../src/lib/library/ids.ts';
 
 const tree: ScannedFile[] = walk(REAL_DIR).map((abs) => {
   const rel = path.relative(REAL_DIR, abs).split(path.sep).join('/');
@@ -41,7 +41,15 @@ for (const g of groups) {
   const coverFile = findCoverFile(tree, g.folderRelPath);
 
   console.log(`── ${name.title}`);
-  console.log(`   id          ${bookIdFor(g.folderRelPath, g.files, { split: g.split })}`);
+  /*
+   * The path key, not an id. These were the same function once, and a book's
+   * identity was a hash of where it sat — which made a stranger of a book
+   * somebody was halfway through as soon as the folder was renamed. Identity
+   * is a uuid now (`src/lib/library/identity.ts`) and is assigned when the row
+   * is written, so a dry run has none to print. The key is the useful thing
+   * here anyway: it is what a scan looks a folder up by.
+   */
+  console.log(`   path key    ${pathKeyFor(g.folderRelPath, g.files, { split: g.split })}`);
   console.log(`   raw folder  ${g.folderName}`);
   console.log(`   embedded    title="${multi ? first?.album ?? '' : first?.title ?? ''}" artist="${first?.author ?? ''}"`);
   console.log(`   → title     "${name.title}"  (${name.titleSource})`);

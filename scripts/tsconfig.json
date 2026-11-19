@@ -1,0 +1,22 @@
+{
+  "//": [
+    "The scripts are plain Node TypeScript, run through --experimental-strip-types, not React Native.",
+    "Checked for the same reason the tests are: `npm run report:books` had been broken for weeks by a rename",
+    "in src/, and nothing noticed, because scripts/ was in no tsconfig at all.",
+    "",
+    "`module: esnext` rather than `nodenext`, which is what tests/ uses. Node runs these as ESM because it",
+    "detects module syntax in them, but `nodenext` takes the format from package.json `type` instead — and",
+    "this package has none, so every top-level await became an error about a CommonJS module. Adding",
+    "`type: module` to package.json would settle it and would also change how Metro and every Expo config",
+    "file are loaded, which is a large bill for a build script."
+  ],
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "noEmit": true
+  },
+  "include": ["**/*.ts", "../tests/helpers.ts"],
+  "exclude": []
+}
