@@ -140,6 +140,19 @@ hardware — all of it is layout, which no test on this machine can judge:
   16pt.
 - **Long-press on the source pill from a server's library.** The gesture was
   there with no handler behind it, so this has never worked at all.
+
+Added on the same day, in a later build (`f6bf87f`):
+
+- **The lock screen's chapter buttons.** Whether they appear at all, whether
+  they move the book a chapter, and whether they work across a part boundary —
+  the case that decided the whole design, since the jump has to happen in
+  JavaScript for exactly that reason. Also whether they are **absent** on a
+  single-file book with no embedded chapters, which is the gate working.
+- **Both halves of the layout.** On Android 13 and up these are media3 session
+  buttons; on 12 and below they are notification actions, and that path has
+  never been exercised by anything. The Pixel only tests the first.
+- **A Bluetooth or car "next track" button**, which may or may not map to
+  these. Nothing was done to make it, and nothing to stop it.
 ### Still never verified on real hardware
 
 Treat these as open questions, not as working features:
@@ -287,10 +300,12 @@ account gets locked.
 Do not report these as findings. Report them as findings only with new
 evidence that the reasoning was wrong.
 
-- **No next/previous chapter on the lock screen.** `expo-audio` removes
-  `COMMAND_SEEK_TO_NEXT` and `COMMAND_SEEK_TO_PREVIOUS` in
-  `AudioMediaSessionCallback.onConnect`. Adding them back means teaching the
-  session what a chapter boundary is, which the module has no concept of.
+- **Next/previous chapter on the lock screen is built but unverified.** It
+  was listed here as not fixed for months; `plugins/withLockScreenChapters.js`
+  now does it, by forwarding the press to the app rather than teaching the
+  session what a chapter is — which it cannot be taught, because the target
+  chapter may be in a different file. `npm run kb -- "chapter button"`. No
+  phone has pressed one.
 
   The **skip interval is no longer among these**, and neither are the dead
   buttons. `plugins/withLockScreenSeek.js` rewrites three of the module's

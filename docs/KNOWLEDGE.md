@@ -581,6 +581,60 @@ reads as ten seconds.
 
 ---
 
+
+### A lock-screen chapter button cannot do the seeking (2026-11-19)
+
+expo-audio strips `COMMAND_SEEK_TO_NEXT`, `COMMAND_SEEK_TO_PREVIOUS` and both
+`*_MEDIA_ITEM` variants in `AudioMediaSessionCallback.onConnect`, and it is
+right to — for expo-audio there is nothing to navigate to. Adding them back as
+**player** commands and letting media3 do the work does not work here, for two
+reasons that are about this app rather than about media3:
+
+- **A chapter is not a media item.** The engine plays a book as one
+  `AudioPlayer` holding one file at a time, because `setActiveForLockScreen`
+  exists only on `AudioPlayer` and without it Android stops background audio
+  after about three minutes. So the ExoPlayer timeline is a single item and
+  `seekToNext()` has nowhere to go.
+- **The target chapter may be in a different file.** Chapters are on the
+  whole-book timeline; parts are switched with `replace()` + `seekTo()` from
+  JavaScript. Carrying a cross-part jump out in Kotlin means a second
+  implementation of part switching, in another language, against the same
+  files — and two implementations of that will drift.
+
+So the buttons are **custom session commands that forward the press**: the
+patched service broadcasts `dueback.audio.action.CHAPTER_SKIP` inside the app,
+`DuebackAudioModule` receives it and sends an `onChapterSkip` event, and the
+store calls the same `skipChapter` the Player screen’s arrows call. The same
+division the headphone-unplug receiver already makes.
+
+**Three things this depends on, each of which fails silently if broken:**
+
+- `onCustomCommand` must return `RESULT_SUCCESS`. A controller told a command
+  failed is entitled to stop drawing the button that sends it — which is the
+  original lock-screen seek bug, in a new place.
+- The commands must be added in `onConnect` as well as drawn in
+  `updateSessionCustomLayout`. Drawn but unadvertised is a dead button.
+- The broadcast action string is duplicated in the plugin and in the module,
+  because they share no code. `assertAppHalfPresent` fails the build if they
+  drift; without it the symptom is a button that is drawn, reports success,
+  and does nothing.
+
+**The buttons are gated on the book having chapter marks**, carried as a
+`showChapterButtons` field patched onto `AudioLockScreenOptions`. It has to be
+decided when the session is built — `setActiveForLockScreen` fixes the layout —
+which is once per book, which is also the only moment the app knows. A single
+file with no embedded chapters has none: `chapterAt` reports one spanning the
+whole book so the screens have something to draw, but there is nowhere to skip.
+
+A broadcast rather than a direct call because `modules/dueback-audio` has no
+compile-time relationship with expo-audio and must not grow one. Registered
+with `RECEIVER_NOT_EXPORTED`: Android 13 made the flag compulsory for
+app-defined broadcasts, and a playback control should not be reachable by every
+app on the phone.
+
+*`plugins/withLockScreenChapters.js`, `modules/dueback-audio/`,
+`src/lib/library/chapters.ts`, `tests/chapter-skip.test.ts`*
+
 ## Identity
 
 ### A path locates a book; it does not identify one
