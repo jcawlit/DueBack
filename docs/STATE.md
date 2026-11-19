@@ -318,6 +318,31 @@ source "Sign in again" and stops: there is nothing to retry with, and a
 client that keeps trying against a server that keeps refusing is how an
 account gets locked.
 
+## Before the first public release
+
+Three things that are deliberately wrong right now and must be right before a
+build reaches anybody who is not the author.
+
+1. **`BILLING_WIRED` is `false`** (`src/store/pro.ts`). While it is, three
+   things are true on purpose: everybody is granted Pro, the buy button says
+   there is nothing to buy, and Settings carries a switch that drops the app to
+   the free tier so the locked states can be seen. Flipping it in the same
+   change that wires `expo-iap` fixes all three at once — and the switch
+   disappears from release builds, which is the point.
+
+   **Order matters.** Internal testing *needs* it false: billing cannot be
+   tested until a build is on a Play track, and that build is uploaded before
+   there is anything to buy. False on the internal track is correct. False in
+   production is a free app with a switch in it.
+
+2. **The release APK is signed with the local debug fallback.** Play needs an
+   upload key, and the keystore and its passwords need keeping somewhere they
+   will not be lost.
+
+3. **The package name changed to `com.dueback.audiobooks`** on 19 November
+   2026, and that is now permanent. `com.dueback.app` turned out to belong to
+   a published receipt-scanner also called DueBack, so Play would have refused
+   the upload. Anything still naming the old id is stale.
 ## Known, and deliberately not fixed
 
 Do not report these as findings. Report them as findings only with new

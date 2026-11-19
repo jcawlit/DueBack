@@ -228,7 +228,9 @@ describe('isDeviceStorage', () => {
       ),
     );
     assert.ok(isDeviceStorage('file:///storage/emulated/0/Audiobooks/'));
-    assert.ok(isDeviceStorage('file:///data/data/com.dueback.app/files/fixtures/Audiobooks/'));
+    assert.ok(
+      isDeviceStorage('file:///data/data/com.dueback.audiobooks/files/fixtures/Audiobooks/'),
+    );
   });
 
   it('treats removable volumes as a drive', () => {
