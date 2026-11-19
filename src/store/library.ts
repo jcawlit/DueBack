@@ -58,6 +58,30 @@ import { loadTokens } from '@/lib/abs/tokens';
 import { setRemoteParts } from '@/db/remoteBooks';
 import { getSource } from '@/db/sources';
 
+import { bytesToGB, gbToBytes } from '@/lib/library/budget';
+import { effectiveBudgetGB } from '@/lib/pro';
+import { usePro } from '@/store/pro';
+
+/**
+ * The budget actually in force on this phone, in bytes.
+ *
+ * A stored budget is not always an allowed one. The drive backup carries the
+ * setting between phones, so a 32 GB budget written on a phone with Pro will
+ * arrive on one without it — and without this, restoring a backup would hand
+ * out unlimited storage for nothing.
+ *
+ * It clamps rather than rewrites: the stored number stays 32, it is simply
+ * not in force, and buying Pro brings it straight back with nothing to
+ * re-enter. Every decision about whether a book fits goes through here.
+ *
+ * Lives here rather than beside the other budget arithmetic because
+ * `lib/library/budget.ts` imports nothing on purpose — that is what lets
+ * `node --test` load it — and this needs the entitlement store.
+ */
+function effectiveBudgetBytes(storedBytes: number): number {
+  return gbToBytes(effectiveBudgetGB(usePro.getState().entitlement, bytesToGB(storedBytes)));
+}
+
 const GB = 1024 * 1024 * 1024;
 
 /**
@@ -631,7 +655,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
           text: `${book.title} has no audio the server can offer.`,
         };
       }
-      const freeForRemote = get().budgetBytes - committedBytes(get().books);
+      const freeForRemote = effectiveBudgetBytes(get().budgetBytes) - committedBytes(get().books);
       if (book.sizeBytes > freeForRemote) {
         return {
           kind: 'wont-fit',
@@ -685,7 +709,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
       };
     }
 
-    const free = get().budgetBytes - committedBytes(get().books);
+    const free = effectiveBudgetBytes(get().budgetBytes) - committedBytes(get().books);
     if (book.sizeBytes > free) {
       return {
         kind: 'wont-fit',

@@ -36,7 +36,7 @@ import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { useNotes } from '@/store/notes';
 import { exportNotes } from '@/lib/notes/export';
 import { canUseCharacters, exportIsComplete } from '@/lib/pro';
-import { useGate } from '@/store/pro';
+import { useGate, usePro } from '@/store/pro';
 import { markLabel, markLabelCaps, markWordPlural } from '@/lib/library/marks';
 import { useBackup } from '@/store/backup';
 import type { Character, Note } from '@/data/notes';
@@ -205,6 +205,7 @@ export default function BookScreen() {
    */
   const canAddCharacters = useGate(canUseCharacters);
   const exportComplete = useGate(exportIsComplete);
+  const openProSheet = usePro((s) => s.openSheet);
   const [editing, setEditing] = useState<string | null>(null);
   const [openCharacter, setOpenCharacter] = useState<Character | null>(null);
   /** The details sheet, and what it needs to show a difference. */
@@ -1039,6 +1040,8 @@ export default function BookScreen() {
             onOpen={setOpenCharacter}
             // The gate that was right all along: making a new one is paid.
             onAdd={canAddCharacters ? () => setMakingCharacter(true) : undefined}
+            locked={!canAddCharacters}
+            onUnlock={() => openProSheet('characters')}
           />
         ) : null}
 

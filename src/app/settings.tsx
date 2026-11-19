@@ -18,6 +18,9 @@ import { bytes as formatBytes, relativeTime } from '@/lib/format';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 import { useTheme } from '@/store/theme';
 import { THEMES } from '@/theme/palettes';
+import { ProTag } from '@/components/ProTag';
+import { canUseTheme } from '@/lib/pro';
+import { usePro } from '@/store/pro';
 import { useMiniPlayerInset } from '@/components/MiniPlayer';
 import { ChevronLeft } from '@/components/icons';
 import { ScanProgressBar } from '@/components/FirstRun';
@@ -92,6 +95,9 @@ export default function SettingsScreen() {
    */
   useTheme((s) => s.version);
   const themeId = useTheme((s) => s.themeId);
+  const entitlement = usePro((s) => s.entitlement);
+  const pro = entitlement.pro;
+  const openProSheet = usePro((s) => s.openSheet);
   const setTheme = useTheme((s) => s.setTheme);
   const insets = useSafeAreaInsets();
   const miniPlayerInset = useMiniPlayerInset();
@@ -422,17 +428,51 @@ export default function SettingsScreen() {
 
         <View style={{ gap: space.sm }}>
           <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}>
+            DUE BACK PRO
+          </Text>
+          {/*
+            A way in that is not a locked control. Somebody who has already
+            decided to pay should not have to go and find something they
+            cannot do in order to pay for it — and somebody who has paid
+            deserves a line saying so rather than silence.
+          */}
+          <Row
+            label={pro ? 'Pro is on' : 'What Pro adds'}
+            detail={
+              pro
+                ? entitlement.source === 'granted'
+                  ? 'Unlocked without a purchase'
+                  : 'Thank you'
+                : 'Characters, sound, storage, statistics, themes'
+            }
+            onPress={pro ? undefined : () => openProSheet('settings')}
+            tone={pro ? 'normal' : 'accent'}
+          />
+        </View>
+
+        <View style={{ gap: space.sm }}>
+          <Text style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 1, color: color.faint }}>
             APPEARANCE
           </Text>
           {THEMES.map((theme) => {
             const active = theme.id === themeId;
+            /*
+             * A locked scheme keeps its swatches and its name. Seeing what
+             * you would get is the whole reason the row stays — and pressing
+             * it says what it costs rather than doing nothing.
+             */
+            const locked = !canUseTheme(entitlement, theme.id);
             return (
               <Pressable
                 key={theme.id}
-                onPress={() => setTheme(theme.id)}
+                onPress={() => (locked ? openProSheet(`theme:${theme.id}`) : setTheme(theme.id))}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
-                accessibilityLabel={`${theme.name}. ${theme.note}`}
+                accessibilityLabel={
+                  locked
+                    ? `${theme.name}. ${theme.note}. Part of Due Back Pro.`
+                    : `${theme.name}. ${theme.note}`
+                }
                 style={({ pressed }) => ({
                   minHeight: TOUCH + 10,
                   flexDirection: 'row',
@@ -478,7 +518,7 @@ export default function SettingsScreen() {
                     {theme.note}
                   </Text>
                 </View>
-                {active ? (
+                {locked ? <ProTag /> : active ? (
                   <Text style={{ fontFamily: font.mono, fontSize: 11, color: color.accent }}>
                     on
                   </Text>

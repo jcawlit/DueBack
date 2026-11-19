@@ -22,6 +22,9 @@ import type { BookOverride, TextOverrideField } from '@/lib/library/overrides';
 import { editsToOverride } from '@/lib/library/overrides';
 import { color, font, shadow, space, TOUCH } from '@/theme/tokens';
 import { CoverFace } from './CoverFace';
+import { ProTag } from './ProTag';
+import { canPickCover } from '@/lib/pro';
+import { useGate, usePro } from '@/store/pro';
 
 /** What the files say, which is what a correction is measured against. */
 export type ScannedDetails = {
@@ -73,6 +76,8 @@ export function BookDetailsSheet({
     (field) => patch[field] !== null,
   );
   const coverCorrected = override?.coverFile !== null && override?.coverFile !== undefined;
+  const canPick = useGate(canPickCover);
+  const openProSheet = usePro((st) => st.openSheet);
   const anything = corrected.length > 0 || coverCorrected;
 
   /*
@@ -213,12 +218,28 @@ export function BookDetailsSheet({
                       <CoverFace book={book} size="tray" />
                     </View>
                     <View style={{ flex: 1, gap: 8, paddingTop: 2 }}>
-                      <Text style={LABEL}>COVER</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                        <Text style={LABEL}>COVER</Text>
+                        {canPick ? null : <ProTag onPress={() => openProSheet('cover')} />}
+                      </View>
+                      {/*
+                        Correcting the *text* of a badly tagged book is repair
+                        and stays free; choosing a prettier picture is
+                        decoration. The row stays visible either way so the
+                        difference is legible rather than mysterious.
+                      */}
                       <Pressable
-                        onPress={onPickCover}
+                        onPress={canPick ? onPickCover : () => openProSheet('cover')}
                         accessibilityRole="button"
-                        accessibilityLabel="Choose a cover picture for this book"
-                        style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, minHeight: 32 })}
+                        accessibilityLabel={
+                          canPick
+                            ? 'Choose a cover picture for this book'
+                            : 'Choosing a cover picture is part of Due Back Pro'
+                        }
+                        style={({ pressed }) => ({
+                          opacity: pressed ? 0.6 : canPick ? 1 : 0.45,
+                          minHeight: 32,
+                        })}
                       >
                         <Text style={ACTION}>
                           {coverCorrected ? 'Choose a different picture' : 'Choose a picture'}

@@ -58,7 +58,43 @@ type ProState = {
    * look identical right up until somebody changed it.
    */
   couldNotAsk: (why: string) => void;
+
+  /*
+   * The upgrade sheet, opened from wherever somebody met a locked control.
+   *
+   * Mounted once at the root like the confirmation dialog, for the same
+   * reason: a navigation stack keeps the screens below the current one
+   * mounted, so a copy on each screen would put several identical sheets up
+   * at once.
+   */
+  sheetOpen: boolean;
+  /** What the listener was reaching for. For the log, and for deciding later
+   * which locked control actually sells the upgrade. */
+  sheetFrom: string | null;
+  openSheet: (from: string) => void;
+  closeSheet: () => void;
+
+  /** True while a purchase is in flight. */
+  buying: boolean;
+  /**
+   * Why Pro cannot be bought right now, or null when it can.
+   *
+   * Non-null until billing is wired, which is the honest state: there is no
+   * store to ask, and a button that looks ready and then fails is worse than
+   * one that says so.
+   */
+  unavailableReason: string | null;
+  buy: () => Promise<void>;
+  restore: () => Promise<void>;
 };
+
+/**
+ * Shown on the button. A string rather than a number because Google Play
+ * hands back a localised, currency-correct one, and this is what it replaces.
+ */
+export const PRO_PRICE_FALLBACK = '$6.99';
+
+const NO_STORE_YET = 'Not on the Play Store yet — this build has everything unlocked.';
 
 export const usePro = create<ProState>((set) => ({
   /*
@@ -113,6 +149,30 @@ export const usePro = create<ProState>((set) => ({
 
   couldNotAsk: (why) => {
     console.warn(`[pro] could not reach the store, keeping the cached entitlement: ${why}`);
+  },
+
+  sheetOpen: false,
+  sheetFrom: null,
+  openSheet: (from) => set({ sheetOpen: true, sheetFrom: from }),
+  closeSheet: () => set({ sheetOpen: false }),
+
+  buying: false,
+  unavailableReason: NO_STORE_YET,
+
+  /*
+   * Both of these are shaped for `expo-iap` and do nothing yet. They exist
+   * now so that every screen is already calling the right thing, and wiring
+   * the store is a change to two function bodies rather than to the app.
+   *
+   * A purchase must end in `set(...)`, which is the only way an entitlement
+   * is ever written — see the offline rule at the top of this file.
+   */
+  buy: async () => {
+    console.warn('[pro] buy() called before billing is wired');
+  },
+
+  restore: async () => {
+    console.warn('[pro] restore() called before billing is wired');
   },
 }));
 

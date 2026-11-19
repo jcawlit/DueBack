@@ -25,6 +25,7 @@ import { timestamp } from '@/lib/format';
 import { markLabelCaps } from '@/lib/library/marks';
 import { color, font, space, TOUCH } from '@/theme/tokens';
 import { Aside } from './Aside';
+import { ProLocked, ProTag } from './ProTag';
 import { ChevronRight } from './icons';
 
 type Row = {
@@ -58,6 +59,8 @@ export function CharactersTab({
   notes,
   onOpen,
   onAdd,
+  locked = false,
+  onUnlock,
 }: {
   book: Book;
   characters: Character[];
@@ -65,6 +68,13 @@ export function CharactersTab({
   onOpen: (character: Character) => void;
   /** Absent where tagging is not available, which is where Pro is not. */
   onAdd?: () => void;
+  /**
+   * Not paid for. The list still renders — characters already written stay
+   * visible and stay in exports, always — but nobody new can be added, and
+   * the tab says why rather than quietly losing its button.
+   */
+  locked?: boolean;
+  onUnlock?: () => void;
 }) {
   const groups = groupByChapter(book, characters, notes);
   const total = characters.length;
@@ -86,7 +96,11 @@ export function CharactersTab({
             ? 'Nobody yet'
             : `${total} ${total === 1 ? 'character' : 'characters'} · in order of first appearance`}
         </Text>
-        {onAdd ? (
+        {locked ? (
+          <View style={{ minHeight: TOUCH, justifyContent: 'center', paddingHorizontal: 8 }}>
+            <ProTag onPress={onUnlock} />
+          </View>
+        ) : onAdd ? (
           <Pressable
             onPress={onAdd}
             accessibilityRole="button"
@@ -106,7 +120,21 @@ export function CharactersTab({
         ) : null}
       </View>
 
-      {total === 0 ? (
+      {total === 0 && locked ? (
+        /*
+         * Empty *and* locked: there is nothing to look at, so the tab
+         * explains what it would hold. An empty tab with a dimmed button
+         * tells somebody nothing about why they would want one.
+         */
+        <ProLocked
+          title="Who is who"
+          body={
+            'Keep a note on each character and tag them with @ as you listen, ' +
+            'so a long book with a long cast stops being a memory test.'
+          }
+          onPress={() => onUnlock?.()}
+        />
+      ) : total === 0 ? (
         <View style={{ paddingHorizontal: space.xl }}>
           <Aside>Nobody yet. Type @ in a note to tag someone, or add them here.</Aside>
         </View>

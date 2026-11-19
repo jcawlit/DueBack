@@ -26,6 +26,9 @@ import {
   nextBudgetGB,
   previousBudgetGB,
 } from '@/lib/library/budget';
+import { budgetCeilingGB, FREE_BUDGET_CEILING_GB } from '@/lib/pro';
+import { useGate, usePro } from '@/store/pro';
+import { ProTag } from './ProTag';
 
 type Props = {
   visible: boolean;
@@ -93,6 +96,15 @@ export function BudgetSheet({
    */
   const [draft, setDraft] = useState<number | null>(null);
   const draftGB = draft ?? bytesToGB(budgetBytes);
+  /*
+   * The dial is free to look at and free to use up to the ceiling. Hiding it
+   * would hide the one number that explains why a book will not fit — seeing
+   * the gauge fill at 2 GB is a better advertisement than a control nobody
+   * can find.
+   */
+  const ceilingGB = useGate((e) => budgetCeilingGB(e, MAX_BUDGET_GB));
+  const capped = ceilingGB < MAX_BUDGET_GB;
+  const openProSheet = usePro((st) => st.openSheet);
 
   const cancel = () => {
     setDraft(null);
@@ -182,11 +194,44 @@ export function BudgetSheet({
             </View>
             <StepButton
               label="+"
-              hint="Bigger budget"
-              onPress={() => setDraft(nextBudgetGB(draftGB))}
+              hint={capped ? 'Bigger budget — part of Pro past the ceiling' : 'Bigger budget'}
+              onPress={() => {
+                const next = nextBudgetGB(draftGB);
+                if (next > ceilingGB) {
+                  openProSheet('budget');
+                  return;
+                }
+                setDraft(next);
+              }}
               disabled={draftGB >= MAX_BUDGET_GB}
             />
           </View>
+
+          {capped ? (
+            <Pressable
+              onPress={() => openProSheet('budget')}
+              accessibilityRole="button"
+              style={({ pressed }) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: space.sm,
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <ProTag />
+              <Text
+                style={{
+                  flex: 1,
+                  fontFamily: font.sans,
+                  fontSize: 13,
+                  lineHeight: 13 * 1.4,
+                  color: color.inkOnPaperBody,
+                }}
+              >
+                {`Free keeps ${FREE_BUDGET_CEILING_GB} GB of books on the phone at once. Pro takes the ceiling off.`}
+              </Text>
+            </Pressable>
+          ) : null}
 
           <View style={{ flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' }}>
             {BUDGET_PRESETS_GB.map((preset) => {
@@ -194,7 +239,9 @@ export function BudgetSheet({
               return (
                 <Pressable
                   key={preset}
-                  onPress={() => setDraft(preset)}
+                  onPress={() =>
+                    preset > ceilingGB ? openProSheet('budget') : setDraft(preset)
+                  }
                   accessibilityRole="button"
                   accessibilityState={{ selected: active }}
                   accessibilityLabel={`${preset} gigabytes`}

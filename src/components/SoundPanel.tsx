@@ -14,7 +14,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PRESETS, type PresetName, type SoundSettings } from '@/lib/audio/sound';
 import type { SoundCapabilities } from '../../modules/dueback-audio';
 import { canCustomiseSound } from '@/lib/pro';
-import { useGate } from '@/store/pro';
+import { useGate, usePro } from '@/store/pro';
+import { ProTag } from './ProTag';
 import { color, font, radius, shadow, space, TOUCH } from '@/theme/tokens';
 
 const TRACK_HEIGHT = 8;
@@ -52,6 +53,7 @@ export function SoundPanel({
 }: Props) {
   const insets = useSafeAreaInsets();
   const pro = useGate(canCustomiseSound);
+  const openProSheet = usePro((st) => st.openSheet);
 
   const loudness = possible && capabilities.loudness.available;
   const equalizer = possible && capabilities.equalizer.available;
@@ -98,6 +100,42 @@ export function SoundPanel({
 
           <ScrollView contentContainerStyle={{ padding: space.xl, gap: space.lg }}>
             {saveError ? <Text accessibilityRole="alert" style={{ color: color.accent }}>{saveError}</Text> : null}
+            {!pro && !nothing ? (
+              /*
+               * Above the controls rather than instead of them. Every preset
+               * and slider below stays on screen, dimmed, so somebody can see
+               * exactly what they would be getting — the dimmed row is the
+               * advertisement, and this line is the way in.
+               *
+               * Not shown when the device has no equalizer at all: there is
+               * nothing to sell somebody whose phone cannot do it.
+               */
+              <Pressable
+                onPress={() => openProSheet('sound')}
+                accessibilityRole="button"
+                style={({ pressed }) => ({
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: space.sm,
+                  opacity: pressed ? 0.7 : 1,
+                })}
+              >
+                <ProTag />
+                <Text
+                  style={{
+                    flex: 1,
+                    fontFamily: font.sans,
+                    fontSize: 13,
+                    lineHeight: 13 * 1.4,
+                    color: color.muted,
+                  }}
+                >
+                  Tuning the sound is part of Pro. Off is always free — the book
+                  plays exactly as it was recorded.
+                </Text>
+              </Pressable>
+            ) : null}
+
             {nothing ? (
               <Text style={{ fontFamily: font.sans, fontSize: 14, color: color.muted }}>
                 Not supported on this device. Due Back could not get hold of an equalizer or a

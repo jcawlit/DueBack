@@ -19,6 +19,7 @@ import { IBMPlexMono_500Medium } from '@expo-google-fonts/ibm-plex-mono/500Mediu
 import { InstrumentSans_400Regular } from '@expo-google-fonts/instrument-sans/400Regular';
 import { color } from '@/theme/tokens';
 import { GlobalConfirm } from '@/components/GlobalConfirm';
+import { GlobalProSheet } from '@/components/GlobalProSheet';
 import { GlobalReconnect } from '@/components/GlobalReconnect';
 import { GlobalSlip } from '@/components/GlobalSlip';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -263,6 +264,7 @@ export default function RootLayout() {
       <MiniPlayer />
       <GlobalSlip />
       <GlobalConfirm />
+      <GlobalProSheet />
       <GlobalReconnect />
       {/*
         Last, so it covers everything above it, and mounted from the first

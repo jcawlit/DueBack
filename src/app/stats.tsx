@@ -21,6 +21,9 @@ import { hoursMinutes } from '@/lib/format';
 import { color, font, radius, space, TOUCH } from '@/theme/tokens';
 import { ChevronLeft } from '@/components/icons';
 import { useMiniPlayerInset } from '@/components/MiniPlayer';
+import { ProLocked } from '@/components/ProTag';
+import { canSeeStats } from '@/lib/pro';
+import { useGate, usePro } from '@/store/pro';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -93,6 +96,8 @@ function Fortnight({ days }: { days: Stats['recentDays'] }) {
 export default function StatsScreen() {
   useTheme((s) => s.version);
   const insets = useSafeAreaInsets();
+  const canSee = useGate(canSeeStats);
+  const openProSheet = usePro((s) => s.openSheet);
   const miniPlayerInset = useMiniPlayerInset();
   const books = useLibrary((s) => s.books);
 
@@ -160,7 +165,24 @@ export default function StatsScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        {!stats ? (
+        {!canSee ? (
+          /*
+           * The whole screen is the feature, so there is nothing to dim —
+           * it would otherwise be blank, which sells nothing and explains
+           * less. The log is still being written the entire time somebody
+           * does not have Pro, so buying it later shows a full history
+           * rather than starting from zero.
+           */
+          <ProLocked
+            title="What you have listened to"
+            body={
+              'Hours, streaks, your busiest day, your longest sitting and what ' +
+              'you have played most. Due Back has been keeping the log all ' +
+              'along — this is the part that reads it back.'
+            }
+            onPress={() => openProSheet('stats')}
+          />
+        ) : !stats ? (
           <Text style={{ fontFamily: font.mono, fontSize: 12, color: color.muted }}>
             Reading the log…
           </Text>
